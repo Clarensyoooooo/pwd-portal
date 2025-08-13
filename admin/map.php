@@ -10,88 +10,216 @@ $admin = getCurrentAdmin($pdo);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    switch ($action) {
-        case 'import_geojson':
-            handleImportGeoJSON();
-            break;
-        case 'export_geojson':
-            handleExportGeoJSON();
-            break;
-        case 'update_location':
-            handleUpdateLocation();
-            break;
-        case 'update_pwd_counts':
-            handleUpdatePWDCounts();
-            break;
-        case 'generate_sample_data':
-            handleGenerateSampleData();
-            break;
-        case 'get_barangay_records':
-            handleGetBarangayRecords();
-            break;
-        default:
-            adminJsonResponse(['error' => 'Invalid action'], 400);
+    try {
+        switch ($action) {
+            case 'export_geojson':
+                handleExportGeoJSON();
+                break;
+            case 'update_location':
+                handleUpdateLocation();
+                break;
+            case 'quick_refresh':
+                handleQuickRefresh();
+                break;
+            case 'get_barangay_records':
+                handleGetBarangayRecords();
+                break;
+            case 'get_import_status':
+                handleGetImportStatus();
+                break;
+            case 'get_detailed_stats':
+                handleGetDetailedStats();
+                break;
+            default:
+                adminJsonResponse(['error' => 'Invalid action'], 400);
+        }
+    } catch (Exception $e) {
+        error_log("Map.php error: " . $e->getMessage());
+        adminJsonResponse(['error' => 'Server error: ' . $e->getMessage()], 500);
     }
 }
 
-function handleUpdatePWDCounts() {
+function handleQuickRefresh() {
     global $pdo;
-    requirePermission($pdo, 'gis.import');
     
     try {
-        $success = updateAllBarangayPWDCounts($pdo);
+        requirePermission($pdo, 'gis.import');
         
-        if ($success) {
-            // Also assign barangays to PWD records
-            $assigned = assignBarangayToPWDRecords($pdo);
-            
-            logAdminActivity($pdo, 'update', 'gis', 'pwd_counts', null, [
-                'assigned_records' => $assigned
-            ]);
-            
-            adminJsonResponse([
-                'success' => true,
-                'message' => "PWD counts updated successfully! {$assigned} records assigned to barangays.",
-                'stats' => getSpatialStatistics($pdo)
-            ]);
-        } else {
-            adminJsonResponse(['error' => 'Failed to update PWD counts'], 500);
-        }
+        // Use the same logic as debug spatial - manual count and assign
+        $results = manualCountAndAssign($pdo);
+        
+        // Also update barangay PWD counts
+        $stmt = $pdo->prepare("
+            UPDATE barangay_boundaries 
+            SET pwd_count = (
+                SELECT COUNT(*) 
+                FROM pwd_records 
+                WHERE barangay_id = barangay_boundaries.id
+            )
+        ");
+        $stmt->execute();
+        
+        logAdminActivity($pdo, 'update', 'gis', 'quick_refresh', null, $results);
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => "Map refreshed successfully! {$results['assigned']} PWD records assigned to barangays.",
+            'results' => $results
+        ]);
         
     } catch (Exception $e) {
-        adminJsonResponse(['error' => 'Update failed: ' . $e->getMessage()], 500);
+        error_log("Quick refresh error: " . $e->getMessage());
+        adminJsonResponse(['error' => 'Quick refresh failed: ' . $e->getMessage()], 500);
     }
 }
 
-function handleGenerateSampleData() {
+function handleGetImportStatus() {
     global $pdo;
-    requirePermission($pdo, 'records.create');
-    
-    $count = intval($_POST['count'] ?? 25);
-    $count = min(max($count, 1), 100); // Limit between 1 and 100
     
     try {
-        $generated = generateSamplePWDRecords($pdo, $count);
+        $stmt = $pdo->query("
+            SELECT filename, completed_at, records_imported, records_failed
+            FROM gis_import_logs 
+            WHERE import_status = 'completed'
+            ORDER BY completed_at DESC 
+            LIMIT 1
+        ");
+        $lastImport = $stmt->fetch();
         
-        if ($generated > 0) {
-            // Update PWD counts after generating sample data
-            updateAllBarangayPWDCounts($pdo);
-            
-            logAdminActivity($pdo, 'create', 'records', 'sample_data', null, [
-                'generated_count' => $generated
-            ]);
-            
-            adminJsonResponse([
-                'success' => true,
-                'message' => "Generated {$generated} sample PWD records with coordinates!",
-                'generated' => $generated
-            ]);
-        } else {
-            adminJsonResponse(['error' => 'Failed to generate sample data'], 500);
-        }
+        adminJsonResponse([
+            'success' => true,
+            'last_import' => $lastImport
+        ]);
         
     } catch (Exception $e) {
-        adminJsonResponse(['error' => 'Generation failed: ' . $e->getMessage()], 500);
+        error_log("Import status error: " . $e->getMessage());
+        adminJsonResponse(['error' => 'Failed to get import status'], 500);
+    }
+}
+
+function handleGetDetailedStats() {
+    global $pdo;
+    
+    try {
+        // Disability type distribution
+        $disabilityStats = $pdo->query("
+            SELECT disability_type, COUNT(*) as count
+            FROM pwd_records 
+            WHERE disability_type IS NOT NULL AND disability_type != ''
+            GROUP BY disability_type
+            ORDER BY count DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Status distribution
+        $statusStats = $pdo->query("
+            SELECT status, COUNT(*) as count
+            FROM pwd_records 
+            GROUP BY status
+            ORDER BY count DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Top 10 barangays by PWD count
+        $barangayStats = $pdo->query("
+            SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
+            FROM barangay_boundaries b
+            LEFT JOIN pwd_records p ON b.id = p.barangay_id
+            GROUP BY b.id, b.barangay_name, b.city_municipality
+            HAVING count > 0
+            ORDER BY count DESC
+            LIMIT 10
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Monthly registration trends (last 12 months)
+        $monthlyStats = $pdo->query("
+            SELECT 
+                DATE_FORMAT(created_at, '%Y-%m') as month,
+                COUNT(*) as count
+            FROM pwd_records 
+            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+            ORDER BY month ASC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Age distribution
+        $ageStats = $pdo->query("
+            SELECT 
+                CASE 
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 'Under 18'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 18 AND 30 THEN '18-30'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 31 AND 50 THEN '31-50'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 51 AND 65 THEN '51-65'
+                    ELSE 'Over 65'
+                END as age_group,
+                COUNT(*) as count
+            FROM pwd_records 
+            WHERE date_of_birth IS NOT NULL
+            GROUP BY age_group
+            ORDER BY 
+                CASE age_group
+                    WHEN 'Under 18' THEN 1
+                    WHEN '18-30' THEN 2
+                    WHEN '31-50' THEN 3
+                    WHEN '51-65' THEN 4
+                    WHEN 'Over 65' THEN 5
+                END
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Gender distribution
+        $genderStats = $pdo->query("
+            SELECT gender, COUNT(*) as count
+            FROM pwd_records 
+            WHERE gender IS NOT NULL AND gender != ''
+            GROUP BY gender
+            ORDER BY count DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Location coverage
+        $locationStats = $pdo->query("
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) as with_location,
+                SUM(CASE WHEN barangay_id IS NOT NULL THEN 1 ELSE 0 END) as assigned_to_barangay,
+                COUNT(DISTINCT city_municipality) as cities_covered,
+                COUNT(DISTINCT province) as provinces_covered
+            FROM pwd_records
+        ")->fetch(PDO::FETCH_ASSOC);
+        
+        // Barangay coverage
+        $barangayCoverage = $pdo->query("
+            SELECT 
+                COUNT(*) as total_barangays,
+                SUM(CASE WHEN pwd_count > 0 THEN 1 ELSE 0 END) as barangays_with_pwd,
+                AVG(pwd_count) as avg_pwd_per_barangay,
+                MAX(pwd_count) as max_pwd_in_barangay
+            FROM barangay_boundaries
+        ")->fetch(PDO::FETCH_ASSOC);
+        
+        adminJsonResponse([
+            'success' => true,
+            'disability_stats' => $disabilityStats ?: [],
+            'status_stats' => $statusStats ?: [],
+            'barangay_stats' => $barangayStats ?: [],
+            'monthly_stats' => $monthlyStats ?: [],
+            'age_stats' => $ageStats ?: [],
+            'gender_stats' => $genderStats ?: [],
+            'location_stats' => $locationStats ?: [
+                'total_records' => 0,
+                'with_location' => 0,
+                'assigned_to_barangay' => 0,
+                'cities_covered' => 0,
+                'provinces_covered' => 0
+            ],
+            'barangay_coverage' => $barangayCoverage ?: [
+                'total_barangays' => 0,
+                'barangays_with_pwd' => 0,
+                'avg_pwd_per_barangay' => 0,
+                'max_pwd_in_barangay' => 0
+            ]
+        ]);
+        
+    } catch (Exception $e) {
+        error_log("Detailed stats error: " . $e->getMessage());
+        adminJsonResponse(['error' => 'Failed to get detailed stats: ' . $e->getMessage()], 500);
     }
 }
 
@@ -106,7 +234,14 @@ function handleGetBarangayRecords() {
     }
     
     try {
-        $records = getPWDRecordsInBarangay($pdo, $barangay_id);
+        $stmt = $pdo->prepare("
+            SELECT id, pwd_id_number, first_name, last_name, disability_type, status
+            FROM pwd_records 
+            WHERE barangay_id = ?
+            ORDER BY created_at DESC
+        ");
+        $stmt->execute([$barangay_id]);
+        $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         adminJsonResponse([
             'success' => true,
@@ -115,6 +250,7 @@ function handleGetBarangayRecords() {
         ]);
         
     } catch (Exception $e) {
+        error_log("Barangay records error: " . $e->getMessage());
         adminJsonResponse(['error' => 'Failed to get barangay records: ' . $e->getMessage()], 500);
     }
 }
@@ -152,278 +288,6 @@ $city_stats = $pdo->query("
     ORDER BY count DESC
     LIMIT 20
 ")->fetchAll();
-
-function handleImportGeoJSON() {
-    global $pdo;
-    requirePermission($pdo, 'gis.import');
-    
-    if (!isset($_FILES['geojson_file'])) {
-        adminJsonResponse(['error' => 'No file uploaded'], 400);
-    }
-    
-    $file = $_FILES['geojson_file'];
-    $import_type = $_POST['import_type'] ?? 'auto';
-    
-    if ($file['error'] !== UPLOAD_ERR_OK) {
-        adminJsonResponse(['error' => 'File upload failed'], 400);
-    }
-    
-    $allowed_types = ['application/json', 'application/geo+json', 'text/plain'];
-    if (!in_array($file['type'], $allowed_types)) {
-        adminJsonResponse(['error' => 'Invalid file type. Please upload a GeoJSON file.'], 400);
-    }
-    
-    try {
-        $geojson_content = file_get_contents($file['tmp_name']);
-        $geojson_data = json_decode($geojson_content, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            adminJsonResponse(['error' => 'Invalid JSON format'], 400);
-        }
-        
-        if (!isset($geojson_data['type']) || $geojson_data['type'] !== 'FeatureCollection') {
-            adminJsonResponse(['error' => 'Invalid GeoJSON format. Expected FeatureCollection.'], 400);
-        }
-        
-        $geometry_types = [];
-        foreach ($geojson_data['features'] as $feature) {
-            $geom_type = $feature['geometry']['type'] ?? 'Unknown';
-            $geometry_types[$geom_type] = ($geometry_types[$geom_type] ?? 0) + 1;
-        }
-        
-        $stmt = $pdo->prepare("
-            INSERT INTO gis_import_logs (filename, file_size, import_status, imported_by)
-            VALUES (?, ?, 'processing', ?)
-        ");
-        $stmt->execute([$file['name'], $file['size'], $_SESSION['admin_user_id']]);
-        $import_id = $pdo->lastInsertId();
-        
-        $imported_count = 0;
-        $failed_count = 0;
-        $errors = [];
-        $import_summary = [];
-        
-        foreach ($geojson_data['features'] as $feature) {
-            try {
-                $geometry_type = $feature['geometry']['type'];
-                $properties = $feature['properties'] ?? [];
-                
-                if ($geometry_type === 'Point') {
-                    $result = importPointFeature($pdo, $feature, $properties);
-                    if ($result['success']) {
-                        $imported_count++;
-                        $import_summary['points'] = ($import_summary['points'] ?? 0) + 1;
-                    } else {
-                        $failed_count++;
-                        $errors[] = $result['error'];
-                    }
-                } elseif (in_array($geometry_type, ['Polygon', 'MultiPolygon'])) {
-                    $result = importPolygonFeature($pdo, $feature, $properties);
-                    if ($result['success']) {
-                        $imported_count++;
-                        $import_summary['polygons'] = ($import_summary['polygons'] ?? 0) + 1;
-                    } else {
-                        $failed_count++;
-                        $errors[] = $result['error'];
-                    }
-                } else {
-                    $failed_count++;
-                    $errors[] = "Unsupported geometry type: {$geometry_type}";
-                }
-            } catch (Exception $e) {
-                $failed_count++;
-                $errors[] = $e->getMessage();
-            }
-        }
-        
-        updateBarangayPWDCounts($pdo);
-        
-        $stmt = $pdo->prepare("
-            UPDATE gis_import_logs 
-            SET records_imported = ?, records_failed = ?, import_status = 'completed', 
-                error_log = ?, completed_at = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([
-            $imported_count, 
-            $failed_count, 
-            $errors ? json_encode($errors) : null, 
-            $import_id
-        ]);
-        
-        logAdminActivity($pdo, 'import', 'gis', 'geojson', $import_id, [
-            'filename' => $file['name'],
-            'geometry_types' => $geometry_types,
-            'imported' => $imported_count,
-            'failed' => $failed_count,
-            'summary' => $import_summary
-        ]);
-        
-        // Update PWD counts after import
-        updateAllBarangayPWDCounts($pdo);
-        
-        adminJsonResponse([
-            'success' => true,
-            'message' => "Import completed! {$imported_count} features imported, {$failed_count} failed.",
-            'imported' => $imported_count,
-            'failed' => $failed_count,
-            'geometry_types' => $geometry_types,
-            'summary' => $import_summary,
-            'errors' => array_slice($errors, 0, 10)
-        ]);
-        
-    } catch (Exception $e) {
-        adminJsonResponse(['error' => 'Import failed: ' . $e->getMessage()], 500);
-    }
-}
-
-function importPointFeature($pdo, $feature, $properties) {
-    try {
-        $coordinates = $feature['geometry']['coordinates'];
-        $longitude = $coordinates[0];
-        $latitude = $coordinates[1];
-        
-        if (isset($properties['pwd_id']) || isset($properties['name'])) {
-            $update_conditions = [];
-            $update_params = [$latitude, $longitude];
-            
-            if (isset($properties['pwd_id'])) {
-                $update_conditions[] = "pwd_id_number = ?";
-                $update_params[] = $properties['pwd_id'];
-            } elseif (isset($properties['name'])) {
-                $name_parts = explode(' ', $properties['name'], 2);
-                $update_conditions[] = "first_name = ? AND last_name = ?";
-                $update_params[] = $name_parts[0];
-                $update_params[] = $name_parts[1] ?? '';
-            }
-            
-            $update_sql = "UPDATE pwd_records SET latitude = ?, longitude = ?, geojson_data = ? WHERE " . implode(' AND ', $update_conditions);
-            $update_params[2] = json_encode($feature);
-            
-            $stmt = $pdo->prepare($update_sql);
-            $stmt->execute($update_params);
-            
-            if ($stmt->rowCount() > 0) {
-                return ['success' => true];
-            } else {
-                return ['success' => false, 'error' => "No matching PWD record found for: " . json_encode($properties)];
-            }
-        } else {
-            return ['success' => false, 'error' => "Point feature missing required properties (pwd_id or name)"];
-        }
-    } catch (Exception $e) {
-        return ['success' => false, 'error' => "Point import error: " . $e->getMessage()];
-    }
-}
-
-function importPolygonFeature($pdo, $feature, $properties) {
-    try {
-        $barangay_name = $properties['BRGY'] ?? $properties['barangay'] ?? $properties['BARANGAY'] ?? $properties['name'] ?? $properties['NAME'] ?? '';
-        $city_municipality = $properties['city'] ?? $properties['CITY'] ?? $properties['municipality'] ?? $properties['MUNICIPALITY'] ?? $properties['MUNICIPA'] ?? 'Santo Tomas City';
-        $province = $properties['province'] ?? $properties['PROVINCE'] ?? $properties['PROV'] ?? 'Batangas';
-        $region = $properties['region'] ?? $properties['REGION'] ?? 'Region IV-A (CALABARZON)';
-        $barangay_code = $properties['code'] ?? $properties['CODE'] ?? $properties['barangay_code'] ?? $properties['OBJECTID_1'] ?? '';
-        
-        $area_ha = $properties['AREA_HA'] ?? $properties['area'] ?? $properties['AREA'] ?? null;
-        $area_sqkm = $area_ha ? ($area_ha / 100) : null;
-        
-        $population = $properties['pop2007'] ?? $properties['population'] ?? $properties['POPULATION'] ?? $properties['POP'] ?? null;
-        
-        if (empty($barangay_name)) {
-            return ['success' => false, 'error' => "Polygon feature missing barangay name (BRGY field)"];
-        }
-        
-        $geometry_wkt = convertGeoJSONToWKT($feature['geometry']);
-        
-        $stmt = $pdo->prepare("
-            SELECT id FROM barangay_boundaries 
-            WHERE barangay_name = ? AND city_municipality = ?
-        ");
-        $stmt->execute([$barangay_name, $city_municipality]);
-        $existing = $stmt->fetch();
-        
-        if ($existing) {
-            $stmt = $pdo->prepare("
-                UPDATE barangay_boundaries 
-                SET geometry = ST_GeomFromText(?), geojson_data = ?, area_sqkm = ?, population = ?, updated_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $geometry_wkt,
-                json_encode($feature),
-                $area_sqkm,
-                $population,
-                $existing['id']
-            ]);
-        } else {
-            $stmt = $pdo->prepare("
-                INSERT INTO barangay_boundaries 
-                (barangay_code, barangay_name, city_municipality, province, region, area_sqkm, population, geometry, geojson_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?), ?)
-            ");
-            $stmt->execute([
-                $barangay_code ?: generateBarangayCode($barangay_name, $city_municipality),
-                $barangay_name,
-                $city_municipality,
-                $province,
-                $region,
-                $area_sqkm,
-                $population,
-                $geometry_wkt,
-                json_encode($feature)
-            ]);
-        }
-        
-        return ['success' => true];
-        
-    } catch (Exception $e) {
-        return ['success' => false, 'error' => "Polygon import error: " . $e->getMessage()];
-    }
-}
-
-function convertGeoJSONToWKT($geometry) {
-    $type = $geometry['type'];
-    $coordinates = $geometry['coordinates'];
-    
-    switch ($type) {
-        case 'Polygon':
-            $rings = [];
-            foreach ($coordinates as $ring) {
-                $points = [];
-                foreach ($ring as $point) {
-                    $points[] = $point[0] . ' ' . $point[1];
-                }
-                $rings[] = '(' . implode(', ', $points) . ')';
-            }
-            return 'POLYGON(' . implode(', ', $rings) . ')';
-            
-        case 'MultiPolygon':
-            $polygons = [];
-            foreach ($coordinates as $polygon) {
-                $rings = [];
-                foreach ($polygon as $ring) {
-                    $points = [];
-                    foreach ($ring as $point) {
-                        $points[] = $point[0] . ' ' . $point[1];
-                    }
-                    $rings[] = '(' . implode(', ', $points) . ')';
-                }
-                $polygons[] = '(' . implode(', ', $rings) . ')';
-            }
-            return 'MULTIPOLYGON(' . implode(', ', $polygons) . ')';
-            
-        default:
-            throw new Exception("Unsupported geometry type for WKT conversion: {$type}");
-    }
-}
-
-function generateBarangayCode($barangay_name, $city_municipality) {
-    return strtoupper(substr($city_municipality, 0, 3) . '-' . substr($barangay_name, 0, 3) . '-' . rand(100, 999));
-}
-
-function updateBarangayPWDCounts($pdo) {
-    return updateAllBarangayPWDCounts($pdo);
-}
 
 function handleExportGeoJSON() {
     global $pdo;
@@ -557,17 +421,14 @@ function getBarangayBoundaries() {
         foreach ($results as $row) {
             $boundary = $row;
             
-            // Parse the stored GeoJSON data
             if (!empty($row['geojson_data'])) {
                 $geojson = json_decode($row['geojson_data'], true);
                 if ($geojson && isset($geojson['geometry'])) {
                     $boundary['geometry'] = $geojson['geometry'];
                 } else {
-                    // Skip this boundary if geometry is invalid
                     continue;
                 }
             } else {
-                // Skip this boundary if no geometry data
                 continue;
             }
             
@@ -625,7 +486,6 @@ if (!empty($barangay_boundaries)) {
         $map_center['lat'] = (min($lats) + max($lats)) / 2;
         $map_center['lng'] = (min($lngs) + max($lngs)) / 2;
         
-        // Calculate appropriate zoom level based on bounds
         $lat_diff = max($lats) - min($lats);
         $lng_diff = max($lngs) - min($lngs);
         $max_diff = max($lat_diff, $lng_diff);
@@ -636,6 +496,15 @@ if (!empty($barangay_boundaries)) {
         else $map_zoom = 14;
     }
 }
+
+// Get last import info
+$last_import = $pdo->query("
+    SELECT filename, completed_at, records_imported, records_failed
+    FROM gis_import_logs 
+    WHERE import_status = 'completed'
+    ORDER BY completed_at DESC 
+    LIMIT 1
+")->fetch();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -652,85 +521,223 @@ if (!empty($barangay_boundaries)) {
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        .gis-layout {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
-            height: calc(100vh - 200px);
-        }
-        
-        .map-container {
+        .gis-container {
+            position: relative;
+            height: calc(100vh - 140px);
             background: white;
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
         }
         
         .map-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid #e2e8f0;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.5);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap;
+        }
+        
+        .map-title {
+            display: flex;
+            align-items: center;
             gap: 12px;
         }
         
-        .map-header h3 {
+        .map-title h3 {
             color: #2c5aa0;
             margin: 0;
+            font-size: 1.1rem;
+        }
+        
+        .import-status {
+            font-size: 0.8rem;
+            color: #64748b;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         
-        .map-controls {
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+        }
+        
+        .map-actions {
             display: flex;
-            gap: 20px;
+            gap: 8px;
             align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .layer-controls, .boundary-controls {
-            display: flex;
-            gap: 16px;
-        }
-        
-        .map-filters {
-            display: flex;
-            gap: 8px;
-        }
-        
-        .map-filters select {
-            padding: 6px 10px;
-            border: 1px solid #d1d5db;
-            border-radius: 4px;
-            font-size: 0.9rem;
         }
         
         .gis-map {
-            flex: 1;
-            min-height: 400px;
+            width: 100%;
+            height: 100%;
+            padding-top: 60px;
         }
         
-        .map-legend {
-            padding: 12px 20px;
-            border-top: 1px solid #e2e8f0;
-            background: #f8fafc;
+        /* Floating Stats Cards */
+        .floating-stats {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: all 0.3s ease;
         }
         
-        .map-legend h4 {
-            margin: 0 0 8px 0;
+        .floating-stats.minimized {
+            transform: scale(0.8);
+            opacity: 0.8;
+        }
+        
+        .stat-card-mini {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+            min-width: 160px;
+        }
+        
+        .stat-card-mini .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2c5aa0;
+            margin: 0;
+        }
+        
+        .stat-card-mini .stat-label {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin: 0;
+        }
+        
+        /* Collapsible Sidebar */
+        .map-sidebar {
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            z-index: 1000;
+            width: 320px;
+            max-height: calc(100vh - 200px);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .map-sidebar.show {
+            transform: translateX(0);
+        }
+        
+        .sidebar-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sidebar-content {
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .filter-section {
+            margin-bottom: 20px;
+        }
+        
+        .filter-section h4 {
+            margin: 0 0 12px 0;
             font-size: 0.9rem;
             color: #374151;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .filter-group {
+            margin-bottom: 12px;
+        }
+        
+        .filter-group label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+        
+        .filter-group select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: white;
+        }
+        
+        .layer-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: #374151;
+            cursor: pointer;
+        }
+        
+        .checkbox-label input[type="checkbox"] {
+            margin: 0;
+        }
+        
+        /* Map Legend */
+        .map-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+        }
+        
+        .legend-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #374151;
+            margin: 0 0 8px 0;
         }
         
         .legend-items {
             display: flex;
-            gap: 16px;
             flex-wrap: wrap;
+            gap: 12px;
         }
         
         .legend-item {
@@ -745,6 +752,8 @@ if (!empty($barangay_boundaries)) {
             width: 12px;
             height: 12px;
             border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         
         .legend-marker.draft { background: #f59e0b; }
@@ -752,162 +761,38 @@ if (!empty($barangay_boundaries)) {
         .legend-marker.issued { background: #2c5aa0; }
         .legend-marker.boundary { background: #6366f1; border-radius: 2px; }
         
-        .analytics-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            overflow-y: auto;
-        }
-        
-        .analytics-card {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        
-        .city-list {
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        
-        .city-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px;
-            border-bottom: 1px solid #f1f5f9;
+        /* Fullscreen Toggle */
+        .fullscreen-toggle {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            z-index: 1001;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+            border-radius: 6px;
+            padding: 8px;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.3s ease;
         }
         
-        .city-item:hover {
-            background: #f8fafc;
-        }
-        
-        .city-info strong {
-            display: block;
-            color: #1e293b;
-            font-size: 0.9rem;
-        }
-        
-        .city-info small {
-            color: #64748b;
-            font-size: 0.8rem;
-        }
-        
-        .count-badge {
-            background: #2c5aa0;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.8rem;
-            font-weight: 500;
-        }
-        
-        .map-info {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }
-        
-        .info-item:last-child {
-            border-bottom: none;
-        }
-        
-        .info-label {
-            font-weight: 500;
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-        
-        .info-value {
-            color: #1e293b;
-            font-size: 0.9rem;
-        }
-        
-        .map-tools {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        
-        .custom-marker .marker-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
-            border: 2px solid white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .marker-popup, .barangay-popup {
-            min-width: 200px;
-        }
-        
-        .marker-popup h4, .barangay-popup h4 {
-            margin: 0 0 8px 0;
+        .fullscreen-toggle:hover {
+            background: rgba(44, 90, 160, 0.1);
             color: #2c5aa0;
         }
         
-        .marker-popup p, .barangay-popup p {
-            margin: 4px 0;
-            font-size: 0.9rem;
-            color: #374151;
-        }
-        
-        .popup-actions {
-            margin-top: 12px;
-            display: flex;
-            gap: 6px;
-        }
-        
-        .barangay-stats {
-            margin: 12px 0;
-            padding: 8px;
-            background: #f8fafc;
-            border-radius: 4px;
-        }
-        
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin: 4px 0;
-            font-size: 0.9rem;
-        }
-        
-        .stat-label {
-            color: #64748b;
-            font-weight: 500;
-        }
-        
-        .stat-value {
-            color: #1e293b;
-            font-weight: 600;
-        }
-        
+        /* Choropleth Legend */
         .choropleth-legend {
             position: absolute;
             bottom: 20px;
             right: 20px;
-            background: white;
-            padding: 12px;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226, 232, 240, 0.5);
             display: none;
         }
         
@@ -915,17 +800,12 @@ if (!empty($barangay_boundaries)) {
             display: block;
         }
         
-        .choropleth-legend h4 {
-            margin: 0 0 8px 0;
-            font-size: 0.9rem;
-            color: #374151;
-        }
-        
         .legend-scale {
             display: flex;
             align-items: center;
             gap: 4px;
             font-size: 0.8rem;
+            margin-top: 8px;
         }
         
         .legend-color {
@@ -934,49 +814,312 @@ if (!empty($barangay_boundaries)) {
             border: 1px solid #ccc;
         }
         
+        /* Enhanced Chart Modal */
+        .chart-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .chart-modal.show {
+            display: flex;
+        }
+        
+        .chart-content {
+            background: white;
+            border-radius: 12px;
+            width: 95%;
+            max-width: 1200px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 24px 24px 0 24px;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 0;
+        }
+        
+        .chart-header h3 {
+            margin: 0;
+            color: #2c5aa0;
+        }
+        
+        .chart-tabs {
+            display: flex;
+            gap: 4px;
+            margin: 0 24px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .chart-tab {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #64748b;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .chart-tab.active {
+            color: #2c5aa0;
+            border-bottom-color: #2c5aa0;
+            font-weight: 600;
+        }
+        
+        .chart-tab:hover {
+            color: #2c5aa0;
+            background: rgba(44, 90, 160, 0.05);
+        }
+        
+        .chart-body {
+            padding: 24px;
+            flex: 1;
+        }
+        
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .chart-card {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .chart-card h4 {
+            margin: 0 0 16px 0;
+            color: #374151;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .chart-canvas {
+            height: 300px;
+            position: relative;
+        }
+        
+        .chart-canvas.large {
+            height: 400px;
+        }
+        
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .summary-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .summary-card .label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        /* Loading States */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        
+        .loading-overlay.show {
+            display: flex;
+        }
+        
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #2c5aa0;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #64748b;
+            font-weight: 500;
+        }
+        
+        /* Responsive Design */
         @media (max-width: 1024px) {
-            .gis-layout {
+            .map-sidebar {
+                width: 280px;
+            }
+            
+            .floating-stats {
+                position: relative;
+                top: 0;
+                left: 0;
+                flex-direction: row;
+                flex-wrap: wrap;
+                margin: 10px;
+            }
+            
+            .gis-map {
+                padding-top: 120px;
+            }
+            
+            .chart-grid {
                 grid-template-columns: 1fr;
-                height: auto;
-            }
-            
-            .map-container {
-                height: 500px;
-            }
-            
-            .map-header {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .map-controls {
-                justify-content: space-between;
             }
         }
         
         @media (max-width: 768px) {
-            .map-controls {
-                flex-direction: column;
-                gap: 12px;
-            }
-            
-            .layer-controls, .boundary-controls {
+            .map-header {
                 flex-direction: column;
                 gap: 8px;
+                padding: 12px 16px;
             }
             
-            .map-filters {
-                flex-direction: column;
+            .map-actions {
+                width: 100%;
+                justify-content: space-between;
             }
             
-            .legend-items {
-                flex-direction: column;
-                gap: 8px;
+            .map-sidebar {
+                width: 100%;
+                right: 0;
+                top: 0;
+                max-height: 100vh;
+                border-radius: 0;
             }
             
-            .map-tools {
-                grid-template-columns: 1fr;
+            .floating-stats {
+                position: static;
+                margin: 10px;
             }
+            
+            .stat-card-mini {
+                min-width: auto;
+                flex: 1;
+            }
+            
+            .map-legend {
+                position: relative;
+                bottom: auto;
+                left: auto;
+                margin: 10px;
+            }
+            
+            .gis-map {
+                padding-top: 140px;
+            }
+            
+            .chart-content {
+                width: 100%;
+                height: 100vh;
+                border-radius: 0;
+            }
+            
+            .stats-summary {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        
+        /* Tooltip Styles */
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            z-index: 10000;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        
+        /* Success/Error Messages */
+        .toast {
+            position: fixed;
+            top: 90px;
+            right: 20px;
+            z-index: 10000;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            max-width: 400px;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast.success {
+            background: #10b981;
+        }
+        
+        .toast.error {
+            background: #ef4444;
+        }
+        
+        .toast.info {
+            background: #2c5aa0;
+        }
+        
+        .toast.warning {
+            background: #f59e0b;
         }
     </style>
 </head>
@@ -988,106 +1131,81 @@ if (!empty($barangay_boundaries)) {
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-map-marked-alt"></i> GIS Mapping System</h1>
-                <p>Geographic Information System for PWD records - Santo Tomas, Batangas</p>
+                <p>Interactive map for PWD records in Santo Tomas, Batangas</p>
             </div>
-            <div class="page-actions">
-                <?php if (hasPermission($pdo, 'gis.import')): ?>
-                    <a href="gis_diagnostic.php" class="btn btn-success">
-                        <i class="fas fa-tools"></i> GIS Tools
+        </div>
+        
+        <!-- GIS Container -->
+        <div class="gis-container">
+            <!-- Map Header -->
+            <div class="map-header">
+                <div class="map-title">
+                    <h3><i class="fas fa-globe"></i> Santo Tomas, Batangas</h3>
+                    <div class="import-status">
+                        <div class="status-indicator"></div>
+                        <span id="lastUpdateText">
+                            <?php if ($last_import): ?>
+                                Last updated: <?php echo date('M j, Y \a\t g:i A', strtotime($last_import['completed_at'])); ?>
+                            <?php else: ?>
+                                No imports yet
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                </div>
+                <div class="map-actions">
+                    <a href="gis_diagnostic.php" class="btn btn-success btn-sm" data-tooltip="Import GeoJSON, refresh data, and manage map">
+                        <i class="fas fa-cogs"></i> Manage Map Data
                     </a>
-                    <button class="btn btn-success" onclick="showImportModal()">
-                        <i class="fas fa-upload"></i> Import GeoJSON
+                    <button class="btn btn-outline btn-sm" onclick="quickRefresh()" data-tooltip="Quickly refresh PWD counts and assignments">
+                        <i class="fas fa-sync-alt"></i> Quick Refresh
                     </button>
-                <?php endif; ?>
-                <?php if (hasPermission($pdo, 'gis.export')): ?>
-                    <button class="btn btn-outline" onclick="showExportModal()">
-                        <i class="fas fa-download"></i> Export GeoJSON
+                    <button class="btn btn-outline btn-sm" onclick="toggleSidebar()" data-tooltip="Show/hide filters and controls">
+                        <i class="fas fa-sliders-h"></i> Filters
                     </button>
-                <?php endif; ?>
-            </div>
-        </div>
-        
-        <!-- Statistics Cards -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon records">
-                    <i class="fas fa-map-marker-alt"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?php echo number_format($stats['with_location']); ?></h3>
-                    <p>Records with Location</p>
-                    <span class="stat-change">
-                        <?php 
-                        $percentage = $stats['total_records'] > 0 ? round(($stats['with_location'] / $stats['total_records']) * 100, 1) : 0;
-                        echo $percentage . '% of total records';
-                        ?>
-                    </span>
+                    <button class="btn btn-outline btn-sm" onclick="showStatsModal()" data-tooltip="View detailed statistics and analytics">
+                        <i class="fas fa-chart-pie"></i> Analytics
+                    </button>
                 </div>
             </div>
             
-            <div class="stat-card">
-                <div class="stat-icon validated">
-                    <i class="fas fa-city"></i>
+            <!-- Floating Stats Cards -->
+            <div class="floating-stats" id="floatingStats">
+                <div class="stat-card-mini">
+                    <div class="stat-value"><?php echo number_format($stats['with_location']); ?></div>
+                    <div class="stat-label">PWD Records</div>
                 </div>
-                <div class="stat-content">
-                    <h3><?php echo number_format($stats['cities']); ?></h3>
-                    <p>Cities Covered</p>
+                <div class="stat-card-mini">
+                    <div class="stat-value"><?php echo number_format($barangay_stats['total_barangays']); ?></div>
+                    <div class="stat-label">Barangays</div>
+                </div>
+                <div class="stat-card-mini">
+                    <div class="stat-value"><?php echo number_format($barangay_stats['total_pwd_in_barangays'] ?? 0); ?></div>
+                    <div class="stat-label">Assigned</div>
+                </div>
+                <div class="stat-card-mini">
+                    <div class="stat-value" id="visibleMarkers"><?php echo count($pwd_locations); ?></div>
+                    <div class="stat-label">Visible</div>
                 </div>
             </div>
             
-            <div class="stat-card">
-                <div class="stat-icon appointments">
-                    <i class="fas fa-map"></i>
-                </div>
-                <div class="stat-content">
-                    <h3><?php echo number_format($barangay_stats['total_barangays']); ?></h3>
-                    <p>Barangay Boundaries</p>
-                </div>
-            </div>
+            <!-- Fullscreen Toggle -->
+            <button class="fullscreen-toggle" onclick="toggleFullscreen()" data-tooltip="Toggle fullscreen mode">
+                <i class="fas fa-expand"></i>
+            </button>
             
-            <div class="stat-card">
-                <div class="stat-icon pending">
-                    <i class="fas fa-database"></i>
+            <!-- Map Sidebar -->
+            <div class="map-sidebar" id="mapSidebar">
+                <div class="sidebar-header">
+                    <h4><i class="fas fa-filter"></i> Map Controls</h4>
+                    <button class="btn btn-sm" onclick="toggleSidebar()">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
-                <div class="stat-content">
-                    <h3><?php echo number_format($stats['total_records']); ?></h3>
-                    <p>Total PWD Records</p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Map and Analytics Layout -->
-        <div class="gis-layout">
-            <!-- Map Container -->
-            <div class="map-container">
-                <div class="map-header">
-                    <h3><i class="fas fa-globe"></i> Interactive Map - Santo Tomas, Batangas</h3>
-                    <div class="map-controls">
-                        <div class="layer-controls">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="clusterMarkers" checked onchange="toggleClustering()">
-                                <span class="checkmark"></span>
-                                Cluster Markers
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="showHeatmap" onchange="toggleHeatmap()">
-                                <span class="checkmark"></span>
-                                Heat Map
-                            </label>
-                        </div>
-                        <div class="boundary-controls">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="showBoundaries" checked onchange="toggleBoundaries()">
-                                <span class="checkmark"></span>
-                                Show Boundaries
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="choroplethMode" onchange="toggleChoropleth()">
-                                <span class="checkmark"></span>
-                                Choropleth Mode
-                            </label>
-                        </div>
-                        <div class="map-filters">
+                <div class="sidebar-content">
+                    <div class="filter-section">
+                        <h4><i class="fas fa-search"></i> Filters</h4>
+                        <div class="filter-group">
+                            <label>Disability Type</label>
                             <select id="disabilityFilter" onchange="filterMarkers()">
                                 <option value="">All Disabilities</option>
                                 <option value="Physical Disability">Physical Disability</option>
@@ -1097,6 +1215,9 @@ if (!empty($barangay_boundaries)) {
                                 <option value="Psychosocial Disability">Psychosocial Disability</option>
                                 <option value="Multiple Disabilities">Multiple Disabilities</option>
                             </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Status</label>
                             <select id="statusFilter" onchange="filterMarkers()">
                                 <option value="">All Statuses</option>
                                 <option value="draft">Draft</option>
@@ -1105,166 +1226,174 @@ if (!empty($barangay_boundaries)) {
                             </select>
                         </div>
                     </div>
-                </div>
-                <div id="gisMap" class="gis-map"></div>
-                <div class="map-legend">
-                    <h4>Legend</h4>
-                    <div class="legend-items">
-                        <div class="legend-item">
-                            <div class="legend-marker boundary"></div>
-                            <span>Barangay Boundaries</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-marker draft"></div>
-                            <span>Draft Records</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-marker validated"></div>
-                            <span>Validated Records</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-marker issued"></div>
-                            <span>Issued IDs</span>
+                    
+                    <div class="filter-section">
+                        <h4><i class="fas fa-layer-group"></i> Map Layers</h4>
+                        <div class="layer-controls">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="clusterMarkers" checked onchange="toggleClustering()">
+                                Cluster Markers
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showBoundaries" checked onchange="toggleBoundaries()">
+                                Barangay Boundaries
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="choroplethMode" onchange="toggleChoropleth()">
+                                Density Colors
+                            </label>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Choropleth Legend -->
-                <div id="choroplethLegend" class="choropleth-legend">
-                    <h4>PWD Density</h4>
-                    <div class="legend-scale">
-                        <span>Low</span>
-                        <div class="legend-color" style="background: #f0f9ff;"></div>
-                        <div class="legend-color" style="background: #bae6fd;"></div>
-                        <div class="legend-color" style="background: #38bdf8;"></div>
-                        <div class="legend-color" style="background: #0284c7;"></div>
-                        <div class="legend-color" style="background: #1e40af;"></div>
-                        <span>High</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Analytics Panel -->
-            <div class="analytics-panel">
-                <div class="analytics-card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-chart-bar"></i> Location Distribution</h3>
-                    </div>
-                    <div class="card-content">
-                        <canvas id="locationChart"></canvas>
-                    </div>
-                </div>
-                
-                <div class="analytics-card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-list"></i> Barangay List</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="city-list">
-                            <?php foreach (array_slice($barangay_boundaries, 0, 15) as $barangay): ?>
-                                <div class="city-item" onclick="focusOnBarangay('<?php echo htmlspecialchars($barangay['barangay_name']); ?>')">
-                                    <div class="city-info">
-                                        <strong><?php echo htmlspecialchars($barangay['barangay_name']); ?></strong>
-                                        <small><?php echo htmlspecialchars($barangay['city_municipality'] ?: 'Santo Tomas City'); ?></small>
-                                    </div>
-                                    <div class="city-count">
-                                        <span class="count-badge"><?php echo $barangay['pwd_count'] ?? 0; ?></span>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="analytics-card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-info-circle"></i> Map Information</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="map-info">
-                            <div class="info-item">
-                                <span class="info-label">Location:</span>
-                                <span class="info-value">Santo Tomas, Batangas</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Coordinate System:</span>
-                                <span class="info-value">EPSG:4326 (WGS84)</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Barangay Boundaries:</span>
-                                <span class="info-value"><?php echo count($barangay_boundaries); ?></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Visible Markers:</span>
-                                <span class="info-value" id="visibleMarkers"><?php echo count($pwd_locations); ?></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="analytics-card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-tools"></i> Map Tools</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="map-tools">
+                    
+                    <div class="filter-section">
+                        <h4><i class="fas fa-tools"></i> Quick Actions</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                             <button class="btn btn-outline btn-sm" onclick="centerMap()">
-                                <i class="fas fa-crosshairs"></i> Center Map
+                                <i class="fas fa-crosshairs"></i> Center
                             </button>
                             <button class="btn btn-outline btn-sm" onclick="fitAllBoundaries()">
                                 <i class="fas fa-expand-arrows-alt"></i> Fit All
                             </button>
-                            <button class="btn btn-success btn-sm" onclick="updatePWDCounts()">
-                                <i class="fas fa-calculator"></i> Update Counts
-                            </button>
-                            <button class="btn btn-info btn-sm" onclick="generateSampleData()">
-                                <i class="fas fa-plus"></i> Sample Data
-                            </button>
-                            <button class="btn btn-outline btn-sm" onclick="refreshMap()">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                            <button class="btn btn-outline btn-sm" onclick="toggleFullscreen()">
-                                <i class="fas fa-expand"></i> Fullscreen
-                            </button>
                         </div>
                     </div>
+                </div>
+            </div>
+            
+            <!-- Map -->
+            <div id="gisMap" class="gis-map"></div>
+            
+            <!-- Map Legend -->
+            <div class="map-legend">
+                <div class="legend-title">Legend</div>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <div class="legend-marker boundary"></div>
+                        <span>Boundaries</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-marker draft"></div>
+                        <span>Draft</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-marker validated"></div>
+                        <span>Validated</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-marker issued"></div>
+                        <span>Issued</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Choropleth Legend -->
+            <div id="choroplethLegend" class="choropleth-legend">
+                <div class="legend-title">PWD Density</div>
+                <div class="legend-scale">
+                    <span>Low</span>
+                    <div class="legend-color" style="background: #f0f9ff;"></div>
+                    <div class="legend-color" style="background: #bae6fd;"></div>
+                    <div class="legend-color" style="background: #38bdf8;"></div>
+                    <div class="legend-color" style="background: #0284c7;"></div>
+                    <div class="legend-color" style="background: #1e40af;"></div>
+                    <span>High</span>
+                </div>
+            </div>
+            
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    <div class="loading-text" id="loadingText">Loading...</div>
                 </div>
             </div>
         </div>
     </main>
     
-    <!-- Import GeoJSON Modal -->
-    <div id="importModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Import GeoJSON Data</h3>
-                <button class="modal-close" onclick="closeModal('importModal')">&times;</button>
+    <!-- Enhanced Analytics Modal -->
+    <div id="statsModal" class="chart-modal">
+        <div class="chart-content">
+            <div class="chart-header">
+                <h3><i class="fas fa-chart-line"></i> PWD Analytics Dashboard</h3>
+                <button class="btn btn-outline btn-sm" onclick="closeStatsModal()">
+                    <i class="fas fa-times"></i> Close
+                </button>
             </div>
-            <div class="modal-body">
-                <form id="importForm" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label for="geojsonFile">Select GeoJSON File</label>
-                        <input type="file" id="geojsonFile" name="geojson_file" accept=".geojson,.json" required>
+            
+            <div class="chart-tabs">
+                <button class="chart-tab active" onclick="switchTab(event, 'overview')">
+                    <i class="fas fa-tachometer-alt"></i> Overview
+                </button>
+                <button class="chart-tab" onclick="switchTab(event, 'demographics')">
+                    <i class="fas fa-users"></i> Demographics
+                </button>
+                <button class="chart-tab" onclick="switchTab(event, 'location')">
+                    <i class="fas fa-map-marker-alt"></i> Location
+                </button>
+                <button class="chart-tab" onclick="switchTab(event, 'trends')">
+                    <i class="fas fa-chart-line"></i> Trends
+                </button>
+            </div>
+            
+            <div class="chart-body">
+                <!-- Overview Tab -->
+                <div id="overviewTab" class="tab-content">
+                    <div class="stats-summary" id="statsSummary">
+                        <!-- Dynamic summary cards will be loaded here -->
                     </div>
                     
-                    <div class="form-group">
-                        <label for="importType">Import Type</label>
-                        <select id="importType" name="import_type">
-                            <option value="auto">Auto-detect (Recommended)</option>
-                            <option value="points">Points Only (PWD Records)</option>
-                            <option value="polygons">Polygons Only (Barangay Boundaries)</option>
-                        </select>
+                    <div class="chart-grid">
+                        <div class="chart-card">
+                            <h4><i class="fas fa-wheelchair"></i> Disability Types</h4>
+                            <div class="chart-canvas">
+                                <canvas id="disabilityChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <h4><i class="fas fa-flag"></i> Record Status</h4>
+                            <div class="chart-canvas">
+                                <canvas id="statusChart"></canvas>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-upload"></i> Import Data
-                        </button>
-                        <button type="button" class="btn btn-outline" onclick="closeModal('importModal')">
-                            Cancel
-                        </button>
+                </div>
+                
+                <!-- Demographics Tab -->
+                <div id="demographicsTab" class="tab-content" style="display: none;">
+                    <div class="chart-grid">
+                        <div class="chart-card">
+                            <h4><i class="fas fa-birthday-cake"></i> Age Distribution</h4>
+                            <div class="chart-canvas">
+                                <canvas id="ageChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <h4><i class="fas fa-venus-mars"></i> Gender Distribution</h4>
+                            <div class="chart-canvas">
+                                <canvas id="genderChart"></canvas>
+                            </div>
+                        </div>
                     </div>
-                </form>
+                </div>
+                
+                <!-- Location Tab -->
+                <div id="locationTab" class="tab-content" style="display: none;">
+                    <div class="chart-card">
+                        <h4><i class="fas fa-map"></i> Top 10 Barangays by PWD Count</h4>
+                        <div class="chart-canvas large">
+                            <canvas id="barangayChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trends Tab -->
+                <div id="trendsTab" class="tab-content" style="display: none;">
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-line"></i> Monthly Registration Trends</h4>
+                        <div class="chart-canvas large">
+                            <canvas id="trendsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1281,7 +1410,6 @@ if (!empty($barangay_boundaries)) {
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="includePersonalData" name="include_personal_data">
-                            <span class="checkmark"></span>
                             Include Personal Data (Names)
                         </label>
                     </div>
@@ -1313,46 +1441,56 @@ if (!empty($barangay_boundaries)) {
         let choroplethMode = false;
         let mapCenter = <?php echo json_encode($map_center); ?>;
         let mapZoom = <?php echo $map_zoom; ?>;
+        let sidebarVisible = false;
+        let isFullscreen = false;
+        let currentTab = 'overview';
+        let detailedStats = null;
+        let chartInstances = {}; // Store chart instances for proper cleanup
 
         // Initialize the map
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Initializing map with center:', mapCenter, 'zoom:', mapZoom);
-            console.log('Barangay boundaries to load:', barangayBoundaries.length);
+            console.log('Initializing enhanced GIS map...');
             
             initializeMap();
-            initializeCharts();
+            initializeTooltips();
             loadMarkers();
             loadBarangayBoundaries();
+            
+            // Auto-refresh import status every 30 seconds
+            setInterval(updateImportStatus, 30000);
         });
 
         function initializeMap() {
-            // Center on Santo Tomas, Batangas or calculated center
             map = L.map('gisMap').setView([mapCenter.lat, mapCenter.lng], mapZoom);
             
-            // Add tile layer
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 18
             }).addTo(map);
             
-            // Initialize marker cluster group
             markerClusterGroup = L.markerClusterGroup({
                 chunkedLoading: true,
                 maxClusterRadius: 50
             });
             
-            // Add click event to map
-            map.on('click', function(e) {
-                console.log('Clicked at:', e.latlng.lat, e.latlng.lng);
+            // Handle fullscreen changes
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+            
+            // Handle map events for floating stats
+            map.on('zoomstart movestart', function() {
+                document.getElementById('floatingStats').classList.add('minimized');
             });
             
-            console.log('Map initialized successfully');
+            map.on('zoomend moveend', function() {
+                document.getElementById('floatingStats').classList.remove('minimized');
+            });
+            
+            console.log('Enhanced map initialized successfully');
         }
 
         function loadBarangayBoundaries() {
             console.log('Loading barangay boundaries...', barangayBoundaries.length);
             
-            // Clear existing boundary layers
             barangayLayers.forEach(layer => {
                 if (map.hasLayer(layer)) {
                     map.removeLayer(layer);
@@ -1361,22 +1499,17 @@ if (!empty($barangay_boundaries)) {
             barangayLayers = [];
             
             if (!showBoundaries) {
-                console.log('Boundaries hidden by user setting');
                 return;
             }
             
             let loadedCount = 0;
-            let errorCount = 0;
             
-            barangayBoundaries.forEach(function(barangay, index) {
+            barangayBoundaries.forEach(function(barangay) {
                 try {
                     if (!barangay.geometry || !barangay.geometry.coordinates) {
-                        console.warn('No geometry data for barangay:', barangay.barangay_name);
-                        errorCount++;
                         return;
                     }
                     
-                    // Create GeoJSON feature
                     const feature = {
                         type: 'Feature',
                         geometry: barangay.geometry,
@@ -1391,13 +1524,11 @@ if (!empty($barangay_boundaries)) {
                         }
                     };
                     
-                    // Create polygon layer with enhanced styling
                     const layer = L.geoJSON(feature, {
                         style: function(feature) {
                             return getBarangayStyle(barangay);
                         },
                         onEachFeature: function(feature, layer) {
-                            // Create popup content
                             const popupContent = `
                                 <div class="barangay-popup">
                                     <h4>${barangay.barangay_name}</h4>
@@ -1425,16 +1556,12 @@ if (!empty($barangay_boundaries)) {
                                         <button class="btn btn-sm btn-primary" onclick="viewBarangayRecords(${barangay.id}, '${barangay.barangay_name}')">
                                             <i class="fas fa-users"></i> View PWDs (${barangay.pwd_count || 0})
                                         </button>
-                                        <button class="btn btn-sm btn-outline" onclick="filterByBarangay('${barangay.barangay_name}')">
-                                            <i class="fas fa-filter"></i> Filter Map
-                                        </button>
                                     </div>
                                 </div>
                             `;
                             
                             layer.bindPopup(popupContent);
                             
-                            // Add hover effects
                             layer.on('mouseover', function(e) {
                                 this.setStyle({
                                     weight: 4,
@@ -1451,7 +1578,6 @@ if (!empty($barangay_boundaries)) {
                                 this.setStyle(getBarangayStyle(barangay));
                             });
                             
-                            // Add click handler
                             layer.on('click', function(e) {
                                 layer.openPopup();
                             });
@@ -1464,16 +1590,11 @@ if (!empty($barangay_boundaries)) {
                     
                 } catch (error) {
                     console.error('Error loading barangay boundary for', barangay.barangay_name, ':', error);
-                    errorCount++;
                 }
             });
             
-            console.log(`Successfully loaded ${loadedCount} out of ${barangayBoundaries.length} barangay boundaries`);
-            if (errorCount > 0) {
-                console.warn(`Failed to load ${errorCount} barangay boundaries`);
-            }
+            console.log(`Successfully loaded ${loadedCount} barangay boundaries`);
             
-            // Update choropleth legend visibility
             const legend = document.getElementById('choroplethLegend');
             if (legend) {
                 if (choroplethMode && showBoundaries) {
@@ -1483,9 +1604,8 @@ if (!empty($barangay_boundaries)) {
                 }
             }
             
-            // Show success message
             if (loadedCount > 0) {
-                showNotification(`Successfully loaded ${loadedCount} barangay boundaries for Santo Tomas, Batangas!`, 'success', 3000);
+                showToast(`Successfully loaded ${loadedCount} barangay boundaries!`, 'success', 3000);
             }
         }
 
@@ -1493,7 +1613,6 @@ if (!empty($barangay_boundaries)) {
             const pwdCount = barangay.pwd_count || 0;
             
             if (choroplethMode) {
-                // Choropleth coloring based on PWD density
                 const maxCount = Math.max(...barangayBoundaries.map(b => b.pwd_count || 0));
                 const intensity = maxCount > 0 ? pwdCount / maxCount : 0;
                 
@@ -1505,7 +1624,6 @@ if (!empty($barangay_boundaries)) {
                     fillOpacity: 0.7
                 };
             } else {
-                // Default styling with better visibility
                 return {
                     fillColor: pwdCount > 0 ? '#6366f1' : '#e2e8f0',
                     weight: 2,
@@ -1517,7 +1635,6 @@ if (!empty($barangay_boundaries)) {
         }
 
         function getColorForIntensity(intensity) {
-            // Color scale from light blue to dark blue
             const colors = [
                 '#f0f9ff', '#e0f2fe', '#bae6fd', '#7dd3fc', 
                 '#38bdf8', '#0ea5e9', '#0284c7', '#0369a1', '#1e40af'
@@ -1526,56 +1643,7 @@ if (!empty($barangay_boundaries)) {
             return colors[index] || colors[0];
         }
 
-        function toggleBoundaries() {
-            showBoundaries = !showBoundaries;
-            console.log('Toggling boundaries:', showBoundaries);
-            loadBarangayBoundaries();
-        }
-
-        function toggleChoropleth() {
-            choroplethMode = !choroplethMode;
-            console.log('Toggling choropleth mode:', choroplethMode);
-            loadBarangayBoundaries();
-        }
-
-        function viewBarangayDetails(barangayId) {
-            const barangay = barangayBoundaries.find(b => b.id == barangayId);
-            if (barangay) {
-                viewBarangayRecords(barangayId, barangay.barangay_name);
-            }
-        }
-
-        function filterByBarangay(barangayName) {
-            showNotification(`Filtering PWD records in ${barangayName}`, 'info');
-        }
-
-        function focusOnBarangay(barangayName) {
-            // Find the barangay layer and zoom to it
-            const barangay = barangayBoundaries.find(b => b.barangay_name === barangayName);
-            if (barangay && barangay.geometry && barangay.geometry.coordinates) {
-                // Calculate bounds from geometry
-                let bounds = [];
-                const coords = barangay.geometry.coordinates;
-                
-                if (barangay.geometry.type === 'Polygon') {
-                    coords[0].forEach(point => {
-                        bounds.push([point[1], point[0]]); // [lat, lng]
-                    });
-                } else if (barangay.geometry.type === 'MultiPolygon') {
-                    coords[0][0].forEach(point => {
-                        bounds.push([point[1], point[0]]); // [lat, lng]
-                    });
-                }
-                
-                if (bounds.length > 0) {
-                    const leafletBounds = L.latLngBounds(bounds);
-                    map.fitBounds(leafletBounds, { padding: [20, 20] });
-                }
-            }
-        }
-        
         function loadMarkers() {
-            // Clear existing markers
             clearMarkers();
             
             filteredLocations.forEach(function(location) {
@@ -1592,6 +1660,9 @@ if (!empty($barangay_boundaries)) {
             if (document.getElementById('clusterMarkers').checked) {
                 map.addLayer(markerClusterGroup);
             }
+              {
+                map.addLayer(markerClusterGroup);
+            }
             
             updateVisibleMarkers();
         }
@@ -1600,7 +1671,6 @@ if (!empty($barangay_boundaries)) {
             const lat = parseFloat(location.latitude);
             const lng = parseFloat(location.longitude);
             
-            // Create custom icon based on status
             const iconColor = getStatusColor(location.status);
             const icon = L.divIcon({
                 className: 'custom-marker',
@@ -1613,7 +1683,6 @@ if (!empty($barangay_boundaries)) {
             
             const marker = L.marker([lat, lng], { icon: icon });
             
-            // Create popup content
             const popupContent = `
                 <div class="marker-popup">
                     <h4>${location.pwd_id_number}</h4>
@@ -1625,15 +1694,11 @@ if (!empty($barangay_boundaries)) {
                         <button class="btn btn-sm btn-primary" onclick="viewRecord(${location.id})">
                             <i class="fas fa-eye"></i> View Details
                         </button>
-                        <button class="btn btn-sm btn-outline" onclick="updateLocation(${location.id}, ${lat}, ${lng})">
-                            <i class="fas fa-edit"></i> Update Location
-                        </button>
                     </div>
                 </div>
             `;
             
             marker.bindPopup(popupContent);
-            
             return marker;
         }
         
@@ -1675,9 +1740,14 @@ if (!empty($barangay_boundaries)) {
             loadMarkers();
         }
         
-        function toggleHeatmap() {
-            // Heatmap functionality would be implemented here
-            showNotification('Heatmap functionality will be implemented', 'info');
+        function toggleBoundaries() {
+            showBoundaries = !showBoundaries;
+            loadBarangayBoundaries();
+        }
+
+        function toggleChoropleth() {
+            choroplethMode = !choroplethMode;
+            loadBarangayBoundaries();
         }
         
         function updateVisibleMarkers() {
@@ -1697,46 +1767,250 @@ if (!empty($barangay_boundaries)) {
             }
         }
         
-        function refreshMap() {
-            location.reload();
-        }
-        
         function toggleFullscreen() {
-            const mapContainer = document.querySelector('.map-container');
-            if (!document.fullscreenElement) {
-                mapContainer.requestFullscreen().then(() => {
-                    setTimeout(() => map.invalidateSize(), 100);
-                });
+            const container = document.querySelector('.gis-container');
+            
+            if (!isFullscreen) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) {
+                    container.msRequestFullscreen();
+                }
             } else {
-                document.exitFullscreen().then(() => {
-                    setTimeout(() => map.invalidateSize(), 100);
-                });
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
             }
         }
         
-        function viewRecord(recordId) {
-            window.open(`records.php?id=${recordId}`, '_blank');
-        }
-        
-        function updateLocation(recordId, lat, lng) {
-            showNotification('Location update functionality will be implemented', 'info');
-        }
-        
-        function initializeCharts() {
-            // Location distribution chart
-            const ctx = document.getElementById('locationChart').getContext('2d');
-            const cityData = <?php echo json_encode($city_stats); ?>;
+        function handleFullscreenChange() {
+            isFullscreen = !!document.fullscreenElement;
+            const icon = document.querySelector('.fullscreen-toggle i');
             
-            new Chart(ctx, {
+            if (isFullscreen) {
+                icon.className = 'fas fa-compress';
+                document.getElementById('floatingStats').style.display = 'none';
+            } else {
+                icon.className = 'fas fa-expand';
+                document.getElementById('floatingStats').style.display = 'flex';
+            }
+            
+            setTimeout(() => map.invalidateSize(), 100);
+        }
+        
+        function toggleSidebar() {
+            sidebarVisible = !sidebarVisible;
+            const sidebar = document.getElementById('mapSidebar');
+            
+            if (sidebarVisible) {
+                sidebar.classList.add('show');
+            } else {
+                sidebar.classList.remove('show');
+            }
+        }
+        
+        function quickRefresh() {
+            showLoading('Refreshing map data like spatial debug...');
+            
+            fetch('map.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=quick_refresh'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showToast(data.error || 'Refresh failed', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Quick refresh error:', error);
+                showToast('Refresh failed: ' + error.message, 'error');
+            });
+        }
+        
+        function showStatsModal() {
+            document.getElementById('statsModal').classList.add('show');
+            loadDetailedStats();
+        }
+        
+        function closeStatsModal() {
+            document.getElementById('statsModal').classList.remove('show');
+            // Destroy all chart instances when closing
+            Object.keys(chartInstances).forEach(key => {
+                if (chartInstances[key]) {
+                    chartInstances[key].destroy();
+                    delete chartInstances[key];
+                }
+            });
+        }
+        
+        function switchTab(event, tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.chart-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(tabName + 'Tab').style.display = 'block';
+            
+            currentTab = tabName;
+            
+            // Load charts for the active tab
+            if (detailedStats) {
+                renderChartsForTab(tabName);
+            }
+        }
+        
+        function loadDetailedStats() {
+            showLoading('Loading detailed analytics...');
+            
+            fetch('map.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_detailed_stats'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    detailedStats = data;
+                    renderStatsSummary(data);
+                    renderChartsForTab(currentTab);
+                } else {
+                    showToast(data.error || 'Failed to load stats', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Stats loading error:', error);
+                showToast('Failed to load stats: ' + error.message, 'error');
+            });
+        }
+        
+        function renderStatsSummary(data) {
+            const summaryContainer = document.getElementById('statsSummary');
+            const locationStats = data.location_stats;
+            const barangayCoverage = data.barangay_coverage;
+            
+            const coveragePercentage = locationStats.total_records > 0 ? 
+                Math.round((locationStats.with_location / locationStats.total_records) * 100) : 0;
+            
+            const assignmentPercentage = locationStats.total_records > 0 ? 
+                Math.round((locationStats.assigned_to_barangay / locationStats.total_records) * 100) : 0;
+            
+            summaryContainer.innerHTML = `
+                <div class="summary-card">
+                    <div class="value">${locationStats.total_records.toLocaleString()}</div>
+                    <div class="label">Total PWD Records</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${coveragePercentage}%</div>
+                    <div class="label">Location Coverage</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${assignmentPercentage}%</div>
+                    <div class="label">Barangay Assignment</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${barangayCoverage.barangays_with_pwd}</div>
+                    <div class="label">Active Barangays</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${locationStats.cities_covered}</div>
+                    <div class="label">Cities Covered</div>
+                </div>
+                <div class="summary-card">
+                    <div class="value">${Math.round(barangayCoverage.avg_pwd_per_barangay || 0)}</div>
+                    <div class="label">Avg PWD/Barangay</div>
+                </div>
+            `;
+        }
+        
+        function renderChartsForTab(tabName) {
+            if (!detailedStats) return;
+            
+            switch (tabName) {
+                case 'overview':
+                    renderDisabilityChart();
+                    renderStatusChart();
+                    break;
+                case 'demographics':
+                    renderAgeChart();
+                    renderGenderChart();
+                    break;
+                case 'location':
+                    renderBarangayChart();
+                    break;
+                case 'trends':
+                    renderTrendsChart();
+                    break;
+            }
+        }
+        
+        function destroyChart(chartId) {
+            if (chartInstances[chartId]) {
+                chartInstances[chartId].destroy();
+                delete chartInstances[chartId];
+            }
+        }
+        
+        function renderDisabilityChart() {
+            destroyChart('disabilityChart');
+            
+            const ctx = document.getElementById('disabilityChart').getContext('2d');
+            const data = detailedStats.disability_stats;
+            
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No disability data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['disabilityChart'] = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: cityData.map(city => city.city_municipality),
+                    labels: data.map(item => item.disability_type),
                     datasets: [{
-                        data: cityData.map(city => city.count),
+                        data: data.map(item => item.count),
                         backgroundColor: [
                             '#2c5aa0', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
                             '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6366f1'
-                        ]
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
                     }]
                 },
                 options: {
@@ -1747,8 +2021,16 @@ if (!empty($barangay_boundaries)) {
                             position: 'bottom',
                             labels: {
                                 boxWidth: 12,
-                                font: {
-                                    size: 11
+                                font: { size: 11 },
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((context.parsed / total) * 100);
+                                    return `${context.label}: ${context.parsed} (${percentage}%)`;
                                 }
                             }
                         }
@@ -1757,45 +2039,470 @@ if (!empty($barangay_boundaries)) {
             });
         }
         
-        // Import/Export functionality
-        function showImportModal() {
-            document.getElementById('importModal').style.display = 'block';
+        function renderStatusChart() {
+            destroyChart('statusChart');
+            
+            const ctx = document.getElementById('statusChart').getContext('2d');
+            const data = detailedStats.status_stats;
+            
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No status data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['statusChart'] = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: data.map(item => item.status.charAt(0).toUpperCase() + item.status.slice(1)),
+                    datasets: [{
+                        data: data.map(item => item.count),
+                        backgroundColor: ['#f59e0b', '#10b981', '#2c5aa0', '#ef4444', '#6b7280'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: { size: 11 },
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((context.parsed / total) * 100);
+                                    return `${context.label}: ${context.parsed} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
         
-        function showExportModal() {
-            document.getElementById('exportModal').style.display = 'block';
+        function renderAgeChart() {
+            destroyChart('ageChart');
+            
+            const ctx = document.getElementById('ageChart').getContext('2d');
+            const data = detailedStats.age_stats;
+            
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No age data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['ageChart'] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.age_group),
+                    datasets: [{
+                        label: 'PWD Count',
+                        data: data.map(item => item.count),
+                        backgroundColor: '#2c5aa0',
+                        borderColor: '#1e3a8a',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.parsed.y} PWDs`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    }
+                }
+            });
         }
         
-        document.getElementById('importForm').addEventListener('submit', function(e) {
-            e.preventDefault();
+        function renderGenderChart() {
+            destroyChart('genderChart');
             
-            const formData = new FormData();
-            formData.append('action', 'import_geojson');
-            formData.append('geojson_file', document.getElementById('geojsonFile').files[0]);
-            formData.append('import_type', document.getElementById('importType').value);
+            const ctx = document.getElementById('genderChart').getContext('2d');
+            const data = detailedStats.gender_stats;
             
-            showLoading('Importing GeoJSON data...');
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No gender data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['genderChart'] = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.map(item => item.gender),
+                    datasets: [{
+                        data: data.map(item => item.count),
+                        backgroundColor: ['#2c5aa0', '#ec4899', '#10b981'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: { size: 11 },
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((context.parsed / total) * 100);
+                                    return `${context.label}: ${context.parsed} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderBarangayChart() {
+            destroyChart('barangayChart');
+            
+            const ctx = document.getElementById('barangayChart').getContext('2d');
+            const data = detailedStats.barangay_stats;
+            
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No barangay data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['barangayChart'] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.barangay_name),
+                    datasets: [{
+                        label: 'PWD Count',
+                        data: data.map(item => item.count),
+                        backgroundColor: '#2c5aa0',
+                        borderColor: '#1e3a8a',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.parsed.x} PWDs`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderTrendsChart() {
+            destroyChart('trendsChart');
+            
+            const ctx = document.getElementById('trendsChart').getContext('2d');
+            const data = detailedStats.monthly_stats;
+            
+            if (!data || data.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText('No trend data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            chartInstances['trendsChart'] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => {
+                        const date = new Date(item.month + '-01');
+                        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                    }),
+                    datasets: [{
+                        label: 'New Registrations',
+                        data: data.map(item => item.count),
+                        borderColor: '#2c5aa0',
+                        backgroundColor: 'rgba(44, 90, 160, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#2c5aa0',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.parsed.y} new registrations`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateImportStatus() {
+            fetch('map.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_import_status'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.last_import) {
+                    const lastUpdate = new Date(data.last_import.completed_at);
+                    document.getElementById('lastUpdateText').textContent = 
+                        `Last updated: ${lastUpdate.toLocaleDateString()} at ${lastUpdate.toLocaleTimeString()}`;
+                }
+            })
+            .catch(error => {
+                console.error('Failed to update import status:', error);
+            });
+        }
+        
+        function viewRecord(recordId) {
+            window.open(`records.php?id=${recordId}`, '_blank');
+        }
+        
+        function viewBarangayRecords(barangayId, barangayName) {
+            showLoading('Loading PWD records...');
             
             fetch('map.php', {
                 method: 'POST',
-                body: formData
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=get_barangay_records&barangay_id=${barangayId}`
             })
             .then(response => response.json())
             .then(data => {
                 hideLoading();
                 if (data.success) {
-                    showNotification(data.message, 'success');
-                    closeModal('importModal');
-                    setTimeout(() => location.reload(), 1000);
+                    showBarangayRecordsModal(barangayName, data.records);
                 } else {
-                    showNotification(data.error || 'Import failed', 'error');
+                    showToast(data.error || 'Failed to load records', 'error');
                 }
             })
             .catch(error => {
                 hideLoading();
-                showNotification('Import failed: ' + error.message, 'error');
+                showToast('Failed to load records: ' + error.message, 'error');
             });
-        });
+        }
+        
+        function showBarangayRecordsModal(barangayName, records) {
+            const modal = document.createElement('div');
+            modal.className = 'modal show';
+            
+            let recordsHtml = '';
+            if (records.length === 0) {
+                recordsHtml = '<p class="text-center text-muted">No PWD records found in this barangay.</p>';
+            } else {
+                recordsHtml = `
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>PWD ID</th>
+                                    <th>Name</th>
+                                    <th>Disability Type</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${records.map(record => `
+                                    <tr>
+                                        <td>${record.pwd_id_number}</td>
+                                        <td>${record.first_name} ${record.last_name}</td>
+                                        <td>${record.disability_type}</td>
+                                        <td><span class="status-badge status-${record.status}">${record.status}</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-primary" onclick="viewRecord(${record.id})">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 800px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-users"></i> PWD Records in ${barangayName}</h3>
+                        <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>Total Records:</strong> ${records.length}</p>
+                        ${recordsHtml}
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Close</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+        
+        function showLoading(message = 'Loading...') {
+            const overlay = document.getElementById('loadingOverlay');
+            const text = document.getElementById('loadingText');
+            text.textContent = message;
+            overlay.classList.add('show');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
+        
+        function showToast(message, type = 'info', duration = 5000) {
+            // Remove existing toasts
+            const existingToasts = document.querySelectorAll('.toast');
+            existingToasts.forEach(toast => toast.remove());
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-${getToastIcon(type)}"></i>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: white; margin-left: auto; cursor: pointer;">×</button>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // Show toast
+            setTimeout(() => toast.classList.add('show'), 100);
+            
+            // Auto remove
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
+                }
+            }, duration);
+        }
+        
+        function getToastIcon(type) {
+            const icons = {
+                success: 'check-circle',
+                error: 'exclamation-circle',
+                warning: 'exclamation-triangle',
+                info: 'info-circle'
+            };
+            return icons[type] || 'bell';
+        }
+        
+        function initializeTooltips() {
+            const tooltipElements = document.querySelectorAll('[data-tooltip]');
+            
+            tooltipElements.forEach(element => {
+                element.addEventListener('mouseenter', showTooltip);
+                element.addEventListener('mouseleave', hideTooltip);
+            });
+        }
+        
+        function showTooltip(e) {
+            const element = e.target;
+            const tooltipText = element.getAttribute('data-tooltip');
+            
+            if (tooltipText) {
+                const tooltip = document.createElement('div');
+                tooltip.className = 'tooltip';
+                tooltip.textContent = tooltipText;
+                
+                document.body.appendChild(tooltip);
+                
+                const rect = element.getBoundingClientRect();
+                tooltip.style.left = rect.left + rect.width / 2 - tooltip.offsetWidth / 2 + 'px';
+                tooltip.style.top = rect.top - tooltip.offsetHeight - 8 + 'px';
+                
+                element._tooltip = tooltip;
+            }
+        }
+        
+        function hideTooltip(e) {
+            const element = e.target;
+            if (element._tooltip) {
+                element._tooltip.remove();
+                delete element._tooltip;
+            }
+        }
+        
+        // Export form handling
+        function showExportModal() {
+            document.getElementById('exportModal').classList.add('show');
+        }
         
         document.getElementById('exportForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -1828,170 +2535,25 @@ if (!empty($barangay_boundaries)) {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
                 
-                showNotification('GeoJSON exported successfully', 'success');
+                showToast('GeoJSON exported successfully', 'success');
                 closeModal('exportModal');
             })
             .catch(error => {
                 hideLoading();
-                showNotification('Export failed: ' + error.message, 'error');
+                showToast('Export failed: ' + error.message, 'error');
             });
         });
-
-// Update PWD counts for all barangays
-function updatePWDCounts() {
-    if (!confirm('This will recalculate PWD counts for all barangays. This may take a few moments. Continue?')) {
-        return;
-    }
-    
-    showLoading('Updating PWD counts...');
-    
-    fetch('map.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'action=update_pwd_counts'
-    })
-    .then(response => response.json())
-    .then(data => {
-        hideLoading();
-        if (data.success) {
-            showNotification(data.message, 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            showNotification(data.error || 'Update failed', 'error');
+        
+        // Close modals when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('modal') || e.target.classList.contains('chart-modal')) {
+                e.target.classList.remove('show');
+            }
+        });
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
         }
-    })
-    .catch(error => {
-        hideLoading();
-        showNotification('Update failed: ' + error.message, 'error');
-    });
-}
-
-// Generate sample PWD data for testing
-function generateSampleData() {
-    const count = prompt('How many sample PWD records would you like to generate? (1-100)', '25');
-    
-    if (!count || isNaN(count) || count < 1 || count > 100) {
-        showNotification('Please enter a valid number between 1 and 100', 'error');
-        return;
-    }
-    
-    if (!confirm(`This will generate ${count} sample PWD records with random coordinates in Santo Tomas, Batangas. Continue?`)) {
-        return;
-    }
-    
-    showLoading('Generating sample data...');
-    
-    fetch('map.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `action=generate_sample_data&count=${count}`
-    })
-    .then(response => response.json())
-    .then(data => {
-        hideLoading();
-        if (data.success) {
-            showNotification(data.message, 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            showNotification(data.error || 'Generation failed', 'error');
-        }
-    })
-    .catch(error => {
-        hideLoading();
-        showNotification('Generation failed: ' + error.message, 'error');
-    });
-}
-
-// View PWD records in a specific barangay
-function viewBarangayRecords(barangayId, barangayName) {
-    showLoading('Loading PWD records...');
-    
-    fetch('map.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `action=get_barangay_records&barangay_id=${barangayId}`
-    })
-    .then(response => response.json())
-    .then(data => {
-        hideLoading();
-        if (data.success) {
-            showBarangayRecordsModal(barangayName, data.records);
-        } else {
-            showNotification(data.error || 'Failed to load records', 'error');
-        }
-    })
-    .catch(error => {
-        hideLoading();
-        showNotification('Failed to load records: ' + error.message, 'error');
-    });
-}
-
-// Show modal with barangay PWD records
-function showBarangayRecordsModal(barangayName, records) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.style.display = 'block';
-    
-    let recordsHtml = '';
-    if (records.length === 0) {
-        recordsHtml = '<p class="text-center text-muted">No PWD records found in this barangay.</p>';
-    } else {
-        recordsHtml = `
-            <div class="table-responsive">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>PWD ID</th>
-                            <th>Name</th>
-                            <th>Disability Type</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${records.map(record => `
-                            <tr>
-                                <td>${record.pwd_id_number}</td>
-                                <td>${record.first_name} ${record.last_name}</td>
-                                <td>${record.disability_type}</td>
-                                <td><span class="status-badge status-${record.status}">${record.status}</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary" onclick="viewRecord(${record.id})">
-                                        <i class="fas fa-eye"></i> View
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-    
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3><i class="fas fa-users"></i> PWD Records in ${barangayName}</h3>
-                <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p><strong>Total Records:</strong> ${records.length}</p>
-                ${recordsHtml}
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Close</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-}
     </script>
 </body>
 </html>
