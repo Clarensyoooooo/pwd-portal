@@ -2,6 +2,7 @@
 require_once 'config.php';
 requireAdminLogin();
 requirePermission($pdo, 'gis.view');
+require_once 'spatial_functions.php';
 
 $admin = getCurrentAdmin($pdo);
 
@@ -19,8 +20,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'update_location':
             handleUpdateLocation();
             break;
+        case 'update_pwd_counts':
+            handleUpdatePWDCounts();
+            break;
+        case 'generate_sample_data':
+            handleGenerateSampleData();
+            break;
+        case 'get_barangay_records':
+            handleGetBarangayRecords();
+            break;
         default:
             adminJsonResponse(['error' => 'Invalid action'], 400);
+    }
+}
+
+function handleUpdatePWDCounts() {
+    global $pdo;
+    requirePermission($pdo, 'gis.import');
+    
+    try {
+        $success = updateAllBarangayPWDCounts($pdo);
+        
+        if ($success) {
+            // Also assign barangays to PWD records
+            $assigned = assignBarangayToPWDRecords($pdo);
+            
+            logAdminActivity($pdo, 'update', 'gis', 'pwd_counts', null, [
+                'assigned_records' => $assigned
+            ]);
+            
+            adminJsonResponse([
+                'success' => true,
+                'message' => "PWD counts updated successfully! {$assigned} records assigned to barangays.",
+                'stats' => getSpatialStatistics($pdo)
+            ]);
+        } else {
+            adminJsonResponse(['error' => 'Failed to update PWD counts'], 500);
+        }
+        
+    } catch (Exception $e) {
+        adminJsonResponse(['error' => 'Update failed: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleGenerateSampleData() {
+    global $pdo;
+    requirePermission($pdo, 'records.create');
+    
+    $count = intval($_POST['count'] ?? 25);
+    $count = min(max($count, 1), 100); // Limit between 1 and 100
+    
+    try {
+        $generated = generateSamplePWDRecords($pdo, $count);
+        
+        if ($generated > 0) {
+            // Update PWD counts after generating sample data
+            updateAllBarangayPWDCounts($pdo);
+            
+            logAdminActivity($pdo, 'create', 'records', 'sample_data', null, [
+                'generated_count' => $generated
+            ]);
+            
+            adminJsonResponse([
+                'success' => true,
+                'message' => "Generated {$generated} sample PWD records with coordinates!",
+                'generated' => $generated
+            ]);
+        } else {
+            adminJsonResponse(['error' => 'Failed to generate sample data'], 500);
+        }
+        
+    } catch (Exception $e) {
+        adminJsonResponse(['error' => 'Generation failed: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleGetBarangayRecords() {
+    global $pdo;
+    requirePermission($pdo, 'records.view');
+    
+    $barangay_id = intval($_POST['barangay_id'] ?? 0);
+    
+    if ($barangay_id <= 0) {
+        adminJsonResponse(['error' => 'Invalid barangay ID'], 400);
+    }
+    
+    try {
+        $records = getPWDRecordsInBarangay($pdo, $barangay_id);
+        
+        adminJsonResponse([
+            'success' => true,
+            'records' => $records,
+            'count' => count($records)
+        ]);
+        
+    } catch (Exception $e) {
+        adminJsonResponse(['error' => 'Failed to get barangay records: ' . $e->getMessage()], 500);
     }
 }
 
@@ -163,6 +258,9 @@ function handleImportGeoJSON() {
             'failed' => $failed_count,
             'summary' => $import_summary
         ]);
+        
+        // Update PWD counts after import
+        updateAllBarangayPWDCounts($pdo);
         
         adminJsonResponse([
             'success' => true,
@@ -324,21 +422,7 @@ function generateBarangayCode($barangay_name, $city_municipality) {
 }
 
 function updateBarangayPWDCounts($pdo) {
-    try {
-        $stmt = $pdo->prepare("
-            UPDATE barangay_boundaries bb
-            SET pwd_count = (
-                SELECT COUNT(*)
-                FROM pwd_records pr
-                WHERE pr.latitude IS NOT NULL 
-                AND pr.longitude IS NOT NULL
-                AND ST_Contains(bb.geometry, ST_Point(pr.longitude, pr.latitude))
-            )
-        ");
-        $stmt->execute();
-    } catch (Exception $e) {
-        error_log("Failed to update barangay PWD counts: " . $e->getMessage());
-    }
+    return updateAllBarangayPWDCounts($pdo);
 }
 
 function handleExportGeoJSON() {
@@ -699,10 +783,6 @@ if (!empty($barangay_boundaries)) {
         
         .city-item:hover {
             background: #f8fafc;
-        }
-        
-        .city-item:last-child {
-            border-bottom: none;
         }
         
         .city-info strong {
@@ -1134,6 +1214,12 @@ if (!empty($barangay_boundaries)) {
                             <button class="btn btn-outline btn-sm" onclick="fitAllBoundaries()">
                                 <i class="fas fa-expand-arrows-alt"></i> Fit All
                             </button>
+                            <button class="btn btn-success btn-sm" onclick="updatePWDCounts()">
+                                <i class="fas fa-calculator"></i> Update Counts
+                            </button>
+                            <button class="btn btn-info btn-sm" onclick="generateSampleData()">
+                                <i class="fas fa-plus"></i> Sample Data
+                            </button>
                             <button class="btn btn-outline btn-sm" onclick="refreshMap()">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
@@ -1336,11 +1422,11 @@ if (!empty($barangay_boundaries)) {
                                         ` : ''}
                                     </div>
                                     <div class="popup-actions">
-                                        <button class="btn btn-sm btn-primary" onclick="viewBarangayDetails(${barangay.id})">
-                                            <i class="fas fa-eye"></i> View Details
+                                        <button class="btn btn-sm btn-primary" onclick="viewBarangayRecords(${barangay.id}, '${barangay.barangay_name}')">
+                                            <i class="fas fa-users"></i> View PWDs (${barangay.pwd_count || 0})
                                         </button>
                                         <button class="btn btn-sm btn-outline" onclick="filterByBarangay('${barangay.barangay_name}')">
-                                            <i class="fas fa-filter"></i> Filter PWDs
+                                            <i class="fas fa-filter"></i> Filter Map
                                         </button>
                                     </div>
                                 </div>
@@ -1453,7 +1539,10 @@ if (!empty($barangay_boundaries)) {
         }
 
         function viewBarangayDetails(barangayId) {
-            showNotification('Barangay details functionality will be implemented', 'info');
+            const barangay = barangayBoundaries.find(b => b.id == barangayId);
+            if (barangay) {
+                viewBarangayRecords(barangayId, barangay.barangay_name);
+            }
         }
 
         function filterByBarangay(barangayName) {
@@ -1747,6 +1836,162 @@ if (!empty($barangay_boundaries)) {
                 showNotification('Export failed: ' + error.message, 'error');
             });
         });
+
+// Update PWD counts for all barangays
+function updatePWDCounts() {
+    if (!confirm('This will recalculate PWD counts for all barangays. This may take a few moments. Continue?')) {
+        return;
+    }
+    
+    showLoading('Updating PWD counts...');
+    
+    fetch('map.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=update_pwd_counts'
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showNotification(data.message, 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showNotification(data.error || 'Update failed', 'error');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showNotification('Update failed: ' + error.message, 'error');
+    });
+}
+
+// Generate sample PWD data for testing
+function generateSampleData() {
+    const count = prompt('How many sample PWD records would you like to generate? (1-100)', '25');
+    
+    if (!count || isNaN(count) || count < 1 || count > 100) {
+        showNotification('Please enter a valid number between 1 and 100', 'error');
+        return;
+    }
+    
+    if (!confirm(`This will generate ${count} sample PWD records with random coordinates in Santo Tomas, Batangas. Continue?`)) {
+        return;
+    }
+    
+    showLoading('Generating sample data...');
+    
+    fetch('map.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=generate_sample_data&count=${count}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showNotification(data.message, 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showNotification(data.error || 'Generation failed', 'error');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showNotification('Generation failed: ' + error.message, 'error');
+    });
+}
+
+// View PWD records in a specific barangay
+function viewBarangayRecords(barangayId, barangayName) {
+    showLoading('Loading PWD records...');
+    
+    fetch('map.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=get_barangay_records&barangay_id=${barangayId}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showBarangayRecordsModal(barangayName, data.records);
+        } else {
+            showNotification(data.error || 'Failed to load records', 'error');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showNotification('Failed to load records: ' + error.message, 'error');
+    });
+}
+
+// Show modal with barangay PWD records
+function showBarangayRecordsModal(barangayName, records) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'block';
+    
+    let recordsHtml = '';
+    if (records.length === 0) {
+        recordsHtml = '<p class="text-center text-muted">No PWD records found in this barangay.</p>';
+    } else {
+        recordsHtml = `
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>PWD ID</th>
+                            <th>Name</th>
+                            <th>Disability Type</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${records.map(record => `
+                            <tr>
+                                <td>${record.pwd_id_number}</td>
+                                <td>${record.first_name} ${record.last_name}</td>
+                                <td>${record.disability_type}</td>
+                                <td><span class="status-badge status-${record.status}">${record.status}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="viewRecord(${record.id})">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-users"></i> PWD Records in ${barangayName}</h3>
+                <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Total Records:</strong> ${records.length}</p>
+                ${recordsHtml}
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Close</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
     </script>
 </body>
 </html>
