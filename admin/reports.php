@@ -14,29 +14,77 @@ $disability_filter = $_GET['disability'] ?? '';
 $age_group = $_GET['age_group'] ?? '';
 $barangay_filter = $_GET['barangay'] ?? '';
 $time_period = $_GET['time_period'] ?? 'monthly';
+$gender_filter = $_GET['gender'] ?? '';
+$employment_filter = $_GET['employment'] ?? '';
+
+// Get available filter options
+$available_barangays = [];
+$available_disabilities = [];
+$available_employment = [];
+
+try {
+    // Get barangays
+    $stmt = $pdo->query("SELECT DISTINCT barangay FROM pwd_records WHERE barangay IS NOT NULL ORDER BY barangay");
+    $available_barangays = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // Get disability types
+    $stmt = $pdo->query("SELECT DISTINCT disability_type FROM pwd_records WHERE disability_type IS NOT NULL ORDER BY disability_type");
+    $available_disabilities = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // Get employment statuses
+    $stmt = $pdo->query("SELECT DISTINCT employment_status FROM pwd_records WHERE employment_status IS NOT NULL ORDER BY employment_status");
+    $available_employment = $stmt->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    // Handle error silently
+}
 
 // Generate reports based on type
 $report_data = [];
 switch ($report_type) {
     case 'analytics':
-        $report_data = generateAnalyticsReport($pdo, $date_from, $date_to, $time_period);
+        $report_data = generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter);
         break;
     case 'demographics':
-        $report_data = generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter);
-        break;
-    case 'services':
-        $report_data = generateServicesReport($pdo, $date_from, $date_to, $disability_filter);
-        break;
-    case 'performance':
-        $report_data = generatePerformanceReport($pdo, $date_from, $date_to);
+        $report_data = generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter, $gender_filter, $disability_filter);
         break;
     case 'resources':
-        $report_data = generateResourcesReport($pdo, $date_from, $date_to);
+        $report_data = generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter);
         break;
 }
 
-function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period) {
+function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter) {
     $data = [];
+    
+    // Build WHERE conditions
+    $where_conditions = ["created_at BETWEEN ? AND ?"];
+    $params = [$date_from, $date_to];
+    
+    if ($status_filter) {
+        $where_conditions[] = "status = ?";
+        $params[] = $status_filter;
+    }
+    
+    if ($disability_filter) {
+        $where_conditions[] = "disability_type = ?";
+        $params[] = $disability_filter;
+    }
+    
+    if ($gender_filter) {
+        $where_conditions[] = "gender = ?";
+        $params[] = $gender_filter;
+    }
+    
+    if ($barangay_filter) {
+        $where_conditions[] = "barangay = ?";
+        $params[] = $barangay_filter;
+    }
+    
+    if ($employment_filter) {
+        $where_conditions[] = "employment_status = ?";
+        $params[] = $employment_filter;
+    }
+    
+    $where_clause = "WHERE " . implode(" AND ", $where_conditions);
     
     // Summary statistics
     $stmt = $pdo->prepare("
@@ -49,9 +97,9 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period) {
             COUNT(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 END) as with_coordinates,
             COUNT(CASE WHEN barangay IS NOT NULL THEN 1 END) as assigned_to_barangay
         FROM pwd_records 
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
     ");
-    $stmt->execute([$date_from, $date_to]);
+    $stmt->execute($params);
     $data['summary'] = $stmt->fetch();
     
     // Age group distribution
@@ -65,13 +113,13 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period) {
                 ELSE 'Senior Citizens (65+)'
             END as age_group,
             COUNT(*) as count,
-            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records WHERE created_at BETWEEN ? AND ?), 1) as percentage
+            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause}), 1) as percentage
         FROM pwd_records
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         GROUP BY age_group
         ORDER BY count DESC
     ");
-    $stmt->execute([$date_from, $date_to, $date_from, $date_to]);
+    $stmt->execute(array_merge($params, $params));
     $data['age_groups'] = $stmt->fetchAll();
     
     // Gender distribution
@@ -79,45 +127,59 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period) {
         SELECT 
             gender,
             COUNT(*) as count,
-            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records WHERE created_at BETWEEN ? AND ?), 1) as percentage
+            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause}), 1) as percentage
         FROM pwd_records
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         GROUP BY gender
     ");
-    $stmt->execute([$date_from, $date_to, $date_from, $date_to]);
+    $stmt->execute(array_merge($params, $params));
     $data['gender_distribution'] = $stmt->fetchAll();
     
-    // Support categories distribution
+    // Disability type distribution
     $stmt = $pdo->prepare("
         SELECT 
-            disability_type as support_category,
+            disability_type,
             COUNT(*) as count,
-            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records WHERE created_at BETWEEN ? AND ?), 1) as percentage
+            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause}), 1) as percentage
         FROM pwd_records 
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         AND disability_type IS NOT NULL
         GROUP BY disability_type 
         ORDER BY count DESC
     ");
-    $stmt->execute([$date_from, $date_to, $date_from, $date_to]);
-    $data['support_categories'] = $stmt->fetchAll();
+    $stmt->execute(array_merge($params, $params));
+    $data['disability_distribution'] = $stmt->fetchAll();
     
-    // Barangay distribution
+    // Distribution by Barangay
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
             COUNT(*) as count,
             COUNT(CASE WHEN status = 'issued' THEN 1 END) as active_ids,
-            AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age
+            AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
+            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause} AND barangay IS NOT NULL), 1) as percentage
         FROM pwd_records 
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         AND barangay IS NOT NULL
         GROUP BY barangay 
         ORDER BY count DESC
-        LIMIT 10
     ");
-    $stmt->execute([$date_from, $date_to]);
+    $stmt->execute(array_merge($params, $params));
     $data['barangay_distribution'] = $stmt->fetchAll();
+    
+    // Employment status distribution
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(employment_status, 'Not Specified') as employment_status,
+            COUNT(*) as count,
+            ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause}), 1) as percentage
+        FROM pwd_records 
+        {$where_clause}
+        GROUP BY employment_status 
+        ORDER BY count DESC
+    ");
+    $stmt->execute(array_merge($params, $params));
+    $data['employment_distribution'] = $stmt->fetchAll();
     
     // Time-based trends
     $date_format = $time_period == 'yearly' ? '%Y' : ($time_period == 'quarterly' ? '%Y-Q%q' : '%Y-%m');
@@ -125,19 +187,20 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period) {
         SELECT 
             DATE_FORMAT(created_at, '{$date_format}') as period,
             COUNT(*) as registrations,
-            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as ids_issued
+            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as ids_issued,
+            SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated
         FROM pwd_records 
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         GROUP BY DATE_FORMAT(created_at, '{$date_format}')
         ORDER BY period
     ");
-    $stmt->execute([$date_from, $date_to]);
+    $stmt->execute($params);
     $data['trends'] = $stmt->fetchAll();
     
     return $data;
 }
 
-function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter) {
+function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter, $gender_filter, $disability_filter) {
     $data = [];
     
     $where_conditions = ["created_at BETWEEN ? AND ?"];
@@ -160,6 +223,16 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     if ($barangay_filter) {
         $where_conditions[] = "barangay = ?";
         $params[] = $barangay_filter;
+    }
+    
+    if ($gender_filter) {
+        $where_conditions[] = "gender = ?";
+        $params[] = $gender_filter;
+    }
+    
+    if ($disability_filter) {
+        $where_conditions[] = "disability_type = ?";
+        $params[] = $disability_filter;
     }
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
@@ -199,14 +272,38 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     $stmt->execute($params);
     $data['disability_by_barangay'] = $stmt->fetchAll();
     
+    // Age distribution by barangay
+    $stmt = $pdo->prepare("
+        SELECT 
+            barangay,
+            CASE 
+                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 'Children'
+                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 18 AND 64 THEN 'Adults'
+                ELSE 'Seniors'
+            END as age_category,
+            COUNT(*) as count
+        FROM pwd_records
+        {$where_clause}
+        AND barangay IS NOT NULL
+        GROUP BY barangay, age_category
+        ORDER BY barangay, count DESC
+    ");
+    $stmt->execute($params);
+    $data['age_by_barangay'] = $stmt->fetchAll();
+    
     return $data;
 }
 
-function generateServicesReport($pdo, $date_from, $date_to, $disability_filter) {
+function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter) {
     $data = [];
     
     $where_conditions = ["created_at BETWEEN ? AND ?"];
     $params = [$date_from, $date_to];
+    
+    if ($barangay_filter) {
+        $where_conditions[] = "barangay = ?";
+        $params[] = $barangay_filter;
+    }
     
     if ($disability_filter) {
         $where_conditions[] = "disability_type = ?";
@@ -214,86 +311,6 @@ function generateServicesReport($pdo, $date_from, $date_to, $disability_filter) 
     }
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
-    
-    // Service utilization by disability type
-    $stmt = $pdo->prepare("
-        SELECT 
-            disability_type,
-            COUNT(*) as total_individuals,
-            COUNT(CASE WHEN status = 'issued' THEN 1 END) as active_beneficiaries,
-            COUNT(CASE WHEN employment_status = 'Employed' THEN 1 END) as employed_count,
-            AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
-            COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 1 END) as children_count
-        FROM pwd_records
-        {$where_clause}
-        AND disability_type IS NOT NULL
-        GROUP BY disability_type
-        ORDER BY total_individuals DESC
-    ");
-    $stmt->execute($params);
-    $data['service_utilization'] = $stmt->fetchAll();
-    
-    // Barangay service coverage
-    $stmt = $pdo->prepare("
-        SELECT 
-            barangay,
-            disability_type,
-            COUNT(*) as individuals_served,
-            COUNT(CASE WHEN status = 'issued' THEN 1 END) as active_beneficiaries,
-            COUNT(CASE WHEN employment_status = 'Employed' THEN 1 END) as employed_count
-        FROM pwd_records
-        {$where_clause}
-        AND barangay IS NOT NULL
-        AND disability_type IS NOT NULL
-        GROUP BY barangay, disability_type
-        ORDER BY barangay, individuals_served DESC
-    ");
-    $stmt->execute($params);
-    $data['barangay_services'] = $stmt->fetchAll();
-    
-    return $data;
-}
-
-function generatePerformanceReport($pdo, $date_from, $date_to) {
-    $data = [];
-    
-    // Data completeness metrics
-    $stmt = $pdo->prepare("
-        SELECT 
-            COUNT(*) as total_records,
-            COUNT(CASE WHEN first_name IS NOT NULL AND first_name != '' THEN 1 END) as has_first_name,
-            COUNT(CASE WHEN date_of_birth IS NOT NULL THEN 1 END) as has_birth_date,
-            COUNT(CASE WHEN disability_type IS NOT NULL AND disability_type != '' THEN 1 END) as has_disability_type,
-            COUNT(CASE WHEN address_line1 IS NOT NULL AND address_line1 != '' THEN 1 END) as has_address,
-            COUNT(CASE WHEN phone_number IS NOT NULL AND phone_number != '' THEN 1 END) as has_phone,
-            COUNT(CASE WHEN barangay IS NOT NULL AND barangay != '' THEN 1 END) as has_barangay,
-            AVG(DATEDIFF(COALESCE(validation_date, CURDATE()), created_at)) as avg_processing_days
-        FROM pwd_records
-        WHERE created_at BETWEEN ? AND ?
-    ");
-    $stmt->execute([$date_from, $date_to]);
-    $data['completeness'] = $stmt->fetch();
-    
-    // Monthly performance trends
-    $stmt = $pdo->prepare("
-        SELECT 
-            DATE_FORMAT(created_at, '%Y-%m') as month,
-            COUNT(*) as new_registrations,
-            COUNT(CASE WHEN validation_date IS NOT NULL THEN 1 END) as validated_this_month,
-            AVG(DATEDIFF(COALESCE(validation_date, CURDATE()), created_at)) as avg_processing_days
-        FROM pwd_records
-        WHERE created_at BETWEEN ? AND ?
-        GROUP BY DATE_FORMAT(created_at, '%Y-%m')
-        ORDER BY month
-    ");
-    $stmt->execute([$date_from, $date_to]);
-    $data['monthly_performance'] = $stmt->fetchAll();
-    
-    return $data;
-}
-
-function generateResourcesReport($pdo, $date_from, $date_to) {
-    $data = [];
     
     // Barangay-specific resource recommendations
     $stmt = $pdo->prepare("
@@ -305,13 +322,13 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
             COUNT(CASE WHEN employment_status = 'Unemployed' THEN 1 END) as unemployed_count,
             COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 1 END) as children_count
         FROM pwd_records
-        WHERE created_at BETWEEN ? AND ?
+        {$where_clause}
         AND barangay IS NOT NULL
         AND disability_type IS NOT NULL
         GROUP BY barangay, disability_type
         ORDER BY barangay, count DESC
     ");
-    $stmt->execute([$date_from, $date_to]);
+    $stmt->execute($params);
     $barangay_disabilities = $stmt->fetchAll();
     
     // Group by barangay and get recommendations
@@ -637,6 +654,20 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
             border: 1px solid #bfdbfe;
         }
         
+        .filter-clear {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        
+        .filter-clear:hover {
+            background: #dc2626;
+        }
+        
         @media (max-width: 768px) {
             .analytics-header h1 {
                 font-size: 2rem;
@@ -670,12 +701,6 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
             <a href="?type=demographics" class="report-tab <?php echo $report_type == 'demographics' ? 'active' : ''; ?>">
                 <i class="fas fa-users"></i> Demographics
             </a>
-            <a href="?type=services" class="report-tab <?php echo $report_type == 'services' ? 'active' : ''; ?>">
-                <i class="fas fa-hands-helping"></i> Services by Area
-            </a>
-            <a href="?type=performance" class="report-tab <?php echo $report_type == 'performance' ? 'active' : ''; ?>">
-                <i class="fas fa-tachometer-alt"></i> Data Quality
-            </a>
             <a href="?type=resources" class="report-tab <?php echo $report_type == 'resources' ? 'active' : ''; ?>">
                 <i class="fas fa-lightbulb"></i> Resource Planning
             </a>
@@ -708,8 +733,81 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
                     <?php endif; ?>
                     
                     <div class="form-group">
+                        <label for="status_filter">Status</label>
+                        <select name="status" id="status_filter" class="form-control">
+                            <option value="">All Statuses</option>
+                            <option value="pending_validation" <?php echo $status_filter == 'pending_validation' ? 'selected' : ''; ?>>Pending Validation</option>
+                            <option value="validated" <?php echo $status_filter == 'validated' ? 'selected' : ''; ?>>Validated</option>
+                            <option value="issued" <?php echo $status_filter == 'issued' ? 'selected' : ''; ?>>ID Issued</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="barangay_filter">Barangay</label>
+                        <select name="barangay" id="barangay_filter" class="form-control">
+                            <option value="">All Barangays</option>
+                            <?php foreach ($available_barangays as $barangay): ?>
+                            <option value="<?php echo htmlspecialchars($barangay); ?>" <?php echo $barangay_filter == $barangay ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($barangay); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="disability_filter">Disability Type</label>
+                        <select name="disability" id="disability_filter" class="form-control">
+                            <option value="">All Disabilities</option>
+                            <?php foreach ($available_disabilities as $disability): ?>
+                            <option value="<?php echo htmlspecialchars($disability); ?>" <?php echo $disability_filter == $disability ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($disability); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="gender_filter">Gender</label>
+                        <select name="gender" id="gender_filter" class="form-control">
+                            <option value="">All Genders</option>
+                            <option value="Male" <?php echo $gender_filter == 'Male' ? 'selected' : ''; ?>>Male</option>
+                            <option value="Female" <?php echo $gender_filter == 'Female' ? 'selected' : ''; ?>>Female</option>
+                        </select>
+                    </div>
+                    
+                    <?php if ($report_type == 'demographics'): ?>
+                    <div class="form-group">
+                        <label for="age_group">Age Group</label>
+                        <select name="age_group" id="age_group" class="form-control">
+                            <option value="">All Ages</option>
+                            <option value="children" <?php echo $age_group == 'children' ? 'selected' : ''; ?>>Children (0-17)</option>
+                            <option value="adults" <?php echo $age_group == 'adults' ? 'selected' : ''; ?>>Adults (18-64)</option>
+                            <option value="seniors" <?php echo $age_group == 'seniors' ? 'selected' : ''; ?>>Seniors (65+)</option>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <div class="form-group">
+                        <label for="employment_filter">Employment</label>
+                        <select name="employment" id="employment_filter" class="form-control">
+                            <option value="">All Employment</option>
+                            <?php foreach ($available_employment as $employment): ?>
+                            <option value="<?php echo htmlspecialchars($employment); ?>" <?php echo $employment_filter == $employment ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($employment); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-sync-alt"></i> Update Analytics
+                        </button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" onclick="clearFilters()" class="filter-clear">
+                            <i class="fas fa-times"></i> Clear Filters
                         </button>
                     </div>
                     
@@ -728,10 +826,6 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
                 <?php include 'reports/analytics.php'; ?>
             <?php elseif ($report_type == 'demographics'): ?>
                 <?php include 'reports/demographics.php'; ?>
-            <?php elseif ($report_type == 'services'): ?>
-                <?php include 'reports/services.php'; ?>
-            <?php elseif ($report_type == 'performance'): ?>
-                <?php include 'reports/performance.php'; ?>
             <?php elseif ($report_type == 'resources'): ?>
                 <?php include 'reports/resources.php'; ?>
             <?php endif; ?>
@@ -743,20 +837,45 @@ function generateResourcesReport($pdo, $date_from, $date_to) {
         function exportReport() {
             const form = document.getElementById('filtersForm');
             const formData = new FormData(form);
-            formData.append('export', 'csv');
             
-            const params = new URLSearchParams(formData);
-            window.location.href = `api/export_report.php?${params.toString()}`;
+            // Build query string from form data
+            const params = new URLSearchParams();
+            for (let [key, value] of formData.entries()) {
+                if (value) {
+                    params.append(key, value);
+                }
+            }
+            
+            // Open export in new window
+            window.open(`api/export_report.php?${params.toString()}`, '_blank');
+        }
+        
+        function clearFilters() {
+            const form = document.getElementById('filtersForm');
+            const inputs = form.querySelectorAll('input[type="date"], select');
+            
+            inputs.forEach(input => {
+                if (input.type === 'date') {
+                    if (input.name === 'date_from') {
+                        input.value = '<?php echo date('Y-m-01'); ?>';
+                    } else if (input.name === 'date_to') {
+                        input.value = '<?php echo date('Y-m-d'); ?>';
+                    }
+                } else {
+                    input.selectedIndex = 0;
+                }
+            });
+            
+            // Submit form to apply cleared filters
+            form.submit();
         }
         
         // Initialize charts when page loads
         document.addEventListener('DOMContentLoaded', function() {
-            initializeAnalyticsCharts();
+            if (typeof initializeAnalyticsCharts === 'function') {
+                initializeAnalyticsCharts();
+            }
         });
-        
-        function initializeAnalyticsCharts() {
-            // This will be called by individual report templates
-        }
     </script>
 </body>
 </html>

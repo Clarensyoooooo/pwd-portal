@@ -101,25 +101,25 @@
     </div>
     
     <div class="analytics-card">
-        <h3><i class="fas fa-hands-helping"></i> Support Categories</h3>
+        <h3><i class="fas fa-hands-helping"></i> Disability Types</h3>
         <div class="chart-container">
-            <canvas id="supportChart"></canvas>
+            <canvas id="disabilityChart"></canvas>
         </div>
         <div style="margin-top: 1rem;">
-            <?php if (!empty($report_data['support_categories'])): ?>
-                <?php foreach (array_slice($report_data['support_categories'], 0, 5) as $category): ?>
+            <?php if (!empty($report_data['disability_distribution'])): ?>
+                <?php foreach (array_slice($report_data['disability_distribution'], 0, 5) as $disability): ?>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin: 0.5rem 0; font-size: 0.9rem;">
-                    <span><?php echo htmlspecialchars($category['support_category']); ?></span>
+                    <span><?php echo htmlspecialchars($disability['disability_type']); ?></span>
                     <div style="flex: 1; margin: 0 1rem;">
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: <?php echo $category['percentage']; ?>%"></div>
+                            <div class="progress-fill" style="width: <?php echo $disability['percentage']; ?>%"></div>
                         </div>
                     </div>
-                    <span><?php echo $category['count']; ?> (<?php echo $category['percentage']; ?>%)</span>
+                    <span><?php echo $disability['count']; ?> (<?php echo $disability['percentage']; ?>%)</span>
                 </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <p class="text-muted">No support category data available.</p>
+                <p class="text-muted">No disability type data available.</p>
             <?php endif; ?>
         </div>
     </div>
@@ -133,13 +133,37 @@
             <p><i class="fas fa-info-circle"></i> Tracking community growth and service delivery over time</p>
         </div>
     </div>
+    
+    <div class="analytics-card">
+        <h3><i class="fas fa-briefcase"></i> Employment Status</h3>
+        <div class="chart-container">
+            <canvas id="employmentChart"></canvas>
+        </div>
+        <div style="margin-top: 1rem;">
+            <?php if (!empty($report_data['employment_distribution'])): ?>
+                <?php foreach (array_slice($report_data['employment_distribution'], 0, 4) as $employment): ?>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 0.5rem 0; font-size: 0.9rem;">
+                    <span><?php echo htmlspecialchars($employment['employment_status']); ?></span>
+                    <div style="flex: 1; margin: 0 1rem;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: <?php echo $employment['percentage']; ?>%"></div>
+                        </div>
+                    </div>
+                    <span><?php echo $employment['count']; ?> (<?php echo $employment['percentage']; ?>%)</span>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-muted">No employment data available.</p>
+            <?php endif; ?>
+        </div>
+    </div>
 </div>
 
-<!-- Barangay Distribution Table -->
+<!-- Distribution by Barangay Table -->
 <?php if (!empty($report_data['barangay_distribution'])): ?>
 <div class="analytics-grid">
     <div class="analytics-card" style="grid-column: 1 / -1;">
-        <h3><i class="fas fa-map-marked-alt"></i> Top Barangays by PWD Population</h3>
+        <h3><i class="fas fa-map-marked-alt"></i> Distribution of Persons with Disabilities by Barangay</h3>
         <div style="overflow-x: auto;">
             <table class="data-table">
                 <thead>
@@ -149,6 +173,7 @@
                         <th>Active IDs</th>
                         <th>Average Age</th>
                         <th>Coverage</th>
+                        <th>Distribution %</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -164,6 +189,7 @@
                             </div>
                             <small><?php echo round(($barangay['active_ids'] / max(1, $barangay['count'])) * 100, 1); ?>% active</small>
                         </td>
+                        <td><?php echo $barangay['percentage']; ?>%</td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -237,16 +263,16 @@ function initializeAnalyticsCharts() {
         });
     }
     
-    // Support Categories Chart
-    const supportCtx = document.getElementById('supportChart');
-    if (supportCtx) {
-        new Chart(supportCtx.getContext('2d'), {
+    // Disability Distribution Chart
+    const disabilityCtx = document.getElementById('disabilityChart');
+    if (disabilityCtx) {
+        new Chart(disabilityCtx.getContext('2d'), {
             type: 'bar',
             data: {
-                labels: <?php echo json_encode(array_column($report_data['support_categories'] ?? [], 'support_category')); ?>,
+                labels: <?php echo json_encode(array_column($report_data['disability_distribution'] ?? [], 'disability_type')); ?>,
                 datasets: [{
                     label: 'Individuals',
-                    data: <?php echo json_encode(array_column($report_data['support_categories'] ?? [], 'count')); ?>,
+                    data: <?php echo json_encode(array_column($report_data['disability_distribution'] ?? [], 'count')); ?>,
                     backgroundColor: 'rgba(44, 90, 160, 0.8)',
                     borderColor: '#2c5aa0',
                     borderWidth: 1
@@ -313,6 +339,38 @@ function initializeAnalyticsCharts() {
                         beginAtZero: true,
                         ticks: {
                             stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Employment Status Chart
+    const employmentCtx = document.getElementById('employmentChart');
+    if (employmentCtx) {
+        new Chart(employmentCtx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: <?php echo json_encode(array_column($report_data['employment_distribution'] ?? [], 'employment_status')); ?>,
+                datasets: [{
+                    data: <?php echo json_encode(array_column($report_data['employment_distribution'] ?? [], 'count')); ?>,
+                    backgroundColor: [
+                        '#10b981', '#ef4444', '#f59e0b', '#6b7280', '#8b5cf6'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            usePointStyle: true
                         }
                     }
                 }

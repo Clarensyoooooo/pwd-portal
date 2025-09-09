@@ -22,13 +22,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'delete_record':
             handleDeleteRecord();
             break;
+        case 'get_record_details':
+            handleGetRecordDetails();
+            break;
         default:
             adminJsonResponse(['error' => 'Invalid action'], 400);
     }
 }
 
-// Get records with filters
+// Get records with enhanced filters
 $status_filter = $_GET['status'] ?? '';
+$barangay_filter = $_GET['barangay'] ?? '';
+$disability_filter = $_GET['disability_type'] ?? '';
+$gender_filter = $_GET['gender'] ?? '';
+$age_group_filter = $_GET['age_group'] ?? '';
+$employment_filter = $_GET['employment_status'] ?? '';
 $search = $_GET['search'] ?? '';
 $page = max(1, intval($_GET['page'] ?? 1));
 $per_page = 20;
@@ -38,13 +46,48 @@ $where_conditions = [];
 $params = [];
 
 if ($status_filter) {
-    $where_conditions[] = "status = ?";
+    $where_conditions[] = "pr.status = ?";
     $params[] = $status_filter;
 }
 
+if ($barangay_filter) {
+    $where_conditions[] = "pr.barangay = ?";
+    $params[] = $barangay_filter;
+}
+
+if ($disability_filter) {
+    $where_conditions[] = "pr.disability_type = ?";
+    $params[] = $disability_filter;
+}
+
+if ($gender_filter) {
+    $where_conditions[] = "pr.gender = ?";
+    $params[] = $gender_filter;
+}
+
+if ($employment_filter) {
+    $where_conditions[] = "pr.employment_status = ?";
+    $params[] = $employment_filter;
+}
+
+if ($age_group_filter) {
+    switch ($age_group_filter) {
+        case 'children':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
+            break;
+        case 'adults':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
+            break;
+        case 'seniors':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
+            break;
+    }
+}
+
 if ($search) {
-    $where_conditions[] = "(first_name LIKE ? OR last_name LIKE ? OR pwd_id_number LIKE ? OR email_address LIKE ?)";
+    $where_conditions[] = "(pr.first_name LIKE ? OR pr.last_name LIKE ? OR pr.pwd_id_number LIKE ? OR pr.email_address LIKE ? OR pr.phone_number LIKE ?)";
     $search_param = "%{$search}%";
+    $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
@@ -54,14 +97,15 @@ if ($search) {
 $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 
 // Get total count
-$count_stmt = $pdo->prepare("SELECT COUNT(*) as total FROM pwd_records {$where_clause}");
+$count_stmt = $pdo->prepare("SELECT COUNT(*) as total FROM pwd_records pr {$where_clause}");
 $count_stmt->execute($params);
 $total_records = $count_stmt->fetch()['total'];
 $total_pages = ceil($total_records / $per_page);
 
 // Get records
 $stmt = $pdo->prepare("
-    SELECT pr.*, au1.full_name as created_by_name, au2.full_name as validated_by_name, au3.full_name as issued_by_name
+    SELECT pr.*, au1.full_name as created_by_name, au2.full_name as validated_by_name, au3.full_name as issued_by_name,
+           TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age
     FROM pwd_records pr
     LEFT JOIN admin_users au1 ON pr.created_by = au1.id
     LEFT JOIN admin_users au2 ON pr.validated_by = au2.id
@@ -72,6 +116,16 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute($params);
 $records = $stmt->fetchAll();
+
+// Get filter options from database
+$barangays_stmt = $pdo->query("SELECT DISTINCT barangay FROM pwd_records WHERE barangay IS NOT NULL ORDER BY barangay");
+$barangays = $barangays_stmt->fetchAll(PDO::FETCH_COLUMN);
+
+$disabilities_stmt = $pdo->query("SELECT DISTINCT disability_type FROM pwd_records WHERE disability_type IS NOT NULL ORDER BY disability_type");
+$disabilities = $disabilities_stmt->fetchAll(PDO::FETCH_COLUMN);
+
+$employment_stmt = $pdo->query("SELECT DISTINCT employment_status FROM pwd_records WHERE employment_status IS NOT NULL ORDER BY employment_status");
+$employment_statuses = $employment_stmt->fetchAll(PDO::FETCH_COLUMN);
 
 function handleValidateRecord() {
     global $pdo;
@@ -245,6 +299,42 @@ function handleDeleteRecord() {
         adminJsonResponse(['error' => 'Failed to delete record: ' . $e->getMessage()], 500);
     }
 }
+
+function handleGetRecordDetails() {
+    global $pdo;
+    
+    $record_id = $_POST['record_id'] ?? '';
+    
+    if (empty($record_id)) {
+        adminJsonResponse(['error' => 'Record ID is required'], 400);
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT pr.*, au1.full_name as created_by_name, au2.full_name as validated_by_name, au3.full_name as issued_by_name,
+                   TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age
+            FROM pwd_records pr
+            LEFT JOIN admin_users au1 ON pr.created_by = au1.id
+            LEFT JOIN admin_users au2 ON pr.validated_by = au2.id
+            LEFT JOIN admin_users au3 ON pr.issued_by = au3.id
+            WHERE pr.id = ?
+        ");
+        $stmt->execute([$record_id]);
+        $record = $stmt->fetch();
+        
+        if (!$record) {
+            adminJsonResponse(['error' => 'Record not found'], 404);
+        }
+        
+        adminJsonResponse([
+            'success' => true,
+            'record' => $record
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to get record details: ' . $e->getMessage()], 500);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -285,7 +375,8 @@ function handleDeleteRecord() {
                     COUNT(*) as total,
                     SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,
                     SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated,
-                    SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued
+                    SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued,
+                    SUM(CASE WHEN expiry_date < CURDATE() AND status = 'issued' THEN 1 ELSE 0 END) as expired
                 FROM pwd_records
             ";
             $stats_result = $pdo->query($stats_query)->fetch();
@@ -332,7 +423,7 @@ function handleDeleteRecord() {
             </div>
         </div>
         
-        <!-- Filters -->
+        <!-- Enhanced Filters -->
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -348,8 +439,67 @@ function handleDeleteRecord() {
                 </div>
                 
                 <div class="filter-group">
+                    <label for="barangay">Barangay</label>
+                    <select name="barangay" id="barangay">
+                        <option value="">All Barangays</option>
+                        <?php foreach ($barangays as $barangay): ?>
+                            <option value="<?php echo htmlspecialchars($barangay); ?>" 
+                                    <?php echo $barangay_filter === $barangay ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($barangay); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="disability_type">Disability Type</label>
+                    <select name="disability_type" id="disability_type">
+                        <option value="">All Disabilities</option>
+                        <?php foreach ($disabilities as $disability): ?>
+                            <option value="<?php echo htmlspecialchars($disability); ?>" 
+                                    <?php echo $disability_filter === $disability ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($disability); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="gender">Gender</label>
+                    <select name="gender" id="gender">
+                        <option value="">All Genders</option>
+                        <option value="Male" <?php echo $gender_filter === 'Male' ? 'selected' : ''; ?>>Male</option>
+                        <option value="Female" <?php echo $gender_filter === 'Female' ? 'selected' : ''; ?>>Female</option>
+                        <option value="Other" <?php echo $gender_filter === 'Other' ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="age_group">Age Group</label>
+                    <select name="age_group" id="age_group">
+                        <option value="">All Ages</option>
+                        <option value="children" <?php echo $age_group_filter === 'children' ? 'selected' : ''; ?>>Children (0-17)</option>
+                        <option value="adults" <?php echo $age_group_filter === 'adults' ? 'selected' : ''; ?>>Adults (18-59)</option>
+                        <option value="seniors" <?php echo $age_group_filter === 'seniors' ? 'selected' : ''; ?>>Seniors (60+)</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="employment_status">Employment</label>
+                    <select name="employment_status" id="employment_status">
+                        <option value="">All Employment</option>
+                        <?php foreach ($employment_statuses as $employment): ?>
+                            <option value="<?php echo htmlspecialchars($employment); ?>" 
+                                    <?php echo $employment_filter === $employment ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($employment); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
                     <label for="search">Search</label>
-                    <input type="text" name="search" id="search" placeholder="Name, PWD ID, or email..." 
+                    <input type="text" name="search" id="search" placeholder="Name, PWD ID, email, or phone..." 
                            value="<?php echo htmlspecialchars($search); ?>">
                 </div>
                 
@@ -376,12 +526,12 @@ function handleDeleteRecord() {
                     <thead>
                         <tr>
                             <th>PWD ID</th>
-                            <th>Name</th>
+                            <th>Name & Age</th>
                             <th>Contact</th>
                             <th>Disability</th>
                             <th>Location</th>
+                            <th>Employment</th>
                             <th>Status</th>
-                            <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -395,12 +545,20 @@ function handleDeleteRecord() {
                                             Issued: <?php echo date('M j, Y', strtotime($record['issue_date'])); ?>
                                         </small>
                                     <?php endif; ?>
+                                    <?php if ($record['expiry_date'] && $record['status'] === 'issued'): ?>
+                                        <br><small class="text-muted">
+                                            Expires: <?php echo date('M j, Y', strtotime($record['expiry_date'])); ?>
+                                        </small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($record['first_name'] . ' ' . $record['last_name']); ?></strong>
                                     <?php if ($record['middle_name']): ?>
                                         <br><small class="text-muted"><?php echo htmlspecialchars($record['middle_name']); ?></small>
                                     <?php endif; ?>
+                                    <br><small class="text-muted">
+                                        <?php echo $record['gender']; ?>, Age <?php echo $record['age']; ?>
+                                    </small>
                                 </td>
                                 <td>
                                     <?php echo htmlspecialchars($record['phone_number']); ?>
@@ -415,60 +573,57 @@ function handleDeleteRecord() {
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php echo htmlspecialchars($record['city_municipality'] . ', ' . $record['province']); ?>
-                                    <?php if ($record['latitude'] && $record['longitude']): ?>
-                                        <br><small class="text-muted">
-                                            <i class="fas fa-map-marker-alt"></i> 
-                                            <?php echo number_format($record['latitude'], 4) . ', ' . number_format($record['longitude'], 4); ?>
-                                        </small>
+                                    <strong><?php echo htmlspecialchars($record['barangay']); ?></strong>
+                                    <br><small class="text-muted"><?php echo htmlspecialchars($record['city_municipality']); ?></small>
+                                </td>
+                                <td>
+                                    <span class="employment-badge employment-<?php echo strtolower(str_replace(' ', '-', $record['employment_status'])); ?>">
+                                        <?php echo htmlspecialchars($record['employment_status']); ?>
+                                    </span>
+                                    <?php if ($record['occupation']): ?>
+                                        <br><small class="text-muted"><?php echo htmlspecialchars($record['occupation']); ?></small>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="status-badge status-<?php echo $record['status']; ?>">
                                         <?php echo ucfirst($record['status']); ?>
                                     </span>
-                                    <?php if ($record['expiry_date'] && $record['status'] === 'issued'): ?>
-                                        <br><small class="text-muted">
-                                            Expires: <?php echo date('M j, Y', strtotime($record['expiry_date'])); ?>
-                                        </small>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php echo date('M j, Y', strtotime($record['created_at'])); ?>
-                                    <br><small class="text-muted">by <?php echo htmlspecialchars($record['created_by_name']); ?></small>
+                                    <br><small class="text-muted">
+                                        <?php echo date('M j, Y', strtotime($record['created_at'])); ?>
+                                    </small>
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-sm btn-primary" onclick="viewRecord(<?php echo $record['id']; ?>)">
+                                        <button class="btn btn-sm btn-primary" onclick="viewRecord(<?php echo $record['id']; ?>)" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         
                                         <?php if (hasPermission($pdo, 'records.edit')): ?>
-                                            <button class="btn btn-sm btn-warning" onclick="editRecord(<?php echo $record['id']; ?>)">
+                                            <button class="btn btn-sm btn-warning" onclick="editRecord(<?php echo $record['id']; ?>)" title="Edit">
                                                 <i class="fas fa-edit"></i>
                                             </button>
                                         <?php endif; ?>
                                         
                                         <?php if (hasPermission($pdo, 'records.validate') && $record['status'] === 'draft'): ?>
-                                            <button class="btn btn-sm btn-success" onclick="validateRecord(<?php echo $record['id']; ?>)">
+                                            <button class="btn btn-sm btn-success" onclick="validateRecord(<?php echo $record['id']; ?>)" title="Validate">
                                                 <i class="fas fa-check"></i>
                                             </button>
                                         <?php endif; ?>
                                         
                                         <?php if (hasPermission($pdo, 'records.issue') && $record['status'] === 'validated'): ?>
-                                            <button class="btn btn-sm btn-info" onclick="issueID(<?php echo $record['id']; ?>)">
+                                            <button class="btn btn-sm btn-info" onclick="issueID(<?php echo $record['id']; ?>)" title="Issue ID">
                                                 <i class="fas fa-id-badge"></i>
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if ($record['latitude'] && $record['longitude']): ?>
-                                            <button class="btn btn-sm btn-secondary" onclick="showOnMap(<?php echo $record['latitude']; ?>, <?php echo $record['longitude']; ?>)">
-                                                <i class="fas fa-map"></i>
+                                        <?php if ($record['status'] === 'issued'): ?>
+                                            <button class="btn btn-sm btn-secondary" onclick="printID(<?php echo $record['id']; ?>)" title="Print ID">
+                                                <i class="fas fa-print"></i>
                                             </button>
                                         <?php endif; ?>
                                         
                                         <?php if (hasPermission($pdo, 'records.delete')): ?>
-                                            <button class="btn btn-sm btn-danger" onclick="deleteRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')">
+                                            <button class="btn btn-sm btn-danger" onclick="deleteRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')" title="Delete">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         <?php endif; ?>
@@ -493,7 +648,7 @@ function handleDeleteRecord() {
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
-                        <a href="?page=<?php echo $page - 1; ?>&status=<?php echo urlencode($status_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                        <a href="?page=<?php echo $page - 1; ?>&<?php echo http_build_query($_GET); ?>" class="btn btn-outline btn-sm">
                             <i class="fas fa-chevron-left"></i> Previous
                         </a>
                     <?php endif; ?>
@@ -504,7 +659,7 @@ function handleDeleteRecord() {
                     </span>
                     
                     <?php if ($page < $total_pages): ?>
-                        <a href="?page=<?php echo $page + 1; ?>&status=<?php echo urlencode($status_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                        <a href="?page=<?php echo $page + 1; ?>&<?php echo http_build_query($_GET); ?>" class="btn btn-outline btn-sm">
                             Next <i class="fas fa-chevron-right"></i>
                         </a>
                     <?php endif; ?>
@@ -522,6 +677,158 @@ function handleDeleteRecord() {
             </div>
             <div class="modal-body" id="recordModalBody">
                 <!-- Content will be loaded dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Record Modal -->
+    <div id="editRecordModal" class="modal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3>Edit PWD Record</h3>
+                <button class="modal-close" onclick="closeModal('editRecordModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="editRecordForm">
+                    <input type="hidden" id="editRecordId" name="record_id">
+                    
+                    <div class="form-section">
+                        <h4><i class="fas fa-user"></i> Personal Information</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="editFirstName">First Name</label>
+                                <input type="text" id="editFirstName" name="first_name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editMiddleName">Middle Name</label>
+                                <input type="text" id="editMiddleName" name="middle_name">
+                            </div>
+                            <div class="form-group">
+                                <label for="editLastName">Last Name</label>
+                                <input type="text" id="editLastName" name="last_name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editSuffix">Suffix</label>
+                                <input type="text" id="editSuffix" name="suffix">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-section">
+                        <h4><i class="fas fa-phone"></i> Contact Information</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="editPhone">Phone Number</label>
+                                <input type="tel" id="editPhone" name="phone_number" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editEmail">Email Address</label>
+                                <input type="email" id="editEmail" name="email_address">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-section">
+                        <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="editAddress1">Address Line 1</label>
+                                <input type="text" id="editAddress1" name="address_line1" required>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="editAddress2">Address Line 2</label>
+                                <input type="text" id="editAddress2" name="address_line2">
+                            </div>
+                            <div class="form-group">
+                                <label for="editBarangay">Barangay</label>
+                                <input type="text" id="editBarangay" name="barangay" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editCity">City/Municipality</label>
+                                <input type="text" id="editCity" name="city_municipality" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editProvince">Province</label>
+                                <input type="text" id="editProvince" name="province" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editPostal">Postal Code</label>
+                                <input type="text" id="editPostal" name="postal_code">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-section">
+                        <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="editDisabilityType">Disability Type</label>
+                                <select id="editDisabilityType" name="disability_type" required>
+                                    <option value="">Select Type</option>
+                                    <option value="Physical Disability">Physical Disability</option>
+                                    <option value="Visual Impairment">Visual Impairment</option>
+                                    <option value="Hearing Impairment">Hearing Impairment</option>
+                                    <option value="Intellectual Disability">Intellectual Disability</option>
+                                    <option value="Psychosocial Disability">Psychosocial Disability</option>
+                                    <option value="Multiple Disabilities">Multiple Disabilities</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="editDisabilityCause">Disability Cause</label>
+                                <select id="editDisabilityCause" name="disability_cause">
+                                    <option value="">Select Cause</option>
+                                    <option value="Congenital">Congenital</option>
+                                    <option value="Accident">Accident</option>
+                                    <option value="Illness">Illness</option>
+                                    <option value="Injury">Injury</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="editDisabilityDescription">Disability Description</label>
+                                <textarea id="editDisabilityDescription" name="disability_description" rows="3"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-section">
+                        <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="editEmploymentStatus">Employment Status</label>
+                                <select id="editEmploymentStatus" name="employment_status">
+                                    <option value="Unemployed">Unemployed</option>
+                                    <option value="Employed">Employed</option>
+                                    <option value="Self-employed">Self-employed</option>
+                                    <option value="Student">Student</option>
+                                    <option value="Retired">Retired</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="editOccupation">Occupation</label>
+                                <input type="text" id="editOccupation" name="occupation">
+                            </div>
+                            <div class="form-group">
+                                <label for="editEmployer">Employer Name</label>
+                                <input type="text" id="editEmployer" name="employer_name">
+                            </div>
+                            <div class="form-group">
+                                <label for="editIncome">Monthly Income</label>
+                                <input type="number" id="editIncome" name="monthly_income" min="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Record
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeModal('editRecordModal')">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -589,41 +896,29 @@ function handleDeleteRecord() {
         </div>
     </div>
     
-    <!-- Map Modal -->
-    <div id="mapModal" class="modal">
-        <div class="modal-content large-modal">
-            <div class="modal-header">
-                <h3>Record Location</h3>
-                <button class="modal-close" onclick="closeModal('mapModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="recordLocationMap" style="height: 400px;"></div>
-            </div>
-        </div>
-    </div>
-    
     <script src="assets/admin.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
     <script>
-        let recordMap;
-        
         // View record details
         function viewRecord(recordId) {
-            fetch(`api/records.php?action=get_record&id=${recordId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        displayRecordDetails(data.record);
-                        showModal('recordModal');
-                    } else {
-                        showNotification(data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    showNotification('Failed to load record details', 'error');
-                });
+            fetch('records.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=get_record_details&record_id=${recordId}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayRecordDetails(data.record);
+                    showModal('recordModal');
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to load record details', 'error');
+            });
         }
         
         function displayRecordDetails(record) {
@@ -647,16 +942,16 @@ function handleDeleteRecord() {
                                     <span class="value">${formatDate(record.date_of_birth)}</span>
                                 </div>
                                 <div class="detail-row">
+                                    <span class="label">Age:</span>
+                                    <span class="value">${record.age} years old</span>
+                                </div>
+                                <div class="detail-row">
                                     <span class="label">Gender:</span>
                                     <span class="value">${record.gender}</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="label">Civil Status:</span>
                                     <span class="value">${record.civil_status}</span>
-                                </div>
-                                <div class="detail-row">
-                                    <span class="label">Place of Birth:</span>
-                                    <span class="value">${record.place_of_birth || 'Not specified'}</span>
                                 </div>
                             </div>
                         </div>
@@ -684,12 +979,6 @@ function handleDeleteRecord() {
                                     <span class="label">Postal Code:</span>
                                     <span class="value">${record.postal_code || 'Not specified'}</span>
                                 </div>
-                                ${record.latitude && record.longitude ? `
-                                <div class="detail-row">
-                                    <span class="label">Coordinates:</span>
-                                    <span class="value">${parseFloat(record.latitude).toFixed(6)}, ${parseFloat(record.longitude).toFixed(6)}</span>
-                                </div>
-                                ` : ''}
                             </div>
                         </div>
                         
@@ -803,8 +1092,48 @@ function handleDeleteRecord() {
         
         // Edit record
         function editRecord(recordId) {
-            // Implementation for editing record
-            showNotification('Edit functionality will be implemented', 'info');
+            fetch('records.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=get_record_details&record_id=${recordId}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    populateEditForm(data.record);
+                    showModal('editRecordModal');
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to load record details', 'error');
+            });
+        }
+        
+        function populateEditForm(record) {
+            document.getElementById('editRecordId').value = record.id;
+            document.getElementById('editFirstName').value = record.first_name || '';
+            document.getElementById('editMiddleName').value = record.middle_name || '';
+            document.getElementById('editLastName').value = record.last_name || '';
+            document.getElementById('editSuffix').value = record.suffix || '';
+            document.getElementById('editPhone').value = record.phone_number || '';
+            document.getElementById('editEmail').value = record.email_address || '';
+            document.getElementById('editAddress1').value = record.address_line1 || '';
+            document.getElementById('editAddress2').value = record.address_line2 || '';
+            document.getElementById('editBarangay').value = record.barangay || '';
+            document.getElementById('editCity').value = record.city_municipality || '';
+            document.getElementById('editProvince').value = record.province || '';
+            document.getElementById('editPostal').value = record.postal_code || '';
+            document.getElementById('editDisabilityType').value = record.disability_type || '';
+            document.getElementById('editDisabilityCause').value = record.disability_cause || '';
+            document.getElementById('editDisabilityDescription').value = record.disability_description || '';
+            document.getElementById('editEmploymentStatus').value = record.employment_status || '';
+            document.getElementById('editOccupation').value = record.occupation || '';
+            document.getElementById('editEmployer').value = record.employer_name || '';
+            document.getElementById('editIncome').value = record.monthly_income || '';
         }
         
         // Validate record
@@ -819,25 +1148,9 @@ function handleDeleteRecord() {
             showModal('issueModal');
         }
         
-        // Show on map
-        function showOnMap(lat, lng) {
-            showModal('mapModal');
-            
-            setTimeout(() => {
-                if (recordMap) {
-                    recordMap.remove();
-                }
-                
-                recordMap = L.map('recordLocationMap').setView([lat, lng], 15);
-                
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors'
-                }).addTo(recordMap);
-                
-                L.marker([lat, lng]).addTo(recordMap)
-                    .bindPopup(`Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-                    .openPopup();
-            }, 300);
+        // Print ID
+        function printID(recordId) {
+            window.open(`print_id.php?id=${recordId}`, '_blank');
         }
         
         // Delete record
@@ -870,18 +1183,37 @@ function handleDeleteRecord() {
         
         // Export records
         function exportRecords() {
-            const status = document.getElementById('status').value;
-            const search = document.getElementById('search').value;
-            
-            const params = new URLSearchParams();
-            if (status) params.append('status', status);
-            if (search) params.append('search', search);
+            const params = new URLSearchParams(window.location.search);
             params.append('export', '1');
-            
-            window.open(`api/records.php?${params.toString()}`, '_blank');
+            window.open(`api/export_report.php?type=records&${params.toString()}`, '_blank');
         }
         
         // Form submissions
+        document.getElementById('editRecordForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'update_record');
+            
+            fetch('records.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    closeModal('editRecordModal');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to update record', 'error');
+            });
+        });
+        
         document.getElementById('validationForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
@@ -934,6 +1266,38 @@ function handleDeleteRecord() {
     </script>
     
     <style>
+        .employment-badge {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .employment-badge.employment-employed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .employment-badge.employment-unemployed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .employment-badge.employment-self-employed {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .employment-badge.employment-student {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .employment-badge.employment-retired {
+            background: #f3e8ff;
+            color: #7c3aed;
+        }
+        
         .large-modal .modal-content {
             max-width: 900px;
         }
@@ -997,6 +1361,63 @@ function handleDeleteRecord() {
             word-break: break-word;
         }
         
+        .form-section {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .form-section:last-child {
+            border-bottom: none;
+        }
+        
+        .form-section h4 {
+            color: #2c5aa0;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .form-group label {
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #2c5aa0;
+            box-shadow: 0 0 0 3px rgba(44, 90, 160, 0.1);
+        }
+        
         .pagination {
             display: flex;
             justify-content: space-between;
@@ -1023,6 +1444,10 @@ function handleDeleteRecord() {
             
             .detail-row .value {
                 text-align: left;
+            }
+            
+            .form-grid {
+                grid-template-columns: 1fr;
             }
             
             .pagination {

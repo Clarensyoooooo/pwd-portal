@@ -19,15 +19,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'cancel_appointment':
             handleCancelAppointment();
             break;
+        case 'reschedule_appointment':
+            handleRescheduleAppointment();
+            break;
+        case 'get_appointment_details':
+            handleGetAppointmentDetails();
+            break;
         default:
             adminJsonResponse(['error' => 'Invalid action'], 400);
     }
 }
 
-// Get appointments with filters
+// Get appointments with enhanced filters
 $status_filter = $_GET['status'] ?? '';
 $date_filter = $_GET['date'] ?? '';
+$date_range = $_GET['date_range'] ?? '';
+$appointment_type_filter = $_GET['appointment_type'] ?? '';
 $search = $_GET['search'] ?? '';
+$page = max(1, intval($_GET['page'] ?? 1));
+$per_page = 20;
+$offset = ($page - 1) * $per_page;
 
 $where_conditions = [];
 $params = [];
@@ -37,14 +48,40 @@ if ($status_filter) {
     $params[] = $status_filter;
 }
 
+if ($appointment_type_filter) {
+    $where_conditions[] = "a.appointment_type = ?";
+    $params[] = $appointment_type_filter;
+}
+
 if ($date_filter) {
     $where_conditions[] = "DATE(a.preferred_date) = ?";
     $params[] = $date_filter;
 }
 
+if ($date_range) {
+    switch ($date_range) {
+        case 'today':
+            $where_conditions[] = "DATE(a.preferred_date) = CURDATE()";
+            break;
+        case 'tomorrow':
+            $where_conditions[] = "DATE(a.preferred_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)";
+            break;
+        case 'this_week':
+            $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(CURDATE())";
+            break;
+        case 'next_week':
+            $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(DATE_ADD(CURDATE(), INTERVAL 1 WEEK))";
+            break;
+        case 'this_month':
+            $where_conditions[] = "YEAR(a.preferred_date) = YEAR(CURDATE()) AND MONTH(a.preferred_date) = MONTH(CURDATE())";
+            break;
+    }
+}
+
 if ($search) {
-    $where_conditions[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR a.reference_number LIKE ?)";
+    $where_conditions[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR a.reference_number LIKE ? OR u.phone LIKE ?)";
     $search_param = "%{$search}%";
+    $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
@@ -52,17 +89,36 @@ if ($search) {
 
 $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 
+// Get total count
+$count_stmt = $pdo->prepare("
+    SELECT COUNT(*) as total 
+    FROM appointments a 
+    JOIN users u ON a.user_id = u.id 
+    {$where_clause}
+");
+$count_stmt->execute($params);
+$total_appointments = $count_stmt->fetch()['total'];
+$total_pages = ceil($total_appointments / $per_page);
+
+// Get appointments
 $stmt = $pdo->prepare("
-    SELECT a.*, u.first_name, u.last_name, u.phone, u.email,
-           ir.id as interview_id, ir.status as interview_status
+    SELECT a.*, u.first_name, u.last_name, u.phone, u.email, u.address, u.disability_type,
+           ir.id as interview_id, ir.status as interview_status,
+           pr.pwd_id_number, pr.status as record_status
     FROM appointments a 
     JOIN users u ON a.user_id = u.id 
     LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+    LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
     {$where_clause}
     ORDER BY a.created_at DESC
+    LIMIT {$per_page} OFFSET {$offset}
 ");
 $stmt->execute($params);
 $appointments = $stmt->fetchAll();
+
+// Get appointment types for filter
+$types_stmt = $pdo->query("SELECT DISTINCT appointment_type FROM appointments ORDER BY appointment_type");
+$appointment_types = $types_stmt->fetchAll(PDO::FETCH_COLUMN);
 
 function handleStartInterview() {
     global $pdo;
@@ -84,8 +140,8 @@ function handleStartInterview() {
         
         // Create interview record
         $stmt = $pdo->prepare("
-            INSERT INTO interview_records (appointment_id, interviewer_id, status) 
-            VALUES (?, ?, 'in_progress')
+            INSERT INTO interview_records (appointment_id, interviewer_id, status, interview_date) 
+            VALUES (?, ?, 'in_progress', NOW())
         ");
         $stmt->execute([$appointment_id, $_SESSION['admin_user_id']]);
         
@@ -100,7 +156,8 @@ function handleStartInterview() {
         adminJsonResponse([
             'success' => true,
             'message' => 'Interview started successfully',
-            'interview_id' => $interview_id
+            'interview_id' => $interview_id,
+            'redirect_url' => "interview.php?id={$interview_id}"
         ]);
         
     } catch (PDOException $e) {
@@ -121,7 +178,7 @@ function handleUpdateAppointment() {
     }
     
     try {
-        $stmt = $pdo->prepare("UPDATE appointments SET status = ?, notes = ? WHERE id = ?");
+        $stmt = $pdo->prepare("UPDATE appointments SET status = ?, notes = ?, updated_at = NOW() WHERE id = ?");
         $stmt->execute([$status, $notes, $appointment_id]);
         
         logAdminActivity($pdo, 'edit', 'appointments', 'appointment', $appointment_id, [
@@ -139,6 +196,43 @@ function handleUpdateAppointment() {
     }
 }
 
+function handleRescheduleAppointment() {
+    global $pdo;
+    requirePermission($pdo, 'appointments.edit');
+    
+    $appointment_id = $_POST['appointment_id'] ?? '';
+    $new_date = $_POST['new_date'] ?? '';
+    $new_time = $_POST['new_time'] ?? '';
+    $reason = $_POST['reason'] ?? '';
+    
+    if (empty($appointment_id) || empty($new_date) || empty($new_time)) {
+        adminJsonResponse(['error' => 'All fields are required'], 400);
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE appointments 
+            SET preferred_date = ?, preferred_time = ?, notes = CONCAT(COALESCE(notes, ''), '\nRescheduled: ', ?), updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([$new_date, $new_time, $reason, $appointment_id]);
+        
+        logAdminActivity($pdo, 'reschedule', 'appointments', 'appointment', $appointment_id, [
+            'new_date' => $new_date,
+            'new_time' => $new_time,
+            'reason' => $reason
+        ]);
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => 'Appointment rescheduled successfully'
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to reschedule appointment: ' . $e->getMessage()], 500);
+    }
+}
+
 function handleCancelAppointment() {
     global $pdo;
     requirePermission($pdo, 'appointments.cancel');
@@ -151,7 +245,11 @@ function handleCancelAppointment() {
     }
     
     try {
-        $stmt = $pdo->prepare("UPDATE appointments SET status = 'cancelled', notes = ? WHERE id = ?");
+        $stmt = $pdo->prepare("
+            UPDATE appointments 
+            SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), '\nCancelled: ', ?), updated_at = NOW()
+            WHERE id = ?
+        ");
         $stmt->execute([$reason, $appointment_id]);
         
         logAdminActivity($pdo, 'cancel', 'appointments', 'appointment', $appointment_id, [
@@ -165,6 +263,46 @@ function handleCancelAppointment() {
         
     } catch (PDOException $e) {
         adminJsonResponse(['error' => 'Failed to cancel appointment: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleGetAppointmentDetails() {
+    global $pdo;
+    
+    $appointment_id = $_POST['appointment_id'] ?? '';
+    
+    if (empty($appointment_id)) {
+        adminJsonResponse(['error' => 'Appointment ID is required'], 400);
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT a.*, u.first_name, u.last_name, u.phone, u.email, u.address, u.disability_type,
+                   ir.id as interview_id, ir.status as interview_status, ir.interview_notes,
+                   ir.eligibility_assessment, ir.recommendations, ir.documents_verified,
+                   pr.pwd_id_number, pr.status as record_status,
+                   au.full_name as interviewer_name
+            FROM appointments a 
+            JOIN users u ON a.user_id = u.id 
+            LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+            LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+            LEFT JOIN admin_users au ON ir.interviewer_id = au.id
+            WHERE a.id = ?
+        ");
+        $stmt->execute([$appointment_id]);
+        $appointment = $stmt->fetch();
+        
+        if (!$appointment) {
+            adminJsonResponse(['error' => 'Appointment not found'], 404);
+        }
+        
+        adminJsonResponse([
+            'success' => true,
+            'appointment' => $appointment
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to get appointment details: ' . $e->getMessage()], 500);
     }
 }
 ?>
@@ -183,15 +321,78 @@ function handleCancelAppointment() {
     
     <main class="main-content">
         <div class="page-header">
-            <h1><i class="fas fa-calendar-check"></i> Appointments</h1>
+            <div>
+                <h1><i class="fas fa-calendar-check"></i> Appointments</h1>
+                <p>Manage appointment scheduling and interviews</p>
+            </div>
             <div class="page-actions">
+                <button class="btn btn-outline" onclick="exportAppointments()">
+                    <i class="fas fa-download"></i> Export
+                </button>
                 <button class="btn btn-primary" onclick="refreshAppointments()">
                     <i class="fas fa-sync-alt"></i> Refresh
                 </button>
             </div>
         </div>
         
-        <!-- Filters -->
+        <!-- Statistics Cards -->
+        <div class="stats-grid">
+            <?php
+            $stats_query = "
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+                    SUM(CASE WHEN DATE(preferred_date) = CURDATE() THEN 1 ELSE 0 END) as today
+                FROM appointments
+            ";
+            $stats_result = $pdo->query($stats_query)->fetch();
+            ?>
+            
+            <div class="stat-card">
+                <div class="stat-icon appointments">
+                    <i class="fas fa-calendar-check"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['total']); ?></h3>
+                    <p>Total Appointments</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon pending">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['pending']); ?></h3>
+                    <p>Pending</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon validated">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['confirmed']); ?></h3>
+                    <p>Confirmed</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon records">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['today']); ?></h3>
+                    <p>Today's Appointments</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Enhanced Filters -->
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -206,13 +407,38 @@ function handleCancelAppointment() {
                 </div>
                 
                 <div class="filter-group">
-                    <label for="date">Date</label>
+                    <label for="appointment_type">Type</label>
+                    <select name="appointment_type" id="appointment_type">
+                        <option value="">All Types</option>
+                        <?php foreach ($appointment_types as $type): ?>
+                            <option value="<?php echo htmlspecialchars($type); ?>" 
+                                    <?php echo $appointment_type_filter === $type ? 'selected' : ''; ?>>
+                                <?php echo ucwords(str_replace('_', ' ', $type)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="date_range">Date Range</label>
+                    <select name="date_range" id="date_range">
+                        <option value="">All Dates</option>
+                        <option value="today" <?php echo $date_range === 'today' ? 'selected' : ''; ?>>Today</option>
+                        <option value="tomorrow" <?php echo $date_range === 'tomorrow' ? 'selected' : ''; ?>>Tomorrow</option>
+                        <option value="this_week" <?php echo $date_range === 'this_week' ? 'selected' : ''; ?>>This Week</option>
+                        <option value="next_week" <?php echo $date_range === 'next_week' ? 'selected' : ''; ?>>Next Week</option>
+                        <option value="this_month" <?php echo $date_range === 'this_month' ? 'selected' : ''; ?>>This Month</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="date">Specific Date</label>
                     <input type="date" name="date" id="date" value="<?php echo htmlspecialchars($date_filter); ?>">
                 </div>
                 
                 <div class="filter-group">
                     <label for="search">Search</label>
-                    <input type="text" name="search" id="search" placeholder="Name or reference number..." 
+                    <input type="text" name="search" id="search" placeholder="Name, reference, or phone..." 
                            value="<?php echo htmlspecialchars($search); ?>">
                 </div>
                 
@@ -231,7 +457,7 @@ function handleCancelAppointment() {
         <div class="data-card">
             <div class="card-header">
                 <h3>Appointment List</h3>
-                <span class="record-count"><?php echo count($appointments); ?> appointments</span>
+                <span class="record-count"><?php echo number_format($total_appointments); ?> appointments</span>
             </div>
             
             <div class="table-container">
@@ -244,7 +470,7 @@ function handleCancelAppointment() {
                             <th>Type</th>
                             <th>Date & Time</th>
                             <th>Status</th>
-                            <th>Interview</th>
+                            <th>Progress</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -280,40 +506,56 @@ function handleCancelAppointment() {
                                     </span>
                                 </td>
                                 <td>
-                                    <?php if ($appointment['interview_id']): ?>
-                                        <span class="status-badge status-<?php echo $appointment['interview_status']; ?>">
-                                            <?php echo ucfirst($appointment['interview_status']); ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="text-muted">Not started</span>
-                                    <?php endif; ?>
+                                    <div class="progress-indicators">
+                                        <?php if ($appointment['interview_id']): ?>
+                                            <span class="progress-badge interview-<?php echo $appointment['interview_status']; ?>">
+                                                <i class="fas fa-comments"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        
+                                        <?php if ($appointment['pwd_id_number']): ?>
+                                            <span class="progress-badge record-<?php echo $appointment['record_status']; ?>">
+                                                <i class="fas fa-id-card"></i> Record: <?php echo ucfirst($appointment['record_status']); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        
+                                        <?php if (!$appointment['interview_id'] && !$appointment['pwd_id_number']): ?>
+                                            <span class="text-muted">No progress yet</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-sm btn-primary" onclick="viewAppointment(<?php echo $appointment['id']; ?>)">
+                                        <button class="btn btn-sm btn-primary" onclick="viewAppointment(<?php echo $appointment['id']; ?>)" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         
-                                        <?php if (hasPermission($pdo, 'appointments.interview') && !$appointment['interview_id'] && $appointment['status'] !== 'cancelled'): ?>
-                                            <button class="btn btn-sm btn-success" onclick="startInterview(<?php echo $appointment['id']; ?>)">
-                                                <i class="fas fa-comments"></i>
+                                        <?php if (hasPermission($pdo, 'appointments.edit')): ?>
+                                            <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)" title="Edit">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            
+                                            <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
+                                                <i class="fas fa-calendar-alt"></i>
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if ($appointment['interview_id']): ?>
-                                            <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-info">
-                                                <i class="fas fa-edit"></i>
+                                        <?php if (hasPermission($pdo, 'appointments.interview') && !$appointment['interview_id'] && $appointment['status'] !== 'cancelled'): ?>
+                                            <button class="btn btn-sm btn-success" onclick="startInterview(<?php echo $appointment['id']; ?>)" title="Start Interview">
+                                                <i class="fas fa-play"></i>
+                                            </button>
+                                        <?php endif; ?>
+                                        
+                                        <?php 
+                                        // Only show continue interview if record is not validated or issued
+                                        if ($appointment['interview_id'] && (!$appointment['record_status'] || in_array($appointment['record_status'], ['draft']))): ?>
+                                            <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
+                                                <i class="fas fa-arrow-right"></i>
                                             </a>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission($pdo, 'appointments.edit')): ?>
-                                            <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                        <?php endif; ?>
-                                        
-                                        <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['status'] !== 'cancelled'): ?>
-                                            <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)">
+                                        <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['status'] !== 'cancelled' && $appointment['status'] !== 'completed'): ?>
+                                            <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)" title="Cancel">
                                                 <i class="fas fa-times"></i>
                                             </button>
                                         <?php endif; ?>
@@ -333,24 +575,118 @@ function handleCancelAppointment() {
                     </tbody>
                 </table>
             </div>
+            
+            <!-- Pagination -->
+            <?php if ($total_pages > 1): ?>
+                <div class="pagination">
+                    <?php if ($page > 1): ?>
+                        <a href="?page=<?php echo $page - 1; ?>&<?php echo http_build_query(array_filter($_GET, function($key) { return $key !== 'page'; }, ARRAY_FILTER_USE_KEY)); ?>" class="btn btn-outline btn-sm">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    <?php endif; ?>
+                    
+                    <span class="pagination-info">
+                        Page <?php echo $page; ?> of <?php echo $total_pages; ?>
+                        (<?php echo number_format($total_appointments); ?> total appointments)
+                    </span>
+                    
+                    <?php if ($page < $total_pages): ?>
+                        <a href="?page=<?php echo $page + 1; ?>&<?php echo http_build_query(array_filter($_GET, function($key) { return $key !== 'page'; }, ARRAY_FILTER_USE_KEY)); ?>" class="btn btn-outline btn-sm">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </main>
     
-    <!-- Modals -->
+    <!-- View Appointment Modal -->
     <div id="appointmentModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content large-modal">
             <div class="modal-header">
-                <h3 id="modalTitle">Appointment Details</h3>
+                <h3 id="appointmentModalTitle">Appointment Details</h3>
                 <button class="modal-close" onclick="closeModal('appointmentModal')">&times;</button>
             </div>
-            <div class="modal-body" id="modalBody">
+            <div class="modal-body" id="appointmentModalBody">
                 <!-- Content will be loaded dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Appointment Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Appointment</h3>
+                <button class="modal-close" onclick="closeModal('editModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" id="editAppointmentId" name="appointment_id">
+                    <div class="form-group">
+                        <label for="editStatus">Status</label>
+                        <select id="editStatus" name="status" required>
+                            <option value="pending">Pending</option>
+                            <option value="confirmed">Confirmed</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="editNotes">Notes</label>
+                        <textarea id="editNotes" name="notes" rows="4" placeholder="Add notes about this appointment..."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Appointment
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeModal('editModal')">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Reschedule Modal -->
+    <div id="rescheduleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Reschedule Appointment</h3>
+                <button class="modal-close" onclick="closeModal('rescheduleModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="rescheduleForm">
+                    <input type="hidden" id="rescheduleAppointmentId" name="appointment_id">
+                    <div class="form-group">
+                        <label for="newDate">New Date</label>
+                        <input type="date" id="newDate" name="new_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newTime">New Time</label>
+                        <input type="time" id="newTime" name="new_time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="rescheduleReason">Reason for Rescheduling</label>
+                        <textarea id="rescheduleReason" name="reason" rows="3" placeholder="Explain why this appointment is being rescheduled..." required></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-calendar-alt"></i> Reschedule
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeModal('rescheduleModal')">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
     
     <script src="assets/admin.js"></script>
     <script>
+        // Start interview
         function startInterview(appointmentId) {
             if (confirm('Start interview for this appointment?')) {
                 fetch('appointments.php', {
@@ -364,7 +700,11 @@ function handleCancelAppointment() {
                 .then(data => {
                     if (data.success) {
                         showNotification(data.message, 'success');
-                        setTimeout(() => location.reload(), 1000);
+                        if (data.redirect_url) {
+                            setTimeout(() => window.location.href = data.redirect_url, 1000);
+                        } else {
+                            setTimeout(() => location.reload(), 1000);
+                        }
                     } else {
                         showNotification(data.error, 'error');
                     }
@@ -375,44 +715,510 @@ function handleCancelAppointment() {
             }
         }
         
+        // View appointment details
         function viewAppointment(appointmentId) {
-            // Implementation for viewing appointment details
-            showModal('appointmentModal');
+            fetch('appointments.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=get_appointment_details&appointment_id=${appointmentId}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayAppointmentDetails(data.appointment);
+                    showModal('appointmentModal');
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to load appointment details', 'error');
+            });
         }
         
+        function displayAppointmentDetails(appointment) {
+            const modalTitle = document.getElementById('appointmentModalTitle');
+            const modalBody = document.getElementById('appointmentModalBody');
+            
+            modalTitle.textContent = `Appointment: ${appointment.reference_number}`;
+            
+            // Parse documents verified
+            let documentsVerified = [];
+            try {
+                documentsVerified = appointment.documents_verified ? JSON.parse(appointment.documents_verified) : [];
+            } catch (e) {
+                documentsVerified = [];
+            }
+            
+            const documentLabels = {
+                'medical_certificate': 'Medical Certificate',
+                'barangay_certificate': 'Barangay Certificate',
+                'id_pictures': '2x2 ID Pictures',
+                'valid_id': 'Valid Government ID',
+                'birth_certificate': 'Birth Certificate',
+                'disability_assessment': 'Disability Assessment Report',
+                'income_certificate': 'Certificate of Indigency'
+            };
+            
+            modalBody.innerHTML = `
+                <div class="appointment-details">
+                    <div class="details-grid">
+                        <div class="detail-section">
+                            <h4><i class="fas fa-user"></i> Applicant Information</h4>
+                            <div class="detail-rows">
+                                <div class="detail-row">
+                                    <span class="label">Full Name:</span>
+                                    <span class="value">${appointment.first_name} ${appointment.last_name}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Email:</span>
+                                    <span class="value">${appointment.email}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Phone:</span>
+                                    <span class="value">${appointment.phone}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Address:</span>
+                                    <span class="value">${appointment.address || 'Not provided'}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Disability Type:</span>
+                                    <span class="value">${appointment.disability_type || 'Not specified'}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4><i class="fas fa-calendar-check"></i> Appointment Details</h4>
+                            <div class="detail-rows">
+                                <div class="detail-row">
+                                    <span class="label">Reference:</span>
+                                    <span class="value">${appointment.reference_number}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Type:</span>
+                                    <span class="value">${appointment.appointment_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Date:</span>
+                                    <span class="value">${formatDate(appointment.preferred_date)}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Time:</span>
+                                    <span class="value">${formatTime(appointment.preferred_time)}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value"><span class="status-badge status-${appointment.status}">${appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}</span></span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Created:</span>
+                                    <span class="value">${formatDateTime(appointment.created_at)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${appointment.interview_id ? `
+                        <div class="detail-section">
+                            <h4><i class="fas fa-comments"></i> Interview Information</h4>
+                            <div class="detail-rows">
+                                <div class="detail-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value"><span class="status-badge status-${appointment.interview_status}">${appointment.interview_status.charAt(0).toUpperCase() + appointment.interview_status.slice(1)}</span></span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Interviewer:</span>
+                                    <span class="value">${appointment.interviewer_name || 'Not assigned'}</span>
+                                </div>
+                                ${appointment.interview_notes ? `
+                                <div class="detail-row">
+                                    <span class="label">Notes:</span>
+                                    <span class="value">${appointment.interview_notes}</span>
+                                </div>
+                                ` : ''}
+                                ${appointment.eligibility_assessment ? `
+                                <div class="detail-row">
+                                    <span class="label">Assessment:</span>
+                                    <span class="value">${appointment.eligibility_assessment}</span>
+                                </div>
+                                ` : ''}
+                                ${appointment.recommendations ? `
+                                <div class="detail-row">
+                                    <span class="label">Recommendations:</span>
+                                    <span class="value">${appointment.recommendations}</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${documentsVerified.length > 0 ? `
+                        <div class="detail-section">
+                            <h4><i class="fas fa-clipboard-check"></i> Documents Verified</h4>
+                            <div class="documents-list">
+                                ${documentsVerified.map(doc => `
+                                    <div class="document-verified">
+                                        <i class="fas fa-check-circle"></i>
+                                        <span>${documentLabels[doc] || doc}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${appointment.pwd_id_number ? `
+                        <div class="detail-section">
+                            <h4><i class="fas fa-id-card"></i> PWD Record</h4>
+                            <div class="detail-rows">
+                                <div class="detail-row">
+                                    <span class="label">PWD ID:</span>
+                                    <span class="value">${appointment.pwd_id_number}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value"><span class="status-badge status-${appointment.record_status}">${appointment.record_status.charAt(0).toUpperCase() + appointment.record_status.slice(1)}</span></span>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${appointment.notes ? `
+                        <div class="detail-section full-width">
+                            <h4><i class="fas fa-sticky-note"></i> Notes</h4>
+                            <div class="notes-content">
+                                ${appointment.notes.replace(/\n/g, '<br>')}
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Edit appointment
         function editAppointment(appointmentId) {
-            // Implementation for editing appointment
-            showModal('appointmentModal');
+            // First get appointment details
+            fetch('appointments.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `action=get_appointment_details&appointment_id=${appointmentId}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const appointment = data.appointment;
+                    document.getElementById('editAppointmentId').value = appointmentId;
+                    document.getElementById('editStatus').value = appointment.status;
+                    document.getElementById('editNotes').value = appointment.notes || '';
+                    showModal('editModal');
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to load appointment details', 'error');
+            });
         }
         
+        // Reschedule appointment
+        function rescheduleAppointment(appointmentId) {
+            document.getElementById('rescheduleAppointmentId').value = appointmentId;
+            
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('newDate').min = today;
+            
+            showModal('rescheduleModal');
+        }
+        
+        // Cancel appointment
         function cancelAppointment(appointmentId) {
             const reason = prompt('Please provide a reason for cancellation:');
             if (reason) {
-                fetch('appointments.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: `action=cancel_appointment&appointment_id=${appointmentId}&reason=${encodeURIComponent(reason)}`
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification(data.message, 'success');
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        showNotification(data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    showNotification('Failed to cancel appointment', 'error');
-                });
+                if (confirm('Are you sure you want to cancel this appointment?')) {
+                    fetch('appointments.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `action=cancel_appointment&appointment_id=${appointmentId}&reason=${encodeURIComponent(reason)}`
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showNotification(data.message, 'success');
+                            setTimeout(() => location.reload(), 1000);
+                        } else {
+                            showNotification(data.error, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showNotification('Failed to cancel appointment', 'error');
+                    });
+                }
             }
         }
         
+        // Export appointments
+        function exportAppointments() {
+            const params = new URLSearchParams(window.location.search);
+            params.append('export', '1');
+            window.open(`api/export_report.php?type=appointments&${params.toString()}`, '_blank');
+        }
+        
+        // Refresh appointments
         function refreshAppointments() {
             location.reload();
         }
+        
+        // Helper functions
+        function formatTime(timeString) {
+            const time = new Date('1970-01-01T' + timeString + 'Z');
+            return time.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'UTC'
+            });
+        }
+        
+        // Form submissions
+        document.getElementById('editForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'update_appointment');
+            
+            fetch('appointments.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    closeModal('editModal');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to update appointment', 'error');
+            });
+        });
+        
+        document.getElementById('rescheduleForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'reschedule_appointment');
+            
+            fetch('appointments.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    closeModal('rescheduleModal');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to reschedule appointment', 'error');
+            });
+        });
     </script>
+    
+    <style>
+        .progress-indicators {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .progress-badge {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .progress-badge.interview-in_progress {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .progress-badge.interview-completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .progress-badge.record-draft {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .progress-badge.record-validated {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .progress-badge.record-issued {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .large-modal .modal-content {
+            max-width: 900px;
+        }
+        
+        .appointment-details {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .detail-section {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .detail-section.full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .detail-section h4 {
+            color: #2c5aa0;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+        }
+        
+        .detail-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        
+        .detail-row .label {
+            font-weight: 500;
+            color: #64748b;
+            min-width: 120px;
+            flex-shrink: 0;
+        }
+        
+        .detail-row .value {
+            color: #1e293b;
+            text-align: right;
+            flex: 1;
+            word-break: break-word;
+        }
+        
+        .notes-content {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            color: #1e293b;
+            line-height: 1.5;
+        }
+        
+        .documents-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+        }
+        
+        .document-verified {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #d1fae5;
+            border-radius: 6px;
+            color: #065f46;
+            font-size: 0.9rem;
+        }
+        
+        .document-verified i {
+            color: #10b981;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .pagination-info {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .detail-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+            
+            .detail-row .value {
+                text-align: left;
+            }
+            
+            .pagination {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .progress-indicators {
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            
+            .documents-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </body>
 </html>
