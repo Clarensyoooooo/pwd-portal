@@ -100,7 +100,7 @@ $count_stmt->execute($params);
 $total_appointments = $count_stmt->fetch()['total'];
 $total_pages = ceil($total_appointments / $per_page);
 
-// Get appointments
+// Get appointments - Fix: Don't use parameter binding for LIMIT and OFFSET
 $stmt = $pdo->prepare("
     SELECT a.*, u.first_name, u.last_name, u.phone, u.email, u.address, u.disability_type,
            ir.id as interview_id, ir.status as interview_status,
@@ -335,6 +335,157 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
+        <!-- Today's and Tomorrow's Appointments Cards -->
+        <div class="quick-access-cards">
+            <?php
+            // Get today's appointments
+            $today_query = "
+                SELECT a.*, u.first_name, u.last_name, u.phone, u.email,
+                       ir.id as interview_id, ir.status as interview_status,
+                       pr.pwd_id_number, pr.status as record_status
+                FROM appointments a 
+                JOIN users u ON a.user_id = u.id 
+                LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+                LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+                WHERE DATE(a.preferred_date) = CURDATE() 
+                AND a.status NOT IN ('cancelled')
+                ORDER BY a.preferred_time ASC
+                LIMIT 5
+            ";
+            $today_appointments = $pdo->query($today_query)->fetchAll();
+            
+            // Get tomorrow's appointments
+            $tomorrow_query = "
+                SELECT a.*, u.first_name, u.last_name, u.phone, u.email,
+                       ir.id as interview_id, ir.status as interview_status,
+                       pr.pwd_id_number, pr.status as record_status
+                FROM appointments a 
+                JOIN users u ON a.user_id = u.id 
+                LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+                LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+                WHERE DATE(a.preferred_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+                AND a.status NOT IN ('cancelled')
+                ORDER BY a.preferred_time ASC
+                LIMIT 5
+            ";
+            $tomorrow_appointments = $pdo->query($tomorrow_query)->fetchAll();
+            ?>
+            
+            <div class="quick-card today-card">
+                <div class="quick-card-header">
+                    <div class="quick-card-title">
+                        <i class="fas fa-calendar-day"></i>
+                        <h3>Today's Appointments</h3>
+                    </div>
+                    <div class="quick-card-count">
+                        <?php echo count($today_appointments); ?>
+                    </div>
+                </div>
+                <div class="quick-card-body">
+                    <?php if (empty($today_appointments)): ?>
+                        <div class="no-appointments">
+                            <i class="fas fa-calendar-check"></i>
+                            <p>No appointments scheduled for today</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($today_appointments as $apt): ?>
+                            <div class="quick-appointment-item">
+                                <div class="appointment-time">
+                                    <?php echo date('g:i A', strtotime($apt['preferred_time'])); ?>
+                                </div>
+                                <div class="appointment-info">
+                                    <div class="appointment-name">
+                                        <?php echo htmlspecialchars($apt['first_name'] . ' ' . $apt['last_name']); ?>
+                                    </div>
+                                    <div class="appointment-type">
+                                        <?php echo ucwords(str_replace('_', ' ', $apt['appointment_type'])); ?>
+                                    </div>
+                                </div>
+                                <div class="appointment-status">
+                                    <?php
+                                    // Determine actual progress status
+                                    if ($apt['record_status'] === 'issued') {
+                                        echo '<span class="progress-badge completed"><i class="fas fa-check-circle"></i> Completed</span>';
+                                    } elseif ($apt['record_status'] === 'validated') {
+                                        echo '<span class="progress-badge validated"><i class="fas fa-id-card"></i> Validated</span>';
+                                    } elseif ($apt['interview_status'] === 'completed') {
+                                        echo '<span class="progress-badge interview-done"><i class="fas fa-comments"></i> Interview Done</span>';
+                                    } elseif ($apt['interview_id']) {
+                                        echo '<span class="progress-badge in-progress"><i class="fas fa-clock"></i> In Progress</span>';
+                                    } else {
+                                        echo '<span class="progress-badge pending"><i class="fas fa-calendar-clock"></i> Scheduled</span>';
+                                    }
+                                    ?>
+                                </div>
+                                <div class="appointment-actions">
+                                    <?php if ($apt['interview_id'] && $apt['record_status'] !== 'issued'): ?>
+                                        <a href="interview.php?id=<?php echo $apt['interview_id']; ?>" class="btn btn-xs btn-primary" title="Continue">
+                                            <i class="fas fa-arrow-right"></i>
+                                        </a>
+                                    <?php elseif (!$apt['interview_id'] && $apt['status'] === 'confirmed'): ?>
+                                        <button class="btn btn-xs btn-success" onclick="startInterview(<?php echo $apt['id']; ?>)" title="Start">
+                                            <i class="fas fa-play"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php if (count($today_appointments) >= 5): ?>
+                            <div class="view-all-link">
+                                <a href="appointments.php?date_range=today">View all today's appointments</a>
+                            </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <div class="quick-card tomorrow-card">
+                <div class="quick-card-header">
+                    <div class="quick-card-title">
+                        <i class="fas fa-calendar-plus"></i>
+                        <h3>Tomorrow's Appointments</h3>
+                    </div>
+                    <div class="quick-card-count">
+                        <?php echo count($tomorrow_appointments); ?>
+                    </div>
+                </div>
+                <div class="quick-card-body">
+                    <?php if (empty($tomorrow_appointments)): ?>
+                        <div class="no-appointments">
+                            <i class="fas fa-calendar-check"></i>
+                            <p>No appointments scheduled for tomorrow</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($tomorrow_appointments as $apt): ?>
+                            <div class="quick-appointment-item">
+                                <div class="appointment-time">
+                                    <?php echo date('g:i A', strtotime($apt['preferred_time'])); ?>
+                                </div>
+                                <div class="appointment-info">
+                                    <div class="appointment-name">
+                                        <?php echo htmlspecialchars($apt['first_name'] . ' ' . $apt['last_name']); ?>
+                                    </div>
+                                    <div class="appointment-type">
+                                        <?php echo ucwords(str_replace('_', ' ', $apt['appointment_type'])); ?>
+                                    </div>
+                                </div>
+                                <div class="appointment-status">
+                                    <span class="progress-badge scheduled">
+                                        <i class="fas fa-calendar-day"></i> Scheduled
+                                    </span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php if (count($tomorrow_appointments) >= 5): ?>
+                            <div class="view-all-link">
+                                <a href="appointments.php?date_range=tomorrow">View all tomorrow's appointments</a>
+                            </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        
         <!-- Statistics Cards -->
         <div class="stats-grid">
             <?php
@@ -507,20 +658,32 @@ function handleGetAppointmentDetails() {
                                 </td>
                                 <td>
                                     <div class="progress-indicators">
-                                        <?php if ($appointment['interview_id']): ?>
-                                            <span class="progress-badge interview-<?php echo $appointment['interview_status']; ?>">
-                                                <i class="fas fa-comments"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
+                                        <?php 
+                                        // Determine the actual progress status
+                                        if ($appointment['record_status'] === 'issued'): ?>
+                                            <span class="progress-badge completed">
+                                                <i class="fas fa-check-circle"></i> Completed
                                             </span>
-                                        <?php endif; ?>
-                                        
-                                        <?php if ($appointment['pwd_id_number']): ?>
-                                            <span class="progress-badge record-<?php echo $appointment['record_status']; ?>">
-                                                <i class="fas fa-id-card"></i> Record: <?php echo ucfirst($appointment['record_status']); ?>
+                                        <?php elseif ($appointment['record_status'] === 'validated'): ?>
+                                            <span class="progress-badge validated">
+                                                <i class="fas fa-id-card"></i> Record Validated
                                             </span>
-                                        <?php endif; ?>
-                                        
-                                        <?php if (!$appointment['interview_id'] && !$appointment['pwd_id_number']): ?>
-                                            <span class="text-muted">No progress yet</span>
+                                        <?php elseif ($appointment['record_status'] === 'draft'): ?>
+                                            <span class="progress-badge record-created">
+                                                <i class="fas fa-file-alt"></i> Record Created
+                                            </span>
+                                        <?php elseif ($appointment['interview_status'] === 'completed'): ?>
+                                            <span class="progress-badge interview-completed">
+                                                <i class="fas fa-comments"></i> Interview Completed
+                                            </span>
+                                        <?php elseif ($appointment['interview_id']): ?>
+                                            <span class="progress-badge interview-progress">
+                                                <i class="fas fa-clock"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="progress-badge awaiting">
+                                                <i class="fas fa-calendar-clock"></i> Awaiting Interview
+                                            </span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
@@ -535,9 +698,12 @@ function handleGetAppointmentDetails() {
                                                 <i class="fas fa-edit"></i>
                                             </button>
                                             
-                                            <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
-                                                <i class="fas fa-calendar-alt"></i>
-                                            </button>
+                                            <?php // Only show reschedule if not completed and not cancelled ?>
+                                            <?php if (!in_array($appointment['status'], ['completed', 'cancelled']) && $appointment['record_status'] !== 'issued'): ?>
+                                                <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </button>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                         
                                         <?php if (hasPermission($pdo, 'appointments.interview') && !$appointment['interview_id'] && $appointment['status'] !== 'cancelled'): ?>
@@ -547,14 +713,14 @@ function handleGetAppointmentDetails() {
                                         <?php endif; ?>
                                         
                                         <?php 
-                                        // Only show continue interview if record is not validated or issued
-                                        if ($appointment['interview_id'] && (!$appointment['record_status'] || in_array($appointment['record_status'], ['draft']))): ?>
+                                        // Only show continue interview if record is not completed (issued)
+                                        if ($appointment['interview_id'] && $appointment['record_status'] !== 'issued'): ?>
                                             <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
                                                 <i class="fas fa-arrow-right"></i>
                                             </a>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['status'] !== 'cancelled' && $appointment['status'] !== 'completed'): ?>
+                                        <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['status'] !== 'cancelled' && $appointment['record_status'] !== 'issued'): ?>
                                             <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)" title="Cancel">
                                                 <i class="fas fa-times"></i>
                                             </button>
@@ -1040,18 +1206,258 @@ function handleGetAppointmentDetails() {
     </script>
     
     <style>
-        .progress-indicators {
+        .quick-access-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        
+        .quick-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+        
+        .today-card {
+            border-left: 4px solid #10b981;
+        }
+        
+        .tomorrow-card {
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .quick-card-header {
             display: flex;
-            flex-direction: column;
-            gap: 4px;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        }
+        
+        .quick-card-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .quick-card-title i {
+            font-size: 1.25rem;
+            color: #2c5aa0;
+        }
+        
+        .quick-card-title h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .quick-card-count {
+            background: #2c5aa0;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            min-width: 32px;
+            text-align: center;
+        }
+        
+        .quick-card-body {
+            padding: 0;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        
+        .no-appointments {
+            padding: 40px 24px;
+            text-align: center;
+            color: #64748b;
+        }
+        
+        .no-appointments i {
+            font-size: 2rem;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+        
+        .no-appointments p {
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        
+        .quick-appointment-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background-color 0.2s ease;
+        }
+        
+        .quick-appointment-item:hover {
+            background-color: #f8fafc;
+        }
+        
+        .quick-appointment-item:last-child {
+            border-bottom: none;
+        }
+        
+        .appointment-time {
+            font-weight: 600;
+            color: #2c5aa0;
+            font-size: 0.9rem;
+            min-width: 70px;
+            flex-shrink: 0;
+        }
+        
+        .appointment-info {
+            flex: 1;
+            margin-left: 16px;
+        }
+        
+        .appointment-name {
+            font-weight: 500;
+            color: #1e293b;
+            font-size: 0.9rem;
+            margin-bottom: 2px;
+        }
+        
+        .appointment-type {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+        
+        .appointment-status {
+            margin-left: 12px;
+            flex-shrink: 0;
+        }
+        
+        .appointment-actions {
+            margin-left: 12px;
+            flex-shrink: 0;
         }
         
         .progress-badge {
             font-size: 0.75rem;
-            padding: 2px 6px;
-            border-radius: 4px;
+            padding: 4px 8px;
+            border-radius: 12px;
             display: inline-flex;
             align-items: center;
+            gap: 4px;
+            font-weight: 500;
+        }
+        
+        .progress-badge.completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .progress-badge.validated {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .progress-badge.record-created {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .progress-badge.interview-completed {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        
+        .progress-badge.interview-progress,
+        .progress-badge.in-progress {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .progress-badge.interview-done {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        
+        .progress-badge.awaiting,
+        .progress-badge.pending {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+        
+        .progress-badge.scheduled {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .view-all-link {
+            padding: 12px 24px;
+            text-align: center;
+            border-top: 1px solid #f1f5f9;
+            background: #f8fafc;
+        }
+        
+        .view-all-link a {
+            color: #2c5aa0;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .view-all-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .btn-xs {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+        }
+        
+        /* Enhanced progress indicators for main table */
+        .progress-indicators .progress-badge {
+            font-size: 0.8rem;
+            padding: 6px 10px;
+            border-radius: 6px;
+        }
+        
+        @media (max-width: 1024px) {
+            .quick-access-cards {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .quick-appointment-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 16px;
+            }
+            
+            .appointment-time {
+                min-width: auto;
+            }
+            
+            .appointment-info {
+                margin-left: 0;
+                width: 100%;
+            }
+            
+            .appointment-status,
+            .appointment-actions {
+                margin-left: 0;
+                align-self: flex-end;
+            }
+        }
+        
+        .progress-indicators {
+            display: flex;
+            flex-direction: column;
             gap: 4px;
         }
         

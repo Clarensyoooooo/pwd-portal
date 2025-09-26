@@ -25,6 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'get_record_details':
             handleGetRecordDetails();
             break;
+        case 'create_direct_record':
+            handleCreateDirectRecord();
+            break;
         default:
             adminJsonResponse(['error' => 'Invalid action'], 400);
     }
@@ -335,6 +338,117 @@ function handleGetRecordDetails() {
         adminJsonResponse(['error' => 'Failed to get record details: ' . $e->getMessage()], 500);
     }
 }
+
+function handleCreateDirectRecord() {
+    global $pdo;
+    requirePermission($pdo, 'records.create');
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Generate PWD ID
+        $year = date('Y');
+        $stmt = $pdo->prepare("SELECT COUNT(*) + 1 as next_id FROM pwd_records WHERE YEAR(created_at) = ?");
+        $stmt->execute([$year]);
+        $next_id = $stmt->fetch()['next_id'];
+        $pwd_id = "PWD-{$year}-" . str_pad($next_id, 4, '0', STR_PAD_LEFT);
+        
+        // Get coordinates if provided
+        $latitude = !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null;
+        $longitude = !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null;
+        
+        // Validate required fields
+        if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['barangay'])) {
+            throw new Exception('Required fields are missing');
+        }
+        
+        // Create PWD record directly (no appointment_id)
+        $stmt = $pdo->prepare("
+            INSERT INTO pwd_records (
+                pwd_id_number, first_name, middle_name, last_name, suffix,
+                date_of_birth, place_of_birth, gender, civil_status,
+                address_line1, address_line2, barangay, city_municipality, province, postal_code,
+                latitude, longitude,
+                phone_number, email_address,
+                disability_type, disability_cause, disability_description, assistive_device,
+                medical_condition, medication, attending_physician,
+                emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_address,
+                employment_status, occupation, employer_name, monthly_income,
+                sss_number, philhealth_number, tin_number,
+                status, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        
+        // Prepare parameters array (39 parameters - no appointment_id)
+        $params = [
+            $pwd_id,                                               // 1
+            $_POST['first_name'],                                  // 2
+            $_POST['middle_name'] ?? null,                         // 3
+            $_POST['last_name'],                                   // 4
+            $_POST['suffix'] ?? null,                              // 5
+            $_POST['date_of_birth'],                               // 6
+            $_POST['place_of_birth'] ?? null,                      // 7
+            $_POST['gender'],                                      // 8
+            $_POST['civil_status'],                                // 9
+            $_POST['address_line1'],                               // 10
+            $_POST['address_line2'] ?? null,                       // 11
+            $_POST['barangay'],                                    // 12
+            $_POST['city_municipality'] ?? 'Santo Tomas City',     // 13
+            $_POST['province'] ?? 'Batangas',                      // 14
+            $_POST['postal_code'] ?? null,                         // 15
+            $latitude,                                             // 16
+            $longitude,                                            // 17
+            $_POST['phone_number'],                                // 18
+            $_POST['email_address'] ?? null,                       // 19
+            $_POST['disability_type'],                             // 20
+            $_POST['disability_cause'] ?? null,                    // 21
+            $_POST['disability_description'] ?? null,              // 22
+            $_POST['assistive_device'] ?? null,                    // 23
+            $_POST['medical_condition'] ?? null,                   // 24
+            $_POST['medication'] ?? null,                          // 25
+            $_POST['attending_physician'] ?? null,                 // 26
+            $_POST['emergency_contact_name'] ?? null,              // 27
+            $_POST['emergency_contact_relationship'] ?? null,      // 28
+            $_POST['emergency_contact_phone'] ?? null,             // 29
+            $_POST['emergency_contact_address'] ?? null,           // 30
+            $_POST['employment_status'] ?? 'Unemployed',           // 31
+            $_POST['occupation'] ?? null,                          // 32
+            $_POST['employer_name'] ?? null,                       // 33
+            !empty($_POST['monthly_income']) ? floatval($_POST['monthly_income']) : null, // 34
+            $_POST['sss_number'] ?? null,                          // 35
+            $_POST['philhealth_number'] ?? null,                   // 36
+            $_POST['tin_number'] ?? null,                          // 37
+            $_POST['record_status'] ?? 'draft',                    // 38 - Allow setting initial status
+            $_SESSION['admin_user_id']                             // 39
+        ];
+        
+        $result = $stmt->execute($params);
+        
+        if (!$result) {
+            throw new Exception('Failed to insert PWD record');
+        }
+        
+        $record_id = $pdo->lastInsertId();
+        
+        logAdminActivity($pdo, 'create', 'records', 'pwd_record', $record_id, [
+            'pwd_id' => $pwd_id,
+            'type' => 'direct_creation'
+        ]);
+        
+        $pdo->commit();
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => "PWD record created successfully! PWD ID: {$pwd_id}",
+            'record_id' => $record_id,
+            'pwd_id' => $pwd_id
+        ]);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        adminJsonResponse(['error' => 'Failed to create PWD record: ' . $e->getMessage()], 500);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -357,8 +471,11 @@ function handleGetRecordDetails() {
             </div>
             <div class="page-actions">
                 <?php if (hasPermission($pdo, 'records.create')): ?>
+                    <button class="btn btn-success" onclick="showCreateRecordModal()">
+                        <i class="fas fa-plus"></i> Create New Record
+                    </button>
                     <a href="interview.php" class="btn btn-primary">
-                        <i class="fas fa-plus"></i> New Record
+                        <i class="fas fa-comments"></i> Via Interview
                     </a>
                 <?php endif; ?>
                 <button class="btn btn-outline" onclick="exportRecords()">
@@ -896,6 +1013,243 @@ function handleGetRecordDetails() {
         </div>
     </div>
     
+    <!-- Create PWD Record Modal -->
+    <div id="createRecordModal" class="modal">
+        <div class="modal-content extra-large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-plus-circle"></i> Create New PWD Record</h3>
+                <button class="modal-close" onclick="closeModal('createRecordModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="create-record-info">
+                    <div class="info-banner">
+                        <i class="fas fa-info-circle"></i>
+                        <div>
+                            <strong>Direct Record Creation</strong>
+                            <p>Create PWD records directly without requiring an appointment or interview. Perfect for existing PWD ID holders or bulk data entry.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <form id="createRecordForm">
+                    <input type="hidden" name="action" value="create_direct_record">
+                    
+                    <!-- Personal Information -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-user"></i> Personal Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createFirstName">First Name *</label>
+                                <input type="text" id="createFirstName" name="first_name" class="form-input" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="createMiddleName">Middle Name</label>
+                                <input type="text" id="createMiddleName" name="middle_name" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label for="createLastName">Last Name *</label>
+                                <input type="text" id="createLastName" name="last_name" class="form-input" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="createSuffix">Suffix</label>
+                                <select id="createSuffix" name="suffix" class="form-select">
+                                    <option value="">None</option>
+                                    <option value="Jr.">Jr.</option>
+                                    <option value="Sr.">Sr.</option>
+                                    <option value="II">II</option>
+                                    <option value="III">III</option>
+                                    <option value="IV">IV</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="createDateOfBirth">Date of Birth *</label>
+                                <input type="date" id="createDateOfBirth" name="date_of_birth" class="form-input" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="createPlaceOfBirth">Place of Birth</label>
+                                <input type="text" id="createPlaceOfBirth" name="place_of_birth" class="form-input" placeholder="City, Province">
+                            </div>
+                            <div class="form-group">
+                                <label for="createGender">Gender *</label>
+                                <select id="createGender" name="gender" class="form-select" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="createCivilStatus">Civil Status *</label>
+                                <select id="createCivilStatus" name="civil_status" class="form-select" required>
+                                    <option value="">Select Status</option>
+                                    <option value="Single">Single</option>
+                                    <option value="Married">Married</option>
+                                    <option value="Widowed">Widowed</option>
+                                    <option value="Separated">Separated</option>
+                                    <option value="Divorced">Divorced</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Address Information -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="createAddress1">Address Line 1 *</label>
+                                <input type="text" id="createAddress1" name="address_line1" class="form-input" required placeholder="House/Unit Number, Street Name">
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="createAddress2">Address Line 2</label>
+                                <input type="text" id="createAddress2" name="address_line2" class="form-input" placeholder="Building, Subdivision, etc.">
+                            </div>
+                            <div class="form-group">
+                                <label for="createBarangay">Barangay *</label>
+                                <input type="text" id="createBarangay" name="barangay" class="form-input" required placeholder="Enter barangay name">
+                            </div>
+                            <div class="form-group">
+                                <label for="createCity">City/Municipality</label>
+                                <input type="text" id="createCity" name="city_municipality" class="form-input" value="Santo Tomas City">
+                            </div>
+                            <div class="form-group">
+                                <label for="createProvince">Province</label>
+                                <input type="text" id="createProvince" name="province" class="form-input" value="Batangas">
+                            </div>
+                            <div class="form-group">
+                                <label for="createPostalCode">Postal Code</label>
+                                <input type="text" id="createPostalCode" name="postal_code" class="form-input" pattern="[0-9]{4}" placeholder="4234" value="4234">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Information -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-phone"></i> Contact Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createPhone">Phone Number *</label>
+                                <input type="tel" id="createPhone" name="phone_number" class="form-input" required placeholder="+63 912 345 6789">
+                            </div>
+                            <div class="form-group">
+                                <label for="createEmail">Email Address</label>
+                                <input type="email" id="createEmail" name="email_address" class="form-input" placeholder="email@example.com">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Disability Information -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createDisabilityType">Type of Disability *</label>
+                                <select id="createDisabilityType" name="disability_type" class="form-select" required>
+                                    <option value="">Select Disability Type</option>
+                                    <option value="Physical Disability">Physical Disability</option>
+                                    <option value="Visual Impairment">Visual Impairment</option>
+                                    <option value="Hearing Impairment">Hearing Impairment</option>
+                                    <option value="Intellectual Disability">Intellectual Disability</option>
+                                    <option value="Psychosocial Disability">Psychosocial Disability</option>
+                                    <option value="Multiple Disabilities">Multiple Disabilities</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="createDisabilityCause">Cause of Disability</label>
+                                <select id="createDisabilityCause" name="disability_cause" class="form-select">
+                                    <option value="">Select Cause</option>
+                                    <option value="Congenital">Congenital</option>
+                                    <option value="Accident">Accident</option>
+                                    <option value="Illness">Illness</option>
+                                    <option value="Injury">Injury</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="createDisabilityDescription">Disability Description</label>
+                                <textarea id="createDisabilityDescription" name="disability_description" rows="3" class="form-textarea" placeholder="Detailed description of the disability..."></textarea>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="createAssistiveDevice">Assistive Devices Used</label>
+                                <input type="text" id="createAssistiveDevice" name="assistive_device" class="form-input" placeholder="Wheelchair, hearing aid, white cane, etc.">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Employment Information -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createEmploymentStatus">Employment Status</label>
+                                <select id="createEmploymentStatus" name="employment_status" class="form-select">
+                                    <option value="Unemployed">Unemployed</option>
+                                    <option value="Employed">Employed</option>
+                                    <option value="Self-employed">Self-employed</option>
+                                    <option value="Student">Student</option>
+                                    <option value="Retired">Retired</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="createOccupation">Occupation</label>
+                                <input type="text" id="createOccupation" name="occupation" class="form-input" placeholder="Job title or profession">
+                            </div>
+                            <div class="form-group">
+                                <label for="createEmployer">Employer Name</label>
+                                <input type="text" id="createEmployer" name="employer_name" class="form-input" placeholder="Company or organization name">
+                            </div>
+                            <div class="form-group">
+                                <label for="createIncome">Monthly Income (PHP)</label>
+                                <input type="number" id="createIncome" name="monthly_income" class="form-input" min="0" step="0.01" placeholder="0.00">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Record Status -->
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-flag"></i> Record Status</h4>
+                            <p class="section-description">Set the initial status for this record</p>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createRecordStatus">Initial Status</label>
+                                <select id="createRecordStatus" name="record_status" class="form-select">
+                                    <option value="draft">Draft - Needs validation</option>
+                                    <option value="validated">Validated - Ready for ID issuance</option>
+                                    <option value="issued">Issued - ID already issued (for existing holders)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-plus-circle"></i> Create PWD Record
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="resetCreateForm()">
+                            <i class="fas fa-undo"></i> Reset Form
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeModal('createRecordModal')">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
     <script src="assets/admin.js"></script>
     <script>
         // View record details
@@ -1263,6 +1617,104 @@ function handleGetRecordDetails() {
                 showNotification('Failed to issue ID', 'error');
             });
         });
+
+        // Show create record modal
+        function showCreateRecordModal() {
+            // Reset form
+            document.getElementById('createRecordForm').reset();
+            
+            // Set default values
+            document.getElementById('createCity').value = 'Santo Tomas City';
+            document.getElementById('createProvince').value = 'Batangas';
+            document.getElementById('createPostalCode').value = '4234';
+            
+            showModal('createRecordModal');
+        }
+
+        // Reset create form
+        function resetCreateForm() {
+            if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
+                const form = document.getElementById('createRecordForm');
+                if (form) {
+                    form.reset();
+                    
+                    // Reset default values
+                    document.getElementById('createCity').value = 'Santo Tomas City';
+                    document.getElementById('createProvince').value = 'Batangas';
+                    document.getElementById('createPostalCode').value = '4234';
+                    
+                    showNotification('Form has been reset', 'info');
+                }
+            }
+        }
+
+        // Handle create record form submission
+        document.getElementById('createRecordForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const requiredFields = this.querySelectorAll('[required]');
+            let isValid = true;
+            let missingFields = [];
+            
+            requiredFields.forEach(field => {
+                if (!field.value.trim()) {
+                    field.classList.add('error');
+                    missingFields.push(field.name || field.id);
+                    isValid = false;
+                } else {
+                    field.classList.remove('error');
+                }
+            });
+            
+            if (!isValid) {
+                showNotification('Please fill in all required fields: ' + missingFields.join(', '), 'error');
+                return false;
+            }
+            
+            // Show loading state
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Record...';
+            }
+            
+            const formData = new FormData(this);
+            
+            fetch('records.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    closeModal('createRecordModal');
+                    setTimeout(() => {
+                        if (data.record_id) {
+                            window.location.href = `records.php?highlight=${data.record_id}`;
+                        } else {
+                            location.reload();
+                        }
+                    }, 1000);
+                } else {
+                    showNotification(data.error, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Failed to create PWD record', 'error');
+            })
+            .finally(() => {
+                // Restore button state
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            });
+            
+            return false;
+        });
     </script>
     
     <style>
@@ -1453,6 +1905,145 @@ function handleGetRecordDetails() {
             .pagination {
                 flex-direction: column;
                 gap: 12px;
+            }
+        }
+
+        .extra-large-modal .modal-content {
+            max-width: 1100px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .create-record-info {
+            margin-bottom: 24px;
+        }
+
+        .info-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px;
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border: 1px solid #93c5fd;
+            border-radius: 8px;
+            color: #1e40af;
+        }
+
+        .info-banner i {
+            font-size: 1.2rem;
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+
+        .info-banner strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 1rem;
+        }
+
+        .info-banner p {
+            margin: 0;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .form-section {
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .form-section:last-of-type {
+            border-bottom: none;
+        }
+
+        .section-header {
+            margin-bottom: 20px;
+        }
+
+        .section-header h4 {
+            color: #1f2937;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1rem;
+        }
+
+        .section-description {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .form-input,
+        .form-select,
+        .form-textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-input.error,
+        .form-select.error,
+        .form-textarea.error {
+            border-color: #ef4444;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .form-actions {
+                flex-direction: column;
+            }
+            
+            .extra-large-modal .modal-content {
+                max-width: 95vw;
+                margin: 20px;
             }
         }
     </style>

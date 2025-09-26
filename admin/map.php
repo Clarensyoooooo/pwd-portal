@@ -409,7 +409,7 @@ function getBarangayBoundaries() {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT id, barangay_code, barangay_name, city_municipality, province, 
+            SELECT id, barangay_code, barangay_name, 
                    area_sqkm, population, pwd_count, geojson_data
             FROM barangay_boundaries
             ORDER BY barangay_name ASC
