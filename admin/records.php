@@ -130,6 +130,15 @@ $disabilities = $disabilities_stmt->fetchAll(PDO::FETCH_COLUMN);
 $employment_stmt = $pdo->query("SELECT DISTINCT employment_status FROM pwd_records WHERE employment_status IS NOT NULL ORDER BY employment_status");
 $employment_statuses = $employment_stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Get barangay list for dropdown
+$barangay_boundaries_stmt = $pdo->prepare("
+    SELECT id, barangay_name, city_municipality, province 
+    FROM barangay_boundaries 
+    ORDER BY barangay_name ASC
+");
+$barangay_boundaries_stmt->execute();
+$barangay_boundaries = $barangay_boundaries_stmt->fetchAll();
+
 function handleValidateRecord() {
     global $pdo;
     requirePermission($pdo, 'records.validate');
@@ -229,13 +238,21 @@ function handleUpdateRecord() {
             'barangay', 'city_municipality', 'province', 'postal_code',
             'disability_type', 'disability_cause', 'disability_description',
             'medical_condition', 'medication', 'attending_physician',
-            'employment_status', 'occupation', 'employer_name', 'monthly_income'
+            'employment_status', 'occupation', 'employer_name', 'monthly_income',
+            'latitude', 'longitude'
         ];
         
         foreach ($allowed_fields as $field) {
             if (isset($_POST[$field])) {
+                if ($field === 'latitude' || $field === 'longitude') {
+                    $value = !empty($_POST[$field]) ? floatval($_POST[$field]) : null;
+                } elseif ($field === 'monthly_income') {
+                    $value = !empty($_POST[$field]) ? floatval($_POST[$field]) : null;
+                } else {
+                    $value = $_POST[$field];
+                }
                 $update_fields[] = "{$field} = ?";
-                $params[] = $_POST[$field];
+                $params[] = $value;
             }
         }
         
@@ -362,7 +379,7 @@ function handleCreateDirectRecord() {
             throw new Exception('Required fields are missing');
         }
         
-        // Create PWD record directly (no appointment_id)
+        // Create PWD record directly (no appointment_id) - FIXED parameter count
         $stmt = $pdo->prepare("
             INSERT INTO pwd_records (
                 pwd_id_number, first_name, middle_name, last_name, suffix,
@@ -376,10 +393,10 @@ function handleCreateDirectRecord() {
                 employment_status, occupation, employer_name, monthly_income,
                 sss_number, philhealth_number, tin_number,
                 status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
-        // Prepare parameters array (39 parameters - no appointment_id)
+        // Prepare parameters array with exact count (39 parameters)
         $params = [
             $pwd_id,                                               // 1
             $_POST['first_name'],                                  // 2
@@ -458,6 +475,8 @@ function handleCreateDirectRecord() {
     <title>PWD Records - PWD Portal Admin</title>
     <link rel="stylesheet" href="assets/admin.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
@@ -484,7 +503,7 @@ function handleCreateDirectRecord() {
             </div>
         </div>
         
-        <!-- Statistics Cards -->
+         Statistics Cards 
         <div class="stats-grid">
             <?php
             $stats_query = "
@@ -540,7 +559,7 @@ function handleCreateDirectRecord() {
             </div>
         </div>
         
-        <!-- Enhanced Filters -->
+         Enhanced Filters 
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -631,7 +650,7 @@ function handleCreateDirectRecord() {
             </form>
         </div>
         
-        <!-- Records Table -->
+         Records Table 
         <div class="data-card">
             <div class="card-header">
                 <h3>PWD Records</h3>
@@ -733,12 +752,6 @@ function handleCreateDirectRecord() {
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if ($record['status'] === 'issued'): ?>
-                                            <button class="btn btn-sm btn-secondary" onclick="printID(<?php echo $record['id']; ?>)" title="Print ID">
-                                                <i class="fas fa-print"></i>
-                                            </button>
-                                        <?php endif; ?>
-                                        
                                         <?php if (hasPermission($pdo, 'records.delete')): ?>
                                             <button class="btn btn-sm btn-danger" onclick="deleteRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')" title="Delete">
                                                 <i class="fas fa-trash"></i>
@@ -761,7 +774,7 @@ function handleCreateDirectRecord() {
                 </table>
             </div>
             
-            <!-- Pagination -->
+             Pagination 
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
@@ -785,7 +798,7 @@ function handleCreateDirectRecord() {
         </div>
     </main>
     
-    <!-- Record Details Modal -->
+     Record Details Modal 
     <div id="recordModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
@@ -793,14 +806,14 @@ function handleCreateDirectRecord() {
                 <button class="modal-close" onclick="closeModal('recordModal')">&times;</button>
             </div>
             <div class="modal-body" id="recordModalBody">
-                <!-- Content will be loaded dynamically -->
+                 Content will be loaded dynamically 
             </div>
         </div>
     </div>
     
-    <!-- Edit Record Modal -->
+     Edit Record Modal 
     <div id="editRecordModal" class="modal">
-        <div class="modal-content large-modal">
+        <div class="modal-content extra-large-modal">
             <div class="modal-header">
                 <h3>Edit PWD Record</h3>
                 <button class="modal-close" onclick="closeModal('editRecordModal')">&times;</button>
@@ -871,6 +884,45 @@ function handleCreateDirectRecord() {
                             <div class="form-group">
                                 <label for="editPostal">Postal Code</label>
                                 <input type="text" id="editPostal" name="postal_code">
+                            </div>
+                        </div>
+                    </div>
+                    
+                     Geographic Location for Edit 
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
+                            <p class="section-description">Click on the map to update the exact location</p>
+                        </div>
+                        
+                        <div class="location-container">
+                            <div class="location-inputs">
+                                <div class="form-group">
+                                    <label for="editLatitude">Latitude</label>
+                                    <input type="number" id="editLatitude" name="latitude" class="form-input" 
+                                           step="0.000001" placeholder="14.0000" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editLongitude">Longitude</label>
+                                    <input type="number" id="editLongitude" name="longitude" class="form-input" 
+                                           step="0.000001" placeholder="121.0000" readonly>
+                                </div>
+                                <div class="location-actions">
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocationEdit()">
+                                        <i class="fas fa-crosshairs"></i> Use Current Location
+                                    </button>
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="clearLocationEdit()">
+                                        <i class="fas fa-times"></i> Clear Location
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="map-container">
+                                <div id="editLocationMap" class="location-map"></div>
+                                <div class="map-instructions">
+                                    <i class="fas fa-mouse-pointer"></i>
+                                    <span>Click anywhere on the map to update the location</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -950,7 +1002,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-    <!-- Validation Modal -->
+     Validation Modal 
     <div id="validationModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -978,7 +1030,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-    <!-- Issue ID Modal -->
+     Issue ID Modal 
     <div id="issueModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1013,7 +1065,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-    <!-- Create PWD Record Modal -->
+     Create PWD Record Modal 
     <div id="createRecordModal" class="modal">
         <div class="modal-content extra-large-modal">
             <div class="modal-header">
@@ -1034,7 +1086,7 @@ function handleCreateDirectRecord() {
                 <form id="createRecordForm">
                     <input type="hidden" name="action" value="create_direct_record">
                     
-                    <!-- Personal Information -->
+                     Personal Information 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-user"></i> Personal Information</h4>
@@ -1094,7 +1146,7 @@ function handleCreateDirectRecord() {
                         </div>
                     </div>
                     
-                    <!-- Address Information -->
+                     Address Information 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
@@ -1108,26 +1160,94 @@ function handleCreateDirectRecord() {
                                 <label for="createAddress2">Address Line 2</label>
                                 <input type="text" id="createAddress2" name="address_line2" class="form-input" placeholder="Building, Subdivision, etc.">
                             </div>
+                            
                             <div class="form-group">
-                                <label for="createBarangay">Barangay *</label>
-                                <input type="text" id="createBarangay" name="barangay" class="form-input" required placeholder="Enter barangay name">
+                                <label for="createBarangayId">Barangay *</label>
+                                <select id="createBarangayId" name="barangay_id" class="form-select" onchange="updateCreateCityProvince()">
+                                    <option value="">Select Barangay</option>
+                                    <?php foreach ($barangay_boundaries as $barangay): ?>
+                                        <option value="<?php echo $barangay['id']; ?>" 
+                                                data-name="<?php echo htmlspecialchars($barangay['barangay_name']); ?>"
+                                                data-city="<?php echo htmlspecialchars($barangay['city_municipality'] ?: 'Santo Tomas City'); ?>"
+                                                data-province="<?php echo htmlspecialchars($barangay['province'] ?: 'Batangas'); ?>">
+                                            <?php echo htmlspecialchars($barangay['barangay_name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
+                            
+                            <div class="form-group" id="createManualBarangay" style="display: none;">
+                                <label for="createBarangayManual">Barangay (Manual Entry)</label>
+                                <input type="text" id="createBarangayManual" name="barangay_manual" class="form-input" placeholder="Enter barangay name manually">
+                            </div>
+                            
+                            <input type="hidden" id="createBarangayName" name="barangay">
+                            
                             <div class="form-group">
                                 <label for="createCity">City/Municipality</label>
-                                <input type="text" id="createCity" name="city_municipality" class="form-input" value="Santo Tomas City">
+                                <input type="text" id="createCity" name="city_municipality" class="form-input" value="Santo Tomas City" readonly>
                             </div>
                             <div class="form-group">
                                 <label for="createProvince">Province</label>
-                                <input type="text" id="createProvince" name="province" class="form-input" value="Batangas">
+                                <input type="text" id="createProvince" name="province" class="form-input" value="Batangas" readonly>
                             </div>
                             <div class="form-group">
                                 <label for="createPostalCode">Postal Code</label>
                                 <input type="text" id="createPostalCode" name="postal_code" class="form-input" pattern="[0-9]{4}" placeholder="4234" value="4234">
                             </div>
                         </div>
+                        
+                        <div class="address-helper">
+                            <div class="helper-info">
+                                <i class="fas fa-info-circle"></i>
+                                <span>Select the appropriate barangay from the dropdown. If not found, you can enter it manually.</span>
+                            </div>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="toggleCreateManualBarangay()">
+                                <i class="fas fa-edit"></i> Enter Barangay Manually
+                            </button>
+                        </div>
                     </div>
                     
-                    <!-- Contact Information -->
+                     Geographic Location 
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
+                            <p class="section-description">Click on the map to set the exact location for GIS mapping feature</p>
+                        </div>
+                        
+                        <div class="location-container">
+                            <div class="location-inputs">
+                                <div class="form-group">
+                                    <label for="createLatitude">Latitude</label>
+                                    <input type="number" id="createLatitude" name="latitude" class="form-input" 
+                                           step="0.000001" placeholder="14.0000" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createLongitude">Longitude</label>
+                                    <input type="number" id="createLongitude" name="longitude" class="form-input" 
+                                           step="0.000001" placeholder="121.0000" readonly>
+                                </div>
+                                <div class="location-actions">
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocationCreate()">
+                                        <i class="fas fa-crosshairs"></i> Use Current Location
+                                    </button>
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="clearLocationCreate()">
+                                        <i class="fas fa-times"></i> Clear Location
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="map-container">
+                                <div id="createLocationMap" class="location-map"></div>
+                                <div class="map-instructions">
+                                    <i class="fas fa-mouse-pointer"></i>
+                                    <span>Click anywhere on the map to set the exact location</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                     Contact Information 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-phone"></i> Contact Information</h4>
@@ -1144,7 +1264,7 @@ function handleCreateDirectRecord() {
                         </div>
                     </div>
                     
-                    <!-- Disability Information -->
+                     Disability Information 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
@@ -1185,7 +1305,63 @@ function handleCreateDirectRecord() {
                         </div>
                     </div>
                     
-                    <!-- Employment Information -->
+                     Medical Information 
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-stethoscope"></i> Medical Information</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="createMedicalCondition">Medical Condition</label>
+                                <textarea id="createMedicalCondition" name="medical_condition" rows="3" class="form-textarea" placeholder="Current medical conditions and diagnoses..."></textarea>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="createMedication">Current Medications</label>
+                                <textarea id="createMedication" name="medication" rows="2" class="form-textarea" placeholder="List current medications and dosages..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="createAttendingPhysician">Attending Physician</label>
+                                <input type="text" id="createAttendingPhysician" name="attending_physician" class="form-input" placeholder="Dr. Juan Dela Cruz">
+                            </div>
+                        </div>
+                    </div>
+                    
+                     Emergency Contact 
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createEmergencyContactName">Contact Name</label>
+                                <input type="text" id="createEmergencyContactName" name="emergency_contact_name" class="form-input" placeholder="Full name of emergency contact">
+                            </div>
+                            <div class="form-group">
+                                <label for="createEmergencyContactRelationship">Relationship</label>
+                                <select id="createEmergencyContactRelationship" name="emergency_contact_relationship" class="form-select">
+                                    <option value="">Select Relationship</option>
+                                    <option value="Spouse">Spouse</option>
+                                    <option value="Parent">Parent</option>
+                                    <option value="Child">Child</option>
+                                    <option value="Sibling">Sibling</option>
+                                    <option value="Relative">Relative</option>
+                                    <option value="Friend">Friend</option>
+                                    <option value="Guardian">Guardian</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="createEmergencyContactPhone">Contact Phone</label>
+                                <input type="tel" id="createEmergencyContactPhone" name="emergency_contact_phone" class="form-input" placeholder="+63 912 345 6789">
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="createEmergencyContactAddress">Contact Address</label>
+                                <textarea id="createEmergencyContactAddress" name="emergency_contact_address" rows="2" class="form-textarea" placeholder="Complete address of emergency contact..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                     Employment Information 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
@@ -1216,7 +1392,28 @@ function handleCreateDirectRecord() {
                         </div>
                     </div>
                     
-                    <!-- Record Status -->
+                     Government IDs 
+                    <div class="form-section">
+                        <div class="section-header">
+                            <h4><i class="fas fa-id-card-alt"></i> Government IDs</h4>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="createSssNumber">SSS Number</label>
+                                <input type="text" id="createSssNumber" name="sss_number" class="form-input" placeholder="XX-XXXXXXX-X">
+                            </div>
+                            <div class="form-group">
+                                <label for="createPhilhealthNumber">PhilHealth Number</label>
+                                <input type="text" id="createPhilhealthNumber" name="philhealth_number" class="form-input" placeholder="XX-XXXXXXXXX-X">
+                            </div>
+                            <div class="form-group">
+                                <label for="createTinNumber">TIN Number</label>
+                                <input type="text" id="createTinNumber" name="tin_number" class="form-input" placeholder="XXX-XXX-XXX-XXX">
+                            </div>
+                        </div>
+                    </div>
+                    
+                     Record Status 
                     <div class="form-section">
                         <div class="section-header">
                             <h4><i class="fas fa-flag"></i> Record Status</h4>
@@ -1252,6 +1449,214 @@ function handleCreateDirectRecord() {
     
     <script src="assets/admin.js"></script>
     <script>
+        let createLocationMap;
+        let createLocationMarker;
+        let editLocationMap;
+        let editLocationMarker;
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize maps when modals are shown
+        });
+        
+        // Initialize create location map
+        function initializeCreateLocationMap() {
+            const mapElement = document.getElementById('createLocationMap');
+            if (!mapElement || createLocationMap) return;
+            
+            // Default center (Santo Tomas City, Batangas)
+            const defaultLat = 14.1078;
+            const defaultLng = 121.1414;
+            
+            createLocationMap = L.map('createLocationMap').setView([defaultLat, defaultLng], 13);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18
+            }).addTo(createLocationMap);
+            
+            // Add click event to map
+            createLocationMap.on('click', function(e) {
+                setCreateLocation(e.latlng.lat, e.latlng.lng);
+            });
+        }
+        
+        // Initialize edit location map
+        function initializeEditLocationMap() {
+            const mapElement = document.getElementById('editLocationMap');
+            if (!mapElement || editLocationMap) return;
+            
+            // Default center (Santo Tomas City, Batangas)
+            const defaultLat = 14.1078;
+            const defaultLng = 121.1414;
+            
+            editLocationMap = L.map('editLocationMap').setView([defaultLat, defaultLng], 13);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18
+            }).addTo(editLocationMap);
+            
+            // Add click event to map
+            editLocationMap.on('click', function(e) {
+                setEditLocation(e.latlng.lat, e.latlng.lng);
+            });
+        }
+        
+        // Set location on create map
+        function setCreateLocation(lat, lng) {
+            // Remove existing marker
+            if (createLocationMarker) {
+                createLocationMap.removeLayer(createLocationMarker);
+            }
+            
+            // Add new marker
+            createLocationMarker = L.marker([lat, lng]).addTo(createLocationMap);
+            
+            // Update input fields
+            document.getElementById('createLatitude').value = lat.toFixed(6);
+            document.getElementById('createLongitude').value = lng.toFixed(6);
+            
+            // Show success message
+            showNotification('Location set successfully!', 'success');
+        }
+        
+        // Set location on edit map
+        function setEditLocation(lat, lng) {
+            // Remove existing marker
+            if (editLocationMarker) {
+                editLocationMap.removeLayer(editLocationMarker);
+            }
+            
+            // Add new marker
+            editLocationMarker = L.marker([lat, lng]).addTo(editLocationMap);
+            
+            // Update input fields
+            document.getElementById('editLatitude').value = lat.toFixed(6);
+            document.getElementById('editLongitude').value = lng.toFixed(6);
+            
+            // Show success message
+            showNotification('Location updated successfully!', 'success');
+        }
+        
+        // Get current location for create
+        function getCurrentLocationCreate() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    setCreateLocation(lat, lng);
+                    createLocationMap.setView([lat, lng], 16);
+                    
+                    showNotification('Current location detected!', 'success');
+                }, function(error) {
+                    showNotification('Unable to get current location: ' + error.message, 'error');
+                });
+            } else {
+                showNotification('Geolocation is not supported by this browser', 'error');
+            }
+        }
+        
+        // Get current location for edit
+        function getCurrentLocationEdit() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    setEditLocation(lat, lng);
+                    editLocationMap.setView([lat, lng], 16);
+                    
+                    showNotification('Current location detected!', 'success');
+                }, function(error) {
+                    showNotification('Unable to get current location: ' + error.message, 'error');
+                });
+            } else {
+                showNotification('Geolocation is not supported by this browser', 'error');
+            }
+        }
+        
+        // Clear location for create
+        function clearLocationCreate() {
+            if (createLocationMarker) {
+                createLocationMap.removeLayer(createLocationMarker);
+                createLocationMarker = null;
+            }
+            
+            document.getElementById('createLatitude').value = '';
+            document.getElementById('createLongitude').value = '';
+            
+            showNotification('Location cleared', 'info');
+        }
+        
+        // Clear location for edit
+        function clearLocationEdit() {
+            if (editLocationMarker) {
+                editLocationMap.removeLayer(editLocationMarker);
+                editLocationMarker = null;
+            }
+            
+            document.getElementById('editLatitude').value = '';
+            document.getElementById('editLongitude').value = '';
+            
+            showNotification('Location cleared', 'info');
+        }
+        
+        // Update city and province based on barangay selection for create
+        function updateCreateCityProvince() {
+            const barangaySelect = document.getElementById('createBarangayId');
+            const selectedOption = barangaySelect.options[barangaySelect.selectedIndex];
+            
+            if (selectedOption.value) {
+                const barangayName = selectedOption.getAttribute('data-name');
+                const city = selectedOption.getAttribute('data-city');
+                const province = selectedOption.getAttribute('data-province');
+                
+                document.getElementById('createBarangayName').value = barangayName;
+                document.getElementById('createCity').value = city;
+                document.getElementById('createProvince').value = province;
+                
+                // Hide manual barangay input
+                document.getElementById('createManualBarangay').style.display = 'none';
+                document.getElementById('createBarangayManual').required = false;
+                document.getElementById('createBarangayId').required = true;
+            }
+        }
+        
+        // Toggle manual barangay entry for create
+        function toggleCreateManualBarangay() {
+            const manualDiv = document.getElementById('createManualBarangay');
+            const barangaySelect = document.getElementById('createBarangayId');
+            const manualInput = document.getElementById('createBarangayManual');
+            
+            if (manualDiv.style.display === 'none') {
+                manualDiv.style.display = 'block';
+                manualInput.required = true;
+                barangaySelect.required = false;
+                barangaySelect.value = '';
+                
+                // Allow manual city/province editing
+                document.getElementById('createCity').readOnly = false;
+                document.getElementById('createProvince').readOnly = false;
+                
+                showNotification('Manual barangay entry enabled', 'info');
+            } else {
+                manualDiv.style.display = 'none';
+                manualInput.required = false;
+                barangaySelect.required = true;
+                manualInput.value = '';
+                
+                // Reset to readonly
+                document.getElementById('createCity').readOnly = true;
+                document.getElementById('createProvince').readOnly = true;
+                document.getElementById('createCity').value = 'Santo Tomas City';
+                document.getElementById('createProvince').value = 'Batangas';
+                
+                showNotification('Switched back to barangay dropdown', 'info');
+            }
+        }
+        
         // View record details
         function viewRecord(recordId) {
             fetch('records.php', {
@@ -1333,6 +1738,12 @@ function handleCreateDirectRecord() {
                                     <span class="label">Postal Code:</span>
                                     <span class="value">${record.postal_code || 'Not specified'}</span>
                                 </div>
+                                ${record.latitude && record.longitude ? `
+                                <div class="detail-row">
+                                    <span class="label">Coordinates:</span>
+                                    <span class="value">${parseFloat(record.latitude).toFixed(6)}, ${parseFloat(record.longitude).toFixed(6)}</span>
+                                </div>
+                                ` : ''}
                             </div>
                         </div>
                         
@@ -1458,6 +1869,17 @@ function handleCreateDirectRecord() {
                 if (data.success) {
                     populateEditForm(data.record);
                     showModal('editRecordModal');
+                    // Initialize map after modal is shown
+                    setTimeout(() => {
+                        initializeEditLocationMap();
+                        // Set existing location if available
+                        if (data.record.latitude && data.record.longitude) {
+                            const lat = parseFloat(data.record.latitude);
+                            const lng = parseFloat(data.record.longitude);
+                            setEditLocation(lat, lng);
+                            editLocationMap.setView([lat, lng], 16);
+                        }
+                    }, 300);
                 } else {
                     showNotification(data.error, 'error');
                 }
@@ -1481,6 +1903,8 @@ function handleCreateDirectRecord() {
             document.getElementById('editCity').value = record.city_municipality || '';
             document.getElementById('editProvince').value = record.province || '';
             document.getElementById('editPostal').value = record.postal_code || '';
+            document.getElementById('editLatitude').value = record.latitude || '';
+            document.getElementById('editLongitude').value = record.longitude || '';
             document.getElementById('editDisabilityType').value = record.disability_type || '';
             document.getElementById('editDisabilityCause').value = record.disability_cause || '';
             document.getElementById('editDisabilityDescription').value = record.disability_description || '';
@@ -1500,11 +1924,6 @@ function handleCreateDirectRecord() {
         function issueID(recordId) {
             document.getElementById('issueRecordId').value = recordId;
             showModal('issueModal');
-        }
-        
-        // Print ID
-        function printID(recordId) {
-            window.open(`print_id.php?id=${recordId}`, '_blank');
         }
         
         // Delete record
@@ -1628,7 +2047,17 @@ function handleCreateDirectRecord() {
             document.getElementById('createProvince').value = 'Batangas';
             document.getElementById('createPostalCode').value = '4234';
             
+            // Hide manual barangay input
+            document.getElementById('createManualBarangay').style.display = 'none';
+            document.getElementById('createBarangayManual').required = false;
+            document.getElementById('createBarangayId').required = true;
+            
             showModal('createRecordModal');
+            
+            // Initialize map after modal is shown
+            setTimeout(() => {
+                initializeCreateLocationMap();
+            }, 300);
         }
 
         // Reset create form
@@ -1642,6 +2071,14 @@ function handleCreateDirectRecord() {
                     document.getElementById('createCity').value = 'Santo Tomas City';
                     document.getElementById('createProvince').value = 'Batangas';
                     document.getElementById('createPostalCode').value = '4234';
+                    
+                    // Hide manual barangay input
+                    document.getElementById('createManualBarangay').style.display = 'none';
+                    document.getElementById('createBarangayManual').required = false;
+                    document.getElementById('createBarangayId').required = true;
+                    
+                    // Clear location
+                    clearLocationCreate();
                     
                     showNotification('Form has been reset', 'info');
                 }
@@ -1665,6 +2102,20 @@ function handleCreateDirectRecord() {
                     field.classList.remove('error');
                 }
             });
+            
+            // Check barangay selection
+            const barangaySelect = document.getElementById('createBarangayId');
+            const manualBarangay = document.getElementById('createBarangayManual');
+            const barangayName = document.getElementById('createBarangayName');
+            
+            if (!barangaySelect.value && !manualBarangay.value) {
+                showNotification('Please select a barangay or enter it manually.', 'error');
+                isValid = false;
+                missingFields.push('barangay');
+            } else if (manualBarangay.value) {
+                // Set manual barangay name
+                barangayName.value = manualBarangay.value;
+            }
             
             if (!isValid) {
                 showNotification('Please fill in all required fields: ' + missingFields.join(', '), 'error');
@@ -1882,31 +2333,6 @@ function handleCreateDirectRecord() {
             color: #64748b;
             font-size: 0.9rem;
         }
-        
-        @media (max-width: 768px) {
-            .details-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .detail-row {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
-            }
-            
-            .detail-row .value {
-                text-align: left;
-            }
-            
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .pagination {
-                flex-direction: column;
-                gap: 12px;
-            }
-        }
 
         .extra-large-modal .modal-content {
             max-width: 1100px;
@@ -1947,16 +2373,6 @@ function handleCreateDirectRecord() {
             opacity: 0.9;
         }
 
-        .form-section {
-            margin-bottom: 32px;
-            padding-bottom: 24px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .form-section:last-of-type {
-            border-bottom: none;
-        }
-
         .section-header {
             margin-bottom: 20px;
         }
@@ -1974,27 +2390,6 @@ function handleCreateDirectRecord() {
             color: #6b7280;
             font-size: 0.9rem;
             margin: 0;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .form-group.full-width {
-            grid-column: 1 / -1;
-        }
-
-        .form-group label {
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #374151;
         }
 
         .form-input,
@@ -2032,9 +2427,96 @@ function handleCreateDirectRecord() {
             border-top: 1px solid #e2e8f0;
         }
 
+        .location-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        .location-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .location-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .map-container {
+            position: relative;
+        }
+
+        .location-map {
+            height: 300px;
+            border-radius: 8px;
+            border: 2px solid #e5e7eb;
+        }
+
+        .map-instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 1000;
+        }
+
+        .address-helper {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .helper-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #0369a1;
+            font-size: 0.9rem;
+        }
+
+        .helper-info i {
+            color: #0ea5e9;
+        }
+        
         @media (max-width: 768px) {
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .detail-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+            
+            .detail-row .value {
+                text-align: left;
+            }
+            
             .form-grid {
                 grid-template-columns: 1fr;
+            }
+            
+            .pagination {
+                flex-direction: column;
+                gap: 12px;
             }
             
             .form-actions {
@@ -2044,6 +2526,14 @@ function handleCreateDirectRecord() {
             .extra-large-modal .modal-content {
                 max-width: 95vw;
                 margin: 20px;
+            }
+
+            .location-container {
+                grid-template-columns: 1fr;
+            }
+
+            .location-actions {
+                flex-direction: row;
             }
         }
     </style>

@@ -10,9 +10,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     switch ($action) {
-        case 'respond_feedback':
-            handleRespondFeedback();
-            break;
         case 'update_status':
             handleUpdateStatus();
             break;
@@ -64,11 +61,9 @@ $total_pages = ceil($total_feedback / $per_page);
 
 // Get feedback
 $stmt = $pdo->prepare("
-    SELECT f.*, u.first_name as user_first_name, u.last_name as user_last_name,
-           au.full_name as responded_by_name
+    SELECT f.*, u.first_name as user_first_name, u.last_name as user_last_name
     FROM feedback f
     LEFT JOIN users u ON f.user_id = u.id
-    LEFT JOIN admin_users au ON f.responded_by = au.id
     {$where_clause}
     ORDER BY f.created_at DESC
     LIMIT {$per_page} OFFSET {$offset}
@@ -82,48 +77,16 @@ $stats_query = "
         COUNT(*) as total,
         SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_count,
         SUM(CASE WHEN status = 'read' THEN 1 ELSE 0 END) as read_count,
-        SUM(CASE WHEN status = 'responded' THEN 1 ELSE 0 END) as responded_count,
         SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed_count,
-        AVG(rating) as avg_rating
+        AVG(rating) as avg_rating,
+        SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as rating_1,
+        SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) as rating_2,
+        SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as rating_3,
+        SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) as rating_4,
+        SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as rating_5
     FROM feedback
 ";
 $stats = $pdo->query($stats_query)->fetch();
-
-function handleRespondFeedback() {
-    global $pdo;
-    requirePermission($pdo, 'feedback.respond');
-    
-    $feedback_id = $_POST['feedback_id'] ?? '';
-    $response = $_POST['response'] ?? '';
-    
-    if (empty($feedback_id) || empty($response)) {
-        adminJsonResponse(['error' => 'Feedback ID and response are required'], 400);
-    }
-    
-    try {
-        $stmt = $pdo->prepare("
-            UPDATE feedback 
-            SET admin_response = ?, responded_by = ?, responded_at = NOW(), status = 'responded'
-            WHERE id = ?
-        ");
-        
-        $stmt->execute([$response, $_SESSION['admin_user_id'], $feedback_id]);
-        
-        if ($stmt->rowCount() === 0) {
-            adminJsonResponse(['error' => 'Feedback not found'], 404);
-        }
-        
-        logAdminActivity($pdo, 'respond', 'feedback', 'feedback', $feedback_id);
-        
-        adminJsonResponse([
-            'success' => true,
-            'message' => 'Response sent successfully'
-        ]);
-        
-    } catch (PDOException $e) {
-        adminJsonResponse(['error' => 'Failed to send response: ' . $e->getMessage()], 500);
-    }
-}
 
 function handleUpdateStatus() {
     global $pdo;
@@ -136,7 +99,7 @@ function handleUpdateStatus() {
         adminJsonResponse(['error' => 'Feedback ID and status are required'], 400);
     }
     
-    $valid_statuses = ['new', 'read', 'responded', 'closed'];
+    $valid_statuses = ['new', 'read', 'closed'];
     if (!in_array($status, $valid_statuses)) {
         adminJsonResponse(['error' => 'Invalid status'], 400);
     }
@@ -209,6 +172,21 @@ function handleBulkAction() {
         adminJsonResponse(['error' => 'Failed to perform bulk action: ' . $e->getMessage()], 500);
     }
 }
+
+function timeAgo($datetime) {
+    $time = time() - strtotime($datetime);
+    
+    if ($time < 60) return 'just now';
+    if ($time < 3600) return floor($time/60) . ' minutes ago';
+    if ($time < 86400) return floor($time/3600) . ' hours ago';
+    if ($time < 2592000) return floor($time/86400) . ' days ago';
+    
+    return date('M j, Y', strtotime($datetime));
+}
+
+function formatDateTime($datetime) {
+    return date('M j, Y g:i A', strtotime($datetime));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -240,7 +218,7 @@ function handleBulkAction() {
             </div>
         </div>
         
-        <!-- Statistics Cards -->
+          
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-icon records">
@@ -269,11 +247,11 @@ function handleBulkAction() {
             
             <div class="stat-card">
                 <div class="stat-icon validated">
-                    <i class="fas fa-reply"></i>
+                    <i class="fas fa-check-circle"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats['responded_count']); ?></h3>
-                    <p>Responded</p>
+                    <h3><?php echo number_format($stats['closed_count']); ?></h3>
+                    <p>Resolved</p>
                 </div>
             </div>
             
@@ -295,14 +273,16 @@ function handleBulkAction() {
             </div>
         </div>
         
-        <!-- Feedback Analytics -->
+          
         <div class="dashboard-grid">
             <div class="dashboard-card">
                 <div class="card-header">
                     <h3><i class="fas fa-chart-pie"></i> Feedback Status Distribution</h3>
                 </div>
                 <div class="card-content">
-                    <canvas id="statusChart"></canvas>
+                    <div class="chart-container">
+                        <canvas id="statusChart"></canvas>
+                    </div>
                 </div>
             </div>
             
@@ -311,12 +291,14 @@ function handleBulkAction() {
                     <h3><i class="fas fa-chart-bar"></i> Rating Distribution</h3>
                 </div>
                 <div class="card-content">
-                    <canvas id="ratingChart"></canvas>
+                    <div class="chart-container">
+                        <canvas id="ratingChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
         
-        <!-- Filters -->
+        
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -325,7 +307,6 @@ function handleBulkAction() {
                         <option value="">All Statuses</option>
                         <option value="new" <?php echo $status_filter === 'new' ? 'selected' : ''; ?>>New</option>
                         <option value="read" <?php echo $status_filter === 'read' ? 'selected' : ''; ?>>Read</option>
-                        <option value="responded" <?php echo $status_filter === 'responded' ? 'selected' : ''; ?>>Responded</option>
                         <option value="closed" <?php echo $status_filter === 'closed' ? 'selected' : ''; ?>>Closed</option>
                     </select>
                 </div>
@@ -359,7 +340,7 @@ function handleBulkAction() {
             </form>
         </div>
         
-        <!-- Bulk Actions -->
+          
         <div class="bulk-actions-card">
             <div class="bulk-actions-form">
                 <div class="bulk-select">
@@ -385,16 +366,16 @@ function handleBulkAction() {
             </div>
         </div>
         
-        <!-- Feedback List -->
+          
         <div class="data-card">
             <div class="card-header">
-                <h3>Feedback Messages</h3>
+                <h3><i class="fas fa-list"></i> Feedback Messages</h3>
                 <span class="record-count"><?php echo number_format($total_feedback); ?> messages</span>
             </div>
             
             <div class="feedback-list">
                 <?php foreach ($feedback_list as $feedback): ?>
-                    <div class="feedback-item <?php echo $feedback['status'] === 'new' ? 'unread' : ''; ?>">
+                    <div class="feedback-item <?php echo $feedback['status'] === 'new' ? 'unread' : ''; ?>" data-id="<?php echo $feedback['id']; ?>">
                         <div class="feedback-header">
                             <div class="feedback-select">
                                 <label class="checkbox-label">
@@ -407,17 +388,25 @@ function handleBulkAction() {
                                 <div class="feedback-sender">
                                     <strong><?php echo htmlspecialchars($feedback['name']); ?></strong>
                                     <?php if ($feedback['user_first_name']): ?>
-                                        <span class="user-badge">Registered User</span>
+                                        <span class="user-badge">
+                                            <i class="fas fa-user"></i> Registered User
+                                        </span>
                                     <?php endif; ?>
                                 </div>
                                 <div class="feedback-details">
-                                    <span class="feedback-email"><?php echo htmlspecialchars($feedback['email']); ?></span>
-                                    <span class="feedback-date"><?php echo timeAgo($feedback['created_at']); ?></span>
+                                    <span class="feedback-email">
+                                        <i class="fas fa-envelope"></i> <?php echo htmlspecialchars($feedback['email']); ?>
+                                    </span>
+                                    <span class="feedback-date">
+                                        <i class="fas fa-clock"></i> <?php echo timeAgo($feedback['created_at']); ?>
+                                    </span>
                                     <?php if ($feedback['rating']): ?>
                                         <div class="feedback-rating">
+                                            <span class="rating-label">Rating:</span>
                                             <?php for ($i = 1; $i <= 5; $i++): ?>
                                                 <i class="fas fa-star <?php echo $i <= $feedback['rating'] ? 'active' : ''; ?>"></i>
                                             <?php endfor; ?>
+                                            <span class="rating-value">(<?php echo $feedback['rating']; ?>/5)</span>
                                         </div>
                                     <?php endif; ?>
                                 </div>
@@ -425,127 +414,129 @@ function handleBulkAction() {
                             
                             <div class="feedback-status">
                                 <span class="status-badge status-<?php echo $feedback['status']; ?>">
+                                    <?php 
+                                    $status_icons = [
+                                        'new' => 'fas fa-envelope',
+                                        'read' => 'fas fa-envelope-open',
+                                        'closed' => 'fas fa-check-circle'
+                                    ];
+                                    ?>
+                                    <i class="<?php echo $status_icons[$feedback['status']]; ?>"></i>
                                     <?php echo ucfirst($feedback['status']); ?>
                                 </span>
                             </div>
                             
                             <div class="feedback-actions">
-                                <button class="btn btn-sm btn-primary" onclick="viewFeedback(<?php echo $feedback['id']; ?>)">
+                                <button class="btn btn-sm btn-primary" onclick="viewFeedback(<?php echo $feedback['id']; ?>)" title="View Details">
                                     <i class="fas fa-eye"></i>
                                 </button>
-                                <?php if (hasPermission($pdo, 'feedback.respond') && $feedback['status'] !== 'responded'): ?>
-                                    <button class="btn btn-sm btn-success" onclick="respondToFeedback(<?php echo $feedback['id']; ?>)">
-                                        <i class="fas fa-reply"></i>
-                                    </button>
-                                <?php endif; ?>
                                 <div class="dropdown">
-                                    <button class="btn btn-sm btn-outline dropdown-toggle" onclick="toggleDropdown(this)">
+                                    <button class="btn btn-sm btn-outline dropdown-toggle" onclick="toggleDropdown(this)" title="More Actions">
                                         <i class="fas fa-ellipsis-v"></i>
                                     </button>
                                     <div class="dropdown-menu">
-                                        <a href="#" onclick="updateFeedbackStatus(<?php echo $feedback['id']; ?>, 'read')">Mark as Read</a>
-                                        <a href="#" onclick="updateFeedbackStatus(<?php echo $feedback['id']; ?>, 'closed')">Mark as Closed</a>
+                                        <?php if ($feedback['status'] === 'new'): ?>
+                                            <a href="#" onclick="updateFeedbackStatus(<?php echo $feedback['id']; ?>, 'read')">
+                                                <i class="fas fa-envelope-open"></i> Mark as Read
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($feedback['status'] !== 'closed'): ?>
+                                            <a href="#" onclick="updateFeedbackStatus(<?php echo $feedback['id']; ?>, 'closed')">
+                                                <i class="fas fa-check-circle"></i> Mark as Closed
+                                            </a>
+                                        <?php endif; ?>
                                         <div class="dropdown-divider"></div>
-                                        <a href="#" onclick="deleteFeedback(<?php echo $feedback['id']; ?>)" class="text-danger">Delete</a>
+                                        <a href="#" onclick="deleteFeedback(<?php echo $feedback['id']; ?>)" class="text-danger">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </a>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
                         <div class="feedback-content">
-                            <h4 class="feedback-subject"><?php echo htmlspecialchars($feedback['subject']); ?></h4>
-                            <p class="feedback-message"><?php echo nl2br(htmlspecialchars(substr($feedback['message'], 0, 200))); ?><?php echo strlen($feedback['message']) > 200 ? '...' : ''; ?></p>
-                            
-                            <?php if ($feedback['admin_response']): ?>
-                                <div class="admin-response">
-                                    <div class="response-header">
-                                        <i class="fas fa-reply"></i>
-                                        <strong>Response by <?php echo htmlspecialchars($feedback['responded_by_name']); ?></strong>
-                                        <span class="response-date"><?php echo timeAgo($feedback['responded_at']); ?></span>
-                                    </div>
-                                    <p class="response-content"><?php echo nl2br(htmlspecialchars($feedback['admin_response'])); ?></p>
-                                </div>
-                            <?php endif; ?>
+                            <h4 class="feedback-subject">
+                                <i class="fas fa-comment-alt"></i>
+                                <?php echo htmlspecialchars($feedback['subject']); ?>
+                            </h4>
+                            <div class="feedback-message">
+                                <?php 
+                                $message = htmlspecialchars($feedback['message']);
+                                $preview = substr($message, 0, 300);
+                                if (strlen($message) > 300) {
+                                    echo nl2br($preview) . '...';
+                                    echo '<button class="read-more-btn" onclick="toggleFullMessage(this, ' . $feedback['id'] . ')">Read More</button>';
+                                    echo '<div class="full-message" style="display: none;">' . nl2br($message) . '</div>';
+                                } else {
+                                    echo nl2br($message);
+                                }
+                                ?>
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
                 
                 <?php if (empty($feedback_list)): ?>
                     <div class="empty-state">
-                        <i class="fas fa-comments"></i>
+                        <div class="empty-icon">
+                            <i class="fas fa-comments"></i>
+                        </div>
                         <h3>No feedback found</h3>
                         <p>No feedback messages match your current filters.</p>
+                        <?php if ($status_filter || $rating_filter || $search): ?>
+                            <a href="feedback.php" class="btn btn-primary">
+                                <i class="fas fa-times"></i> Clear Filters
+                            </a>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>
             
-            <!-- Pagination -->
+              
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
-                    <?php if ($page > 1): ?>
-                        <a href="?page=<?php echo $page - 1; ?>&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
-                            <i class="fas fa-chevron-left"></i> Previous
-                        </a>
-                    <?php endif; ?>
+                    <div class="pagination-info">
+                        Showing <?php echo ($offset + 1); ?>-<?php echo min($offset + $per_page, $total_feedback); ?> 
+                        of <?php echo number_format($total_feedback); ?> messages
+                    </div>
                     
-                    <span class="pagination-info">
-                        Page <?php echo $page; ?> of <?php echo $total_pages; ?>
-                        (<?php echo number_format($total_feedback); ?> total messages)
-                    </span>
-                    
-                    <?php if ($page < $total_pages): ?>
-                        <a href="?page=<?php echo $page + 1; ?>&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
-                            Next <i class="fas fa-chevron-right"></i>
-                        </a>
-                    <?php endif; ?>
+                    <div class="pagination-controls">
+                        <?php if ($page > 1): ?>
+                            <a href="?page=1&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                                <i class="fas fa-angle-double-left"></i>
+                            </a>
+                            <a href="?page=<?php echo $page - 1; ?>&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                                <i class="fas fa-chevron-left"></i>
+                            </a>
+                        <?php endif; ?>
+                        
+                        <span class="current-page">Page <?php echo $page; ?> of <?php echo $total_pages; ?></span>
+                        
+                        <?php if ($page < $total_pages): ?>
+                            <a href="?page=<?php echo $page + 1; ?>&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                                <i class="fas fa-chevron-right"></i>
+                            </a>
+                            <a href="?page=<?php echo $total_pages; ?>&status=<?php echo urlencode($status_filter); ?>&rating=<?php echo urlencode($rating_filter); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-outline btn-sm">
+                                <i class="fas fa-angle-double-right"></i>
+                            </a>
+                        <?php endif; ?>
+                    </div>
                 </div>
             <?php endif; ?>
         </div>
     </main>
     
-    <!-- Feedback Details Modal -->
+     Feedback Details Modal 
     <div id="feedbackModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
-                <h3 id="feedbackModalTitle">Feedback Details</h3>
+                <h3 id="feedbackModalTitle">
+                    <i class="fas fa-comment-alt"></i> Feedback Details
+                </h3>
                 <button class="modal-close" onclick="closeModal('feedbackModal')">&times;</button>
             </div>
             <div class="modal-body" id="feedbackModalBody">
-                <!-- Content will be loaded dynamically -->
-            </div>
-        </div>
-    </div>
-    
-    <!-- Response Modal -->
-    <div id="responseModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Respond to Feedback</h3>
-                <button class="modal-close" onclick="closeModal('responseModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="responseForm">
-                    <input type="hidden" id="responseFeedbackId" name="feedback_id">
-                    
-                    <div class="original-message" id="originalMessage">
-                        <!-- Original message will be displayed here -->
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="adminResponse">Your Response</label>
-                        <textarea id="adminResponse" name="response" rows="6" required 
-                                  placeholder="Type your response to the user..."></textarea>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-reply"></i> Send Response
-                        </button>
-                        <button type="button" class="btn btn-outline" onclick="closeModal('responseModal')">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
+                 Content will be loaded dynamically 
             </div>
         </div>
     </div>
@@ -562,26 +553,51 @@ function handleBulkAction() {
         function initializeCharts() {
             // Status distribution chart
             const statusCtx = document.getElementById('statusChart').getContext('2d');
+            const statusData = {
+                labels: ['New', 'Read', 'Closed'],
+                datasets: [{
+                    data: [
+                        <?php echo $stats['new_count']; ?>,
+                        <?php echo $stats['read_count']; ?>,
+                        <?php echo $stats['closed_count']; ?>
+                    ],
+                    backgroundColor: [
+                        '#f59e0b',  // New - Orange
+                        '#06b6d4',  // Read - Cyan
+                        '#10b981'   // Closed - Green
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            };
+            
             new Chart(statusCtx, {
                 type: 'doughnut',
-                data: {
-                    labels: ['New', 'Read', 'Responded', 'Closed'],
-                    datasets: [{
-                        data: [
-                            <?php echo $stats['new_count']; ?>,
-                            <?php echo $stats['read_count']; ?>,
-                            <?php echo $stats['responded_count']; ?>,
-                            <?php echo $stats['closed_count']; ?>
-                        ],
-                        backgroundColor: ['#f59e0b', '#06b6d4', '#10b981', '#6b7280']
-                    }]
-                },
+                data: statusData,
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            position: 'bottom'
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
                         }
                     }
                 }
@@ -589,71 +605,117 @@ function handleBulkAction() {
             
             // Rating distribution chart
             const ratingCtx = document.getElementById('ratingChart').getContext('2d');
+            const ratingData = {
+                labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
+                datasets: [{
+                    label: 'Number of Ratings',
+                    data: [
+                        <?php echo $stats['rating_1']; ?>,
+                        <?php echo $stats['rating_2']; ?>,
+                        <?php echo $stats['rating_3']; ?>,
+                        <?php echo $stats['rating_4']; ?>,
+                        <?php echo $stats['rating_5']; ?>
+                    ],
+                    backgroundColor: [
+                        '#ef4444',  // 1 star - Red
+                        '#f97316',  // 2 stars - Orange
+                        '#eab308',  // 3 stars - Yellow
+                        '#22c55e',  // 4 stars - Green
+                        '#10b981'   // 5 stars - Emerald
+                    ],
+                    borderWidth: 1,
+                    borderColor: '#ffffff'
+                }]
+            };
             
-            // Get rating distribution data
-            fetch('api/feedback.php?action=rating_distribution')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        new Chart(ratingCtx, {
-                            type: 'bar',
-                            data: {
-                                labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
-                                datasets: [{
-                                    label: 'Count',
-                                    data: data.distribution,
-                                    backgroundColor: '#2c5aa0'
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: {
-                                        display: false
-                                    }
+            new Chart(ratingCtx, {
+                type: 'bar',
+                data: ratingData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    return context[0].label;
                                 },
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        ticks: {
-                                            stepSize: 1
-                                        }
-                                    }
+                                label: function(context) {
+                                    return `Count: ${context.parsed.y}`;
                                 }
                             }
-                        });
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            },
+                            grid: {
+                                color: '#f1f5f9'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
                     }
-                });
+                }
+            });
         }
         
         // View feedback details
         function viewFeedback(feedbackId) {
-            fetch(`api/feedback.php?action=get_feedback&id=${feedbackId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        displayFeedbackDetails(data.feedback);
-                        showModal('feedbackModal');
-                        
-                        // Mark as read if it's new
-                        if (data.feedback.status === 'new') {
-                            updateFeedbackStatus(feedbackId, 'read', false);
-                        }
-                    } else {
-                        showNotification(data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    showNotification('Failed to load feedback details', 'error');
-                });
+            const feedbackItem = document.querySelector(`[data-id="${feedbackId}"]`);
+            if (!feedbackItem) return;
+            
+            // Extract data from the DOM
+            const name = feedbackItem.querySelector('.feedback-sender strong').textContent;
+            const email = feedbackItem.querySelector('.feedback-email').textContent.replace('✉ ', '');
+            const date = feedbackItem.querySelector('.feedback-date').textContent.replace('🕐 ', '');
+            const subject = feedbackItem.querySelector('.feedback-subject').textContent.trim();
+            const messageElement = feedbackItem.querySelector('.full-message') || feedbackItem.querySelector('.feedback-message');
+            const message = messageElement.textContent.trim();
+            const status = feedbackItem.querySelector('.status-badge').textContent.trim();
+            const ratingElement = feedbackItem.querySelector('.feedback-rating');
+            let rating = null;
+            
+            if (ratingElement) {
+                const ratingValue = ratingElement.querySelector('.rating-value');
+                if (ratingValue) {
+                    rating = ratingValue.textContent.match(/$$(\d+)\/5$$/)?.[1];
+                }
+            }
+            
+            displayFeedbackDetails({
+                id: feedbackId,
+                name: name,
+                email: email,
+                created_at: date,
+                subject: subject,
+                message: message,
+                status: status.toLowerCase(),
+                rating: rating
+            });
+            
+            showModal('feedbackModal');
+            
+            // Mark as read if it's new
+            if (status.toLowerCase() === 'new') {
+                updateFeedbackStatus(feedbackId, 'read', false);
+            }
         }
         
         function displayFeedbackDetails(feedback) {
             const modalTitle = document.getElementById('feedbackModalTitle');
             const modalBody = document.getElementById('feedbackModalBody');
             
-            modalTitle.textContent = `Feedback: ${feedback.subject}`;
+            modalTitle.innerHTML = `<i class="fas fa-comment-alt"></i> ${feedback.subject}`;
             
             modalBody.innerHTML = `
                 <div class="feedback-details-content">
@@ -661,84 +723,43 @@ function handleBulkAction() {
                         <div class="sender-info">
                             <h4><i class="fas fa-user"></i> ${feedback.name}</h4>
                             <p><i class="fas fa-envelope"></i> ${feedback.email}</p>
-                            <p><i class="fas fa-clock"></i> ${formatDateTime(feedback.created_at)}</p>
+                            <p><i class="fas fa-clock"></i> ${feedback.created_at}</p>
                             ${feedback.rating ? `
                                 <div class="rating-display">
                                     <span>Rating: </span>
                                     ${Array.from({length: 5}, (_, i) => 
                                         `<i class="fas fa-star ${i < feedback.rating ? 'active' : ''}"></i>`
                                     ).join('')}
+                                    <span class="rating-text">(${feedback.rating}/5)</span>
                                 </div>
                             ` : ''}
                         </div>
                         <div class="status-info">
-                            <span class="status-badge status-${feedback.status}">${feedback.status.charAt(0).toUpperCase() + feedback.status.slice(1)}</span>
+                            <span class="status-badge status-${feedback.status}">
+                                ${feedback.status.charAt(0).toUpperCase() + feedback.status.slice(1)}
+                            </span>
                         </div>
                     </div>
                     
                     <div class="message-content">
-                        <h5>Subject: ${feedback.subject}</h5>
+                        <h5><i class="fas fa-comment"></i> Message</h5>
                         <div class="message-text">
                             ${feedback.message.replace(/\n/g, '<br>')}
                         </div>
                     </div>
                     
-                    ${feedback.admin_response ? `
-                        <div class="admin-response-section">
-                            <h5><i class="fas fa-reply"></i> Admin Response</h5>
-                            <div class="response-meta">
-                                <span>Responded by: ${feedback.responded_by_name}</span>
-                                <span>Date: ${formatDateTime(feedback.responded_at)}</span>
-                            </div>
-                            <div class="response-text">
-                                ${feedback.admin_response.replace(/\n/g, '<br>')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    
                     <div class="feedback-actions-section">
-                        ${!feedback.admin_response && hasPermission('feedback.respond') ? `
-                            <button class="btn btn-success" onclick="respondToFeedback(${feedback.id})">
-                                <i class="fas fa-reply"></i> Respond to Feedback
+                        ${feedback.status !== 'closed' ? `
+                            <button class="btn btn-success" onclick="updateFeedbackStatus(${feedback.id}, 'closed', true); closeModal('feedbackModal');">
+                                <i class="fas fa-check-circle"></i> Mark as Resolved
                             </button>
                         ` : ''}
-                        <button class="btn btn-outline" onclick="updateFeedbackStatus(${feedback.id}, 'closed')">
-                            <i class="fas fa-check"></i> Mark as Closed
+                        <button class="btn btn-outline" onclick="closeModal('feedbackModal')">
+                            <i class="fas fa-times"></i> Close
                         </button>
                     </div>
                 </div>
             `;
-        }
-        
-        // Respond to feedback
-        function respondToFeedback(feedbackId) {
-            fetch(`api/feedback.php?action=get_feedback&id=${feedbackId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const feedback = data.feedback;
-                        document.getElementById('responseFeedbackId').value = feedbackId;
-                        document.getElementById('originalMessage').innerHTML = `
-                            <div class="original-feedback">
-                                <h5>Original Message</h5>
-                                <div class="original-content">
-                                    <strong>From:</strong> ${feedback.name} (${feedback.email})<br>
-                                    <strong>Subject:</strong> ${feedback.subject}<br>
-                                    <strong>Message:</strong><br>
-                                    <div class="original-text">${feedback.message.replace(/\n/g, '<br>')}</div>
-                                </div>
-                            </div>
-                        `;
-                        
-                        closeModal('feedbackModal');
-                        showModal('responseModal');
-                    } else {
-                        showNotification(data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    showNotification('Failed to load feedback for response', 'error');
-                });
         }
         
         // Update feedback status
@@ -756,6 +777,23 @@ function handleBulkAction() {
                     if (showMessage) {
                         showNotification(data.message, 'success');
                         setTimeout(() => location.reload(), 1000);
+                    } else {
+                        // Update the UI without reloading
+                        const feedbackItem = document.querySelector(`[data-id="${feedbackId}"]`);
+                        if (feedbackItem) {
+                            const statusBadge = feedbackItem.querySelector('.status-badge');
+                            const statusIcons = {
+                                'new': 'fas fa-envelope',
+                                'read': 'fas fa-envelope-open',
+                                'closed': 'fas fa-check-circle'
+                            };
+                            statusBadge.innerHTML = `<i class="${statusIcons[status]}"></i> ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+                            statusBadge.className = `status-badge status-${status}`;
+                            
+                            if (status === 'read') {
+                                feedbackItem.classList.remove('unread');
+                            }
+                        }
                     }
                 } else {
                     showNotification(data.error, 'error');
@@ -770,6 +808,23 @@ function handleBulkAction() {
         function deleteFeedback(feedbackId) {
             if (confirm('Are you sure you want to delete this feedback? This action cannot be undone.')) {
                 performBulkAction('delete', [feedbackId]);
+            }
+        }
+        
+        // Toggle full message
+        function toggleFullMessage(button, feedbackId) {
+            const feedbackItem = document.querySelector(`[data-id="${feedbackId}"]`);
+            const fullMessage = feedbackItem.querySelector('.full-message');
+            const messageDiv = feedbackItem.querySelector('.feedback-message');
+            
+            if (fullMessage.style.display === 'none') {
+                fullMessage.style.display = 'block';
+                button.style.display = 'none';
+                // Hide the preview
+                const preview = messageDiv.childNodes[0];
+                if (preview.nodeType === Node.TEXT_NODE) {
+                    preview.textContent = '';
+                }
             }
         }
         
@@ -872,38 +927,6 @@ function handleBulkAction() {
             }
         });
         
-        // Form submissions
-        document.getElementById('responseForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            formData.append('action', 'respond_feedback');
-            
-            const submitBtn = this.querySelector('button[type="submit"]');
-            showLoading(submitBtn);
-            
-            fetch('feedback.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showNotification(data.message, 'success');
-                    closeModal('responseModal');
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    showNotification(data.error, 'error');
-                }
-            })
-            .catch(error => {
-                showNotification('Failed to send response', 'error');
-            })
-            .finally(() => {
-                hideLoading(submitBtn);
-            });
-        });
-        
         // Export feedback
         function exportFeedback() {
             const status = document.getElementById('status').value;
@@ -916,23 +939,46 @@ function handleBulkAction() {
             if (search) params.append('search', search);
             params.append('export', '1');
             
-            window.open(`api/feedback.php?${params.toString()}`, '_blank');
+            // Create a simple CSV export
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Name,Email,Subject,Message,Rating,Status,Date\n";
+            
+            document.querySelectorAll('.feedback-item').forEach(item => {
+                const name = item.querySelector('.feedback-sender strong').textContent;
+                const email = item.querySelector('.feedback-email').textContent.replace('✉ ', '');
+                const subject = item.querySelector('.feedback-subject').textContent.trim();
+                const message = (item.querySelector('.full-message') || item.querySelector('.feedback-message')).textContent.trim();
+                const ratingElement = item.querySelector('.rating-value');
+                const rating = ratingElement ? ratingElement.textContent.match(/$$(\d+)\/5$$/)?.[1] || '' : '';
+                const status = item.querySelector('.status-badge').textContent.trim();
+                const date = item.querySelector('.feedback-date').textContent.replace('🕐 ', '');
+                
+                csvContent += `"${name}","${email}","${subject}","${message.replace(/"/g, '""')}","${rating}","${status}","${date}"\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `feedback_export_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
         
         // Refresh feedback
         function refreshFeedback() {
             location.reload();
         }
-        
-        // Helper function to check permissions
-        function hasPermission(permission) {
-            // This would be populated from PHP
-            const permissions = <?php echo json_encode(array_keys($_SESSION['admin_permissions'] ?? [])); ?>;
-            return permissions.includes(permission);
-        }
     </script>
     
     <style>
+        /* Enhanced Feedback Styles */
+        .chart-container {
+            position: relative;
+            height: 300px;
+            padding: 20px;
+        }
+        
         .rating-stars {
             margin-top: 4px;
         }
@@ -948,10 +994,11 @@ function handleBulkAction() {
         
         .bulk-actions-card {
             background: white;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e2e8f0;
         }
         
         .bulk-actions-form {
@@ -966,43 +1013,71 @@ function handleBulkAction() {
             gap: 16px;
         }
         
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .checkbox-label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--primary-color);
+        }
+        
         .selected-count {
             color: #64748b;
             font-size: 0.9rem;
+            background: #f1f5f9;
+            padding: 4px 12px;
+            border-radius: 20px;
         }
         
         .bulk-actions {
             display: flex;
-            gap: 8px;
+            gap: 12px;
             align-items: center;
+        }
+        
+        .bulk-actions select {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: white;
+            min-width: 150px;
         }
         
         .feedback-list {
             display: flex;
             flex-direction: column;
-            gap: 1px;
+            gap: 2px;
         }
         
         .feedback-item {
             background: white;
             border: 1px solid #e2e8f0;
-            transition: all 0.3s;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            overflow: hidden;
         }
         
         .feedback-item:hover {
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
         }
         
         .feedback-item.unread {
             border-left: 4px solid #f59e0b;
-            background: #fffbeb;
+            background: linear-gradient(90deg, #fffbeb 0%, #ffffff 10%);
         }
         
         .feedback-header {
             display: flex;
             align-items: center;
-            gap: 16px;
-            padding: 16px;
+            gap: 20px;
+            padding: 20px;
             border-bottom: 1px solid #f1f5f9;
         }
         
@@ -1018,30 +1093,54 @@ function handleBulkAction() {
         .feedback-sender {
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin-bottom: 4px;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .feedback-sender strong {
+            font-size: 1.1rem;
+            color: #1e293b;
         }
         
         .user-badge {
-            background: #dbeafe;
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
             color: #1e40af;
-            font-size: 0.7rem;
-            padding: 2px 6px;
-            border-radius: 10px;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 12px;
             font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
         
         .feedback-details {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 20px;
             font-size: 0.9rem;
             color: #64748b;
+            flex-wrap: wrap;
+        }
+        
+        .feedback-details > span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         
         .feedback-rating {
             display: flex;
-            gap: 2px;
+            align-items: center;
+            gap: 8px;
+            background: #f8fafc;
+            padding: 4px 8px;
+            border-radius: 8px;
+        }
+        
+        .feedback-rating .rating-label {
+            font-size: 0.8rem;
+            font-weight: 500;
         }
         
         .feedback-rating .fa-star {
@@ -1053,58 +1152,88 @@ function handleBulkAction() {
             color: #fbbf24;
         }
         
+        .feedback-rating .rating-value {
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+        
         .feedback-status {
             flex-shrink: 0;
         }
         
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+        
+        .status-new {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-read {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .status-closed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
         .feedback-actions {
             display: flex;
-            gap: 4px;
+            gap: 8px;
             align-items: center;
             position: relative;
         }
         
         .feedback-content {
-            padding: 0 16px 16px 16px;
+            padding: 0 20px 20px 20px;
         }
         
         .feedback-subject {
             color: #1e293b;
-            margin-bottom: 8px;
-            font-size: 1.1rem;
-        }
-        
-        .feedback-message {
-            color: #64748b;
-            line-height: 1.5;
             margin-bottom: 12px;
-        }
-        
-        .admin-response {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 6px;
-            padding: 12px;
-            margin-top: 12px;
-        }
-        
-        .response-header {
+            font-size: 1.2rem;
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            color: #0369a1;
         }
         
-        .response-date {
-            margin-left: auto;
-            color: #64748b;
+        .feedback-message {
+            color: #4b5563;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 8px;
+            border-left: 4px solid #e2e8f0;
         }
         
-        .response-content {
-            color: #1e293b;
-            line-height: 1.5;
+        .read-more-btn {
+            background: none;
+            border: none;
+            color: var(--primary-color);
+            cursor: pointer;
+            font-weight: 500;
+            text-decoration: underline;
+            margin-top: 8px;
+        }
+        
+        .read-more-btn:hover {
+            color: var(--primary-dark);
+        }
+        
+        .full-message {
+            margin-top: 8px;
         }
         
         .dropdown {
@@ -1117,11 +1246,12 @@ function handleBulkAction() {
             right: 0;
             background: white;
             border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            min-width: 150px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            min-width: 180px;
             z-index: 1000;
             display: none;
+            overflow: hidden;
         }
         
         .dropdown-menu.show {
@@ -1129,12 +1259,14 @@ function handleBulkAction() {
         }
         
         .dropdown-menu a {
-            display: block;
-            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
             color: #374151;
             text-decoration: none;
             font-size: 0.9rem;
-            transition: background-color 0.3s;
+            transition: background-color 0.2s;
         }
         
         .dropdown-menu a:hover {
@@ -1145,6 +1277,10 @@ function handleBulkAction() {
             color: #ef4444;
         }
         
+        .dropdown-menu a.text-danger:hover {
+            background: #fef2f2;
+        }
+        
         .dropdown-divider {
             height: 1px;
             background: #e5e7eb;
@@ -1153,19 +1289,62 @@ function handleBulkAction() {
         
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 80px 20px;
             color: #64748b;
         }
         
+        .empty-icon {
+            margin-bottom: 20px;
+        }
+        
         .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 16px;
+            font-size: 4rem;
             color: #e2e8f0;
         }
         
         .empty-state h3 {
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             color: #374151;
+            font-size: 1.5rem;
+        }
+        
+        .empty-state p {
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        
+        .pagination-info {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .current-page {
+            padding: 8px 12px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        
+        /* Modal Enhancements */
+        .large-modal {
+            max-width: 800px;
         }
         
         .feedback-details-content {
@@ -1177,122 +1356,91 @@ function handleBulkAction() {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
         }
         
         .sender-info h4 {
             color: #1e293b;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
+            font-size: 1.3rem;
         }
         
         .sender-info p {
-            margin-bottom: 4px;
+            margin-bottom: 8px;
             color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
         .rating-display {
-            margin-top: 8px;
+            margin-top: 12px;
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 8px;
+            background: #f8fafc;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+        
+        .rating-display .fa-star.active {
+            color: #fbbf24;
+        }
+        
+        .rating-text {
+            font-weight: 500;
+            color: #374151;
         }
         
         .message-content {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
         
         .message-content h5 {
             color: #374151;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
         .message-text {
             background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 16px;
-            line-height: 1.6;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            line-height: 1.7;
             color: #374151;
-        }
-        
-        .admin-response-section {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }
-        
-        .admin-response-section h5 {
-            color: #0369a1;
-            margin-bottom: 8px;
-        }
-        
-        .response-meta {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 12px;
-            font-size: 0.9rem;
-            color: #64748b;
-        }
-        
-        .response-text {
-            color: #374151;
-            line-height: 1.6;
+            font-size: 1rem;
         }
         
         .feedback-actions-section {
             display: flex;
             gap: 12px;
-            padding-top: 16px;
-            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+            border-top: 2px solid #e2e8f0;
         }
         
-        .original-feedback {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }
-        
-        .original-feedback h5 {
-            color: #374151;
-            margin-bottom: 12px;
-        }
-        
-        .original-content {
-            font-size: 0.9rem;
-            line-height: 1.5;
-        }
-        
-        .original-text {
-            background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            padding: 12px;
-            margin-top: 8px;
-            color: #374151;
-        }
-        
+        /* Responsive Design */
         @media (max-width: 768px) {
             .bulk-actions-form {
                 flex-direction: column;
-                gap: 12px;
+                gap: 16px;
                 align-items: stretch;
             }
             
             .feedback-header {
                 flex-direction: column;
-                gap: 12px;
+                gap: 16px;
                 align-items: stretch;
             }
             
             .feedback-details {
                 flex-direction: column;
-                gap: 8px;
+                gap: 12px;
                 align-items: flex-start;
             }
             
@@ -1302,12 +1450,65 @@ function handleBulkAction() {
             
             .feedback-header-info {
                 flex-direction: column;
-                gap: 12px;
+                gap: 16px;
             }
             
             .feedback-actions-section {
                 flex-direction: column;
             }
+            
+            .pagination {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .pagination-controls {
+                justify-content: center;
+            }
+            
+            .chart-container {
+                height: 250px;
+                padding: 10px;
+            }
+        }
+        
+        /* Animation for new feedback */
+        @keyframes newFeedback {
+            0% {
+                background-color: #fef3c7;
+            }
+            100% {
+                background-color: #fffbeb;
+            }
+        }
+        
+        .feedback-item.unread {
+            animation: newFeedback 2s ease-in-out;
+        }
+        
+        /* Loading states */
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        .loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin: -10px 0 0 -10px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </body>
