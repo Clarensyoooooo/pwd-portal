@@ -47,10 +47,16 @@ function toggleSidebar() {
   const mainContent = document.querySelector(".main-content")
 
   if (window.innerWidth <= 1024) {
-    // Mobile behavior
+    // Mobile behavior - toggle show class
     sidebar.classList.toggle("show")
+
+    // Close user dropdown when opening sidebar
+    const userDropdown = document.getElementById("userDropdown")
+    if (userDropdown) {
+      userDropdown.classList.remove("show")
+    }
   } else {
-    // Desktop behavior
+    // Desktop behavior - toggle collapsed
     sidebar.classList.toggle("collapsed")
     mainContent.classList.toggle("expanded")
     sidebarCollapsed = !sidebarCollapsed
@@ -85,7 +91,7 @@ function initializeNotifications() {
   if (userDropdownToggle && userDropdown) {
     userDropdownToggle.addEventListener("click", (e) => {
       e.stopPropagation()
-      toggleUserDropdown()
+      toggleUserDropdown(e)
     })
 
     // Close dropdown when clicking outside
@@ -104,7 +110,10 @@ function toggleNotifications() {
   }
 }
 
-function toggleUserDropdown() {
+function toggleUserDropdown(e) {
+  if (e) {
+    e.stopPropagation()
+  }
   const dropdown = document.getElementById("userDropdown")
   if (dropdown) {
     dropdown.classList.toggle("show")

@@ -1,54 +1,66 @@
 <?php
 require_once 'config.php';
 requireAdminLogin();
-requirePermission($pdo, 'dashboard.view');
 
 $admin = getCurrentAdmin($pdo);
 
-// Get dashboard statistics
-$stats = [];
+// Initialize stats array
+$stats = [
+    'total_appointments' => 0,
+    'pending_appointments' => 0,
+    'total_records' => 0,
+    'validated_records' => 0,
+    'pending_feedback' => 0
+];
 
-// Total appointments
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM appointments");
-$stats['total_appointments'] = $stmt->fetch()['count'];
+// Get dashboard statistics with error handling
+try {
+    // Total appointments
+    $stmt = $pdo->query("SELECT COUNT(*) as count FROM appointments");
+    $stats['total_appointments'] = $stmt->fetch()['count'];
 
-// Pending appointments
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM appointments WHERE status = 'pending'");
-$stats['pending_appointments'] = $stmt->fetch()['count'];
+    // Pending appointments
+    $stmt = $pdo->query("SELECT COUNT(*) as count FROM appointments WHERE status = 'pending'");
+    $stats['pending_appointments'] = $stmt->fetch()['count'];
 
-// Total PWD records
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM pwd_records");
-$stats['total_records'] = $stmt->fetch()['count'];
+    // Total PWD records
+    $stmt = $pdo->query("SELECT COUNT(*) as count FROM pwd_records");
+    $stats['total_records'] = $stmt->fetch()['count'];
 
-// Validated records
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM pwd_records WHERE status = 'validated'");
-$stats['validated_records'] = $stmt->fetch()['count'];
+    // Validated records
+    $stmt = $pdo->query("SELECT COUNT(*) as count FROM pwd_records WHERE status = 'validated'");
+    $stats['validated_records'] = $stmt->fetch()['count'];
 
-// Pending feedback
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM feedback WHERE status = 'new'");
-$stats['pending_feedback'] = $stmt->fetch()['count'];
+    // Pending feedback
+    $stmt = $pdo->query("SELECT COUNT(*) as count FROM feedback WHERE status = 'new'");
+    $stats['pending_feedback'] = $stmt->fetch()['count'];
 
-// Recent activities
-$stmt = $pdo->prepare("
-    SELECT aal.*, au.full_name as admin_name 
-    FROM admin_activity_logs aal 
-    JOIN admin_users au ON aal.admin_user_id = au.id 
-    ORDER BY aal.created_at DESC 
-    LIMIT 10
-");
-$stmt->execute();
-$recent_activities = $stmt->fetchAll();
+    // Recent activities
+    $stmt = $pdo->prepare("
+        SELECT aal.*, au.full_name as admin_name 
+        FROM admin_activity_logs aal 
+        JOIN admin_users au ON aal.admin_user_id = au.id 
+        ORDER BY aal.created_at DESC 
+        LIMIT 10
+    ");
+    $stmt->execute();
+    $recent_activities = $stmt->fetchAll();
 
-// Recent appointments
-$stmt = $pdo->prepare("
-    SELECT a.*, u.first_name, u.last_name 
-    FROM appointments a 
-    JOIN users u ON a.user_id = u.id 
-    ORDER BY a.created_at DESC 
-    LIMIT 5
-");
-$stmt->execute();
-$recent_appointments = $stmt->fetchAll();
+    // Recent appointments
+    $stmt = $pdo->prepare("
+        SELECT a.*, u.first_name, u.last_name 
+        FROM appointments a 
+        JOIN users u ON a.user_id = u.id 
+        ORDER BY a.created_at DESC 
+        LIMIT 5
+    ");
+    $stmt->execute();
+    $recent_appointments = $stmt->fetchAll();
+} catch (PDOException $e) {
+    error_log("Dashboard stats error: " . $e->getMessage());
+    $recent_activities = [];
+    $recent_appointments = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

@@ -6,8 +6,88 @@ requirePermission($pdo, 'appointments.interview');
 $admin = getCurrentAdmin($pdo);
 $interview_id = $_GET['id'] ?? '';
 
+// Show placeholder if no interview ID is provided
 if (empty($interview_id)) {
-    header('Location: appointments.php');
+    include 'includes/header.php';
+    include 'includes/sidebar.php';
+    ?>
+    <main class="main-content">
+        <div class="empty-state-container">
+            <div class="empty-state-card">
+                <div class="empty-state-icon">
+                    <i class="fas fa-comments"></i>
+                </div>
+                <h2>No Interview Selected</h2>
+                <p>Please select an interview from the appointments page to begin conducting an interview session.</p>
+                <div class="empty-state-actions">
+                    <a href="appointments.php" class="btn btn-primary">
+                        <i class="fas fa-calendar-check"></i> View Appointments
+                    </a>
+                    <a href="index.php" class="btn btn-outline">
+                        <i class="fas fa-home"></i> Go to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <style>
+        .empty-state-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 150px);
+            padding: 40px 20px;
+        }
+        
+        .empty-state-card {
+            background: white;
+            border-radius: 16px;
+            padding: 60px 40px;
+            text-align: center;
+            max-width: 600px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .empty-state-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            font-size: 3rem;
+            color: white;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+        
+        .empty-state-card h2 {
+            color: #1f2937;
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state-card p {
+            color: #6b7280;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+        
+        .empty-state-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+    
+    <script src="assets/admin.js"></script>
+    </body>
+    </html>
+    <?php
     exit();
 }
 
@@ -27,7 +107,85 @@ $stmt->execute([$interview_id]);
 $interview = $stmt->fetch();
 
 if (!$interview) {
-    header('Location: appointments.php');
+    include 'includes/header.php';
+    include 'includes/sidebar.php';
+    ?>
+    <main class="main-content">
+        <div class="empty-state-container">
+            <div class="empty-state-card">
+                <div class="empty-state-icon" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <h2>Interview Not Found</h2>
+                <p>The interview you're looking for doesn't exist or may have been removed.</p>
+                <div class="empty-state-actions">
+                    <a href="appointments.php" class="btn btn-primary">
+                        <i class="fas fa-calendar-check"></i> View Appointments
+                    </a>
+                    <a href="index.php" class="btn btn-outline">
+                        <i class="fas fa-home"></i> Go to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <style>
+        .empty-state-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 150px);
+            padding: 40px 20px;
+        }
+        
+        .empty-state-card {
+            background: white;
+            border-radius: 16px;
+            padding: 60px 40px;
+            text-align: center;
+            max-width: 600px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .empty-state-icon {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            font-size: 3rem;
+            color: white;
+            box-shadow: 0 10px 30px rgba(239, 68, 68, 0.3);
+        }
+        
+        .empty-state-card h2 {
+            color: #1f2937;
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state-card p {
+            color: #6b7280;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+        
+        .empty-state-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+    
+    <script src="assets/admin.js"></script>
+    </body>
+    </html>
+    <?php
     exit();
 }
 
@@ -304,7 +462,7 @@ function handleCreatePWDRecord() {
             </div>
         <?php endif; ?>
         
-         
+         Interview Progress 
         <div class="interview-progress">
             <div class="progress-steps">
                 <div class="step completed">
@@ -326,7 +484,7 @@ function handleCreatePWDRecord() {
             </div>
         </div>
         
-         
+         Interview Status Card 
         <div class="status-overview-card">
             <div class="status-grid">
                 <div class="status-item">
@@ -377,7 +535,7 @@ function handleCreatePWDRecord() {
             </div>
         </div>
         
-         
+         Interview Tabs 
         <div class="interview-container">
             <div class="interview-tabs">
                 <button class="tab-btn active" onclick="switchTab('applicant-info')">
@@ -397,7 +555,7 @@ function handleCreatePWDRecord() {
                 <?php endif; ?>
             </div>
             
-             
+             Applicant Information Tab 
             <div id="applicant-info" class="tab-content active">
                 <div class="applicant-overview">
                     <div class="applicant-card">
@@ -470,7 +628,7 @@ function handleCreatePWDRecord() {
                 </div>
             </div>
             
-           
+             Interview Notes Tab 
             <div id="interview-notes" class="tab-content">
                 <div class="interview-form-container">
                     <form method="POST" class="interview-form">
@@ -570,7 +728,7 @@ function handleCreatePWDRecord() {
                 </div>
             </div>
             
-             
+             PWD Record Creation Tab 
             <?php if (!$interview['record_id']): ?>
                 <div id="pwd-record" class="tab-content">
                     <div class="record-form-container">
@@ -816,7 +974,7 @@ function handleCreatePWDRecord() {
                              Medical Information 
                             <div class="form-section">
                                 <div class="section-header">
-                                    <h4><i class="fas fa-stethoscope"></i> Medical Information</h4>
+                                    <h4><i class="fas fa- stethoscope"></i> Medical Information</h4>
                                 </div>
                                 <div class="form-grid">
                                     <div class="form-group full-width">

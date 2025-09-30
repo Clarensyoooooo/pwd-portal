@@ -19,14 +19,27 @@ function getCurrentAdmin($pdo) {
         return null;
     }
     
-    $stmt = $pdo->prepare("
-        SELECT au.*, ar.name as role_name, ar.display_name as role_display_name 
-        FROM admin_users au 
-        LEFT JOIN admin_roles ar ON au.role_id = ar.id 
-        WHERE au.id = ?
-    ");
-    $stmt->execute([$_SESSION['admin_user_id']]);
-    return $stmt->fetch();
+    try {
+        $stmt = $pdo->prepare("
+            SELECT au.*, ar.name as role_name, ar.display_name as role_display_name 
+            FROM admin_users au 
+            LEFT JOIN admin_roles ar ON au.role_id = ar.id 
+            WHERE au.id = ? AND au.is_active = 1
+        ");
+        $stmt->execute([$_SESSION['admin_user_id']]);
+        $admin = $stmt->fetch();
+        
+        // If user is not active or doesn't exist, clear session
+        if (!$admin) {
+            session_destroy();
+            return null;
+        }
+        
+        return $admin;
+    } catch (PDOException $e) {
+        error_log("Error getting current admin: " . $e->getMessage());
+        return null;
+    }
 }
 
 function hasPermission($pdo, $permission) {
@@ -34,32 +47,51 @@ function hasPermission($pdo, $permission) {
         return false;
     }
     
-    $admin = getCurrentAdmin($pdo);
-    if (!$admin || !$admin['role_id']) {
-        return false;
+    try {
+        $admin = getCurrentAdmin($pdo);
+        if (!$admin) {
+            return false;
+        }
+        
+        // Super admin has all permissions - use role_name check
+        if (isset($admin['role_name']) && $admin['role_name'] === 'super_admin') {
+            return true;
+        }
+        
+        // If no role assigned, deny access (except for basic permissions)
+        if (!isset($admin['role_id']) || !$admin['role_id']) {
+            // Allow basic navigation permissions
+            $basicPermissions = ['dashboard.view'];
+            return in_array($permission, $basicPermissions);
+        }
+        
+        // Check if role has the specific permission
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as count
+            FROM role_permissions rp
+            JOIN admin_permissions ap ON rp.permission_id = ap.id
+            WHERE rp.role_id = ? AND ap.name = ?
+        ");
+        $stmt->execute([$admin['role_id'], $permission]);
+        $result = $stmt->fetch();
+        
+        return $result && $result['count'] > 0;
+    } catch (PDOException $e) {
+        // Log error but don't crash - fail safely
+        error_log("Permission check error: " . $e->getMessage());
+        
+        // If there's a database error, allow super_admin through
+        $admin = getCurrentAdmin($pdo);
+        return isset($admin['role_name']) && $admin['role_name'] === 'super_admin';
     }
-    
-    // Super admin has all permissions
-    if ($admin['role_name'] === 'super_admin') {
-        return true;
-    }
-    
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) as count
-        FROM role_permissions rp
-        JOIN admin_permissions ap ON rp.permission_id = ap.id
-        WHERE rp.role_id = ? AND ap.name = ?
-    ");
-    $stmt->execute([$admin['role_id'], $permission]);
-    $result = $stmt->fetch();
-    
-    return $result['count'] > 0;
 }
 
 function requirePermission($pdo, $permission) {
     if (!hasPermission($pdo, $permission)) {
-        http_response_code(403);
-        die('Access denied. You do not have permission to access this resource.');
+        // Don't use die() - use proper error handling
+        $_SESSION['error'] = 'Access denied. You do not have permission to access this resource.';
+        header('Location: index.php');
+        exit();
     }
 }
 

@@ -1,3 +1,43 @@
+<?php
+if (!isset($_SESSION)) {
+    session_start();
+}
+
+// Get current admin data if logged in
+$admin = null;
+if (isset($_SESSION['admin_user_id'])) {
+    try {
+        $admin = getCurrentAdmin($pdo);
+    } catch (Exception $e) {
+        // Handle error silently
+        $admin = [
+            'full_name' => 'Admin User',
+            'role_display_name' => 'Administrator'
+        ];
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo isset($page_title) ? $page_title . ' - ' : ''; ?>PWD Portal Admin</title>
+    
+     FontAwesome 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+     Leaflet CSS 
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+     Chart.js 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+     Admin CSS 
+    <link rel="stylesheet" href="assets/admin.css">
+</head>
+<body>
+
 <header class="admin-header">
     <div class="header-left">
         <button class="sidebar-toggle" onclick="toggleSidebar()">
@@ -47,22 +87,22 @@
         </div>
         
         <div class="header-user">
-            <div class="user-avatar">
+            <div class="user-avatar" onclick="toggleUserDropdown(event)">
                 <i class="fas fa-user"></i>
             </div>
-            <div class="user-info">
-                <span class="user-name"><?php echo htmlspecialchars($admin['full_name']); ?></span>
-                <span class="user-role"><?php echo htmlspecialchars($admin['role_display_name'] ?? 'Admin'); ?></span>
+            <div class="user-info" onclick="toggleUserDropdown(event)" style="cursor: pointer;">
+                <span class="user-name"><?php echo htmlspecialchars($admin['full_name'] ?? 'Admin'); ?></span>
+                <span class="user-role"><?php echo htmlspecialchars($admin['role_display_name'] ?? 'Administrator'); ?></span>
             </div>
             <div class="user-dropdown">
-                <button class="dropdown-toggle" onclick="toggleUserDropdown()">
+                <button class="dropdown-toggle" onclick="toggleUserDropdown(event)">
                     <i class="fas fa-chevron-down"></i>
                 </button>
                 <div class="dropdown-menu" id="userDropdown">
-                    <a href="profile.php"><i class="fas fa-user"></i> Profile</a>
+                    <a href="profile.php"><i class="fas fa-user-circle"></i> My Profile</a>
                     <a href="settings.php"><i class="fas fa-cog"></i> Settings</a>
                     <div class="dropdown-divider"></div>
-                    <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    <a href="logout.php" class="text-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
                 </div>
             </div>
         </div>

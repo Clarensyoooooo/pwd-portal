@@ -365,6 +365,7 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   padding: 4px;
+  transition: transform 0.3s;
 }
 
 .dropdown-menu {
@@ -397,6 +398,11 @@ body {
 
 .dropdown-menu a:hover {
   background: var(--bg-primary);
+}
+
+.dropdown-menu a.text-danger:hover {
+  background: #fee2e2;
+  color: var(--danger-color);
 }
 
 .dropdown-divider {
@@ -1070,10 +1076,17 @@ body {
 
   .admin-sidebar {
     transform: translateX(-100%);
+    transition: transform 0.3s ease;
   }
 
   .admin-sidebar.show {
     transform: translateX(0);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  }
+
+  .dropdown-menu {
+    right: 0;
+    left: auto;
   }
 
   .dashboard-grid {
@@ -1293,4 +1306,9 @@ body {
 
 .text-capitalize {
   text-transform: capitalize !important;
+}
+
+.user-avatar:hover,
+.user-info:hover {
+  opacity: 0.8;
 }

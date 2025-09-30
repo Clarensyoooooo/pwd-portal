@@ -13,7 +13,7 @@
                 <a href="appointments.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'appointments.php' ? 'active' : ''; ?>">
                     <i class="fas fa-calendar-check"></i>
                     <span>Appointments</span>
-                    <?php if (($stats['pending_appointments'] ?? 0) > 0): ?>
+                    <?php if (isset($stats['pending_appointments']) && $stats['pending_appointments'] > 0): ?>
                         <span class="nav-badge"><?php echo $stats['pending_appointments']; ?></span>
                     <?php endif; ?>
                 </a>
@@ -43,7 +43,7 @@
                 <a href="feedback.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'feedback.php' ? 'active' : ''; ?>">
                     <i class="fas fa-comment-dots"></i>
                     <span>Feedback</span>
-                    <?php if (($stats['pending_feedback'] ?? 0) > 0): ?>
+                    <?php if (isset($stats['pending_feedback']) && $stats['pending_feedback'] > 0): ?>
                         <span class="nav-badge"><?php echo $stats['pending_feedback']; ?></span>
                     <?php endif; ?>
                 </a>
@@ -97,7 +97,7 @@
         </ul>
         
         <div class="sidebar-footer">
-            <a href="../index.php" class="btn btn-outline btn-sm">
+            <a href="../index.php" class="btn btn-outline btn-sm" target="_blank">
                 <i class="fas fa-external-link-alt"></i>
                 Public Portal
             </a>
