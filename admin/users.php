@@ -19,7 +19,7 @@ if (!$canView) {
 }
 
 // Handle form submissions
-if ($_POST) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     switch ($action) {
@@ -44,38 +44,55 @@ if ($_POST) {
                 $_SESSION['error'] = 'You do not have permission to delete users.';
             }
             break;
-        case 'edit_role':
+        case 'update_role': // This case was added in the updates
             if ($canManageRoles) {
-                editRole($pdo);
+                updateRole($pdo); // This function was also added in the updates
             } else {
                 $_SESSION['error'] = 'You do not have permission to manage roles.';
             }
             break;
     }
+    
+    // Redirect to prevent form resubmission
+    header('Location: users.php');
+    exit();
 }
 
 // Get users with roles
-$stmt = $pdo->query("
-    SELECT au.*, ar.display_name as role_name, ar.name as role_key
-    FROM admin_users au
-    LEFT JOIN admin_roles ar ON au.role_id = ar.id
-    ORDER BY au.created_at DESC
-");
-$users = $stmt->fetchAll();
+try {
+    $stmt = $pdo->query("
+        SELECT au.*, ar.display_name as role_name, ar.name as role_key
+        FROM admin_users au
+        LEFT JOIN admin_roles ar ON au.role_id = ar.id
+        ORDER BY au.created_at DESC
+    ");
+    $users = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $users = [];
+    $_SESSION['error'] = 'Error loading users: ' . $e->getMessage();
+}
 
 // Get roles
-$stmt = $pdo->query("SELECT * FROM admin_roles ORDER BY name");
-$roles = $stmt->fetchAll();
+try {
+    $stmt = $pdo->query("SELECT * FROM admin_roles ORDER BY name");
+    $roles = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $roles = [];
+}
 
 // Get permissions grouped by module
-$stmt = $pdo->query("
-    SELECT * FROM admin_permissions 
-    ORDER BY module, name
-");
-$all_permissions = $stmt->fetchAll();
-$permissions_by_module = [];
-foreach ($all_permissions as $permission) {
-    $permissions_by_module[$permission['module']][] = $permission;
+try {
+    $stmt = $pdo->query("
+        SELECT * FROM admin_permissions 
+        ORDER BY module, name
+    ");
+    $all_permissions = $stmt->fetchAll();
+    $permissions_by_module = [];
+    foreach ($all_permissions as $permission) {
+        $permissions_by_module[$permission['module']][] = $permission;
+    }
+} catch (PDOException $e) {
+    $permissions_by_module = [];
 }
 
 function createUser($pdo) {
@@ -83,7 +100,7 @@ function createUser($pdo) {
     $email = trim($_POST['email']);
     $full_name = trim($_POST['full_name']);
     $password = $_POST['password'];
-    $role_id = $_POST['role_id'];
+    $role_id = !empty($_POST['role_id']) ? intval($_POST['role_id']) : null;
     
     // Validate input
     if (empty($username) || empty($email) || empty($full_name) || empty($password)) {
@@ -91,25 +108,32 @@ function createUser($pdo) {
         return;
     }
     
-    // Check if username or email already exists
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM admin_users WHERE username = ? OR email = ?");
-    $stmt->execute([$username, $email]);
-    if ($stmt->fetchColumn() > 0) {
-        $_SESSION['error'] = 'Username or email already exists.';
+    // Validate password length
+    if (strlen($password) < 6) {
+        $_SESSION['error'] = 'Password must be at least 6 characters long.';
         return;
     }
     
+    // Check if username or email already exists
     try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM admin_users WHERE username = ? OR email = ?");
+        $stmt->execute([$username, $email]);
+        if ($stmt->fetchColumn() > 0) {
+            $_SESSION['error'] = 'Username or email already exists.';
+            return;
+        }
+        
+        // Insert new user
         $stmt = $pdo->prepare("
-            INSERT INTO admin_users (username, email, full_name, password_hash, role_id)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO admin_users (username, email, full_name, password_hash, role_id, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
         ");
         $stmt->execute([
             $username,
             $email,
             $full_name,
             password_hash($password, PASSWORD_DEFAULT),
-            $role_id ?: null
+            $role_id
         ]);
         
         logAdminActivity($pdo, 'create', 'users', 'admin_user', $pdo->lastInsertId(), [
@@ -124,14 +148,26 @@ function createUser($pdo) {
 }
 
 function editUser($pdo) {
-    $user_id = $_POST['user_id'];
+    $user_id = intval($_POST['user_id']);
     $username = trim($_POST['username']);
     $email = trim($_POST['email']);
     $full_name = trim($_POST['full_name']);
-    $role_id = $_POST['role_id'];
+    $role_id = !empty($_POST['role_id']) ? intval($_POST['role_id']) : null;
     $is_active = isset($_POST['is_active']) ? 1 : 0;
     
     try {
+        // Check if username or email is taken by another user
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) FROM admin_users 
+            WHERE (username = ? OR email = ?) AND id != ?
+        ");
+        $stmt->execute([$username, $email, $user_id]);
+        if ($stmt->fetchColumn() > 0) {
+            $_SESSION['error'] = 'Username or email already exists.';
+            return;
+        }
+        
+        // Update user
         $stmt = $pdo->prepare("
             UPDATE admin_users 
             SET username = ?, email = ?, full_name = ?, role_id = ?, is_active = ?
@@ -141,13 +177,17 @@ function editUser($pdo) {
             $username,
             $email,
             $full_name,
-            $role_id ?: null,
+            $role_id,
             $is_active,
             $user_id
         ]);
         
         // Update password if provided
         if (!empty($_POST['password'])) {
+            if (strlen($_POST['password']) < 6) {
+                $_SESSION['error'] = 'Password must be at least 6 characters long.';
+                return;
+            }
             $stmt = $pdo->prepare("UPDATE admin_users SET password_hash = ? WHERE id = ?");
             $stmt->execute([password_hash($_POST['password'], PASSWORD_DEFAULT), $user_id]);
         }
@@ -164,7 +204,7 @@ function editUser($pdo) {
 }
 
 function deleteUser($pdo) {
-    $user_id = $_POST['user_id'];
+    $user_id = intval($_POST['user_id']);
     
     // Don't allow deleting own account
     if ($user_id == $_SESSION['admin_user_id']) {
@@ -184,13 +224,29 @@ function deleteUser($pdo) {
     }
 }
 
-function editRole($pdo) {
-    $role_id = $_POST['role_id'];
+// This function was added in the updates
+function updateRole($pdo) {
+    $role_id = intval($_POST['role_id']);
     $display_name = trim($_POST['display_name']);
     $description = trim($_POST['description']);
     $permissions = $_POST['permissions'] ?? [];
     
     try {
+        // Check if it's the super_admin role
+        $stmt = $pdo->prepare("SELECT name FROM admin_roles WHERE id = ?");
+        $stmt->execute([$role_id]);
+        $role = $stmt->fetch();
+        
+        if (!$role) {
+            $_SESSION['error'] = 'Role not found.';
+            return;
+        }
+        
+        if ($role['name'] === 'super_admin') {
+            $_SESSION['error'] = 'Cannot modify super administrator role.';
+            return;
+        }
+        
         $pdo->beginTransaction();
         
         // Update role details
@@ -205,17 +261,26 @@ function editRole($pdo) {
         if (!empty($permissions)) {
             $stmt = $pdo->prepare("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)");
             foreach ($permissions as $permission_id) {
-                $stmt->execute([$role_id, $permission_id]);
+                $permission_id = intval($permission_id);
+                if ($permission_id > 0) {
+                    $stmt->execute([$role_id, $permission_id]);
+                }
             }
         }
         
-        logAdminActivity($pdo, 'edit', 'roles', 'admin_role', $role_id);
+        logAdminActivity($pdo, 'edit', 'roles', 'admin_role', $role_id, [
+            'display_name' => $display_name,
+            'permissions_count' => count($permissions)
+        ]);
         
         $pdo->commit();
-        $_SESSION['success'] = 'Role updated successfully.';
+        $_SESSION['success'] = 'Role updated successfully. Changes may require re-login to take full effect.';
     } catch (PDOException $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         $_SESSION['error'] = 'Failed to update role: ' . $e->getMessage();
+        error_log("Role update error: " . $e->getMessage());
     }
 }
 ?>
@@ -241,27 +306,24 @@ function editRole($pdo) {
                     <i class="fas fa-plus"></i> Add User
                 </button>
                 <?php endif; ?>
-                <?php if ($canManageRoles): ?>
-                <button onclick="showModal('manageRolesModal')" class="btn btn-outline">
-                    <i class="fas fa-user-tag"></i> Manage Roles
-                </button>
-                <?php endif; ?>
             </div>
         </div>
         
         <?php if (isset($_SESSION['success'])): ?>
             <div class="alert alert-success">
-                <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                <i class="fas fa-check-circle"></i>
+                <?php echo htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?>
             </div>
         <?php endif; ?>
         
         <?php if (isset($_SESSION['error'])): ?>
             <div class="alert alert-error">
-                <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+                <i class="fas fa-exclamation-circle"></i>
+                <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
             </div>
         <?php endif; ?>
         
-         Users Table 
+        <!-- Users Table -->
         <div class="card">
             <div class="card-header">
                 <h3><i class="fas fa-users"></i> Admin Users</h3>
@@ -314,7 +376,14 @@ function editRole($pdo) {
                                 <td>
                                     <div class="action-buttons">
                                         <?php if ($canEdit): ?>
-                                        <button onclick="editUser(<?php echo $user['id']; ?>)" class="btn btn-sm btn-outline" title="Edit User">
+                                        <button onclick='editUser(<?php echo json_encode([
+                                            "id" => $user["id"],
+                                            "username" => $user["username"],
+                                            "email" => $user["email"],
+                                            "full_name" => $user["full_name"],
+                                            "role_id" => $user["role_id"],
+                                            "is_active" => $user["is_active"]
+                                        ]); ?>)' class="btn btn-sm btn-outline" title="Edit User">
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <?php endif; ?>
@@ -334,45 +403,66 @@ function editRole($pdo) {
             </div>
         </div>
         
-         Roles & Permissions 
-        <?php if ($canManageRoles): ?>
+        <!-- Roles & Permissions -->
+        <?php if ($canManageRoles && !empty($roles)): ?>
         <div class="card mt-4">
             <div class="card-header">
                 <h3><i class="fas fa-user-tag"></i> Roles & Permissions</h3>
+                <p class="card-subtitle">Configure role permissions to control access across the admin panel</p>
             </div>
             <div class="card-content">
                 <div class="roles-grid">
                     <?php foreach ($roles as $role): ?>
                     <div class="role-card">
                         <div class="role-header">
-                            <h4><?php echo htmlspecialchars($role['display_name']); ?></h4>
+                            <div class="role-title-section">
+                                <h4><?php echo htmlspecialchars($role['display_name']); ?></h4>
+                                <?php if ($role['name'] === 'super_admin'): ?>
+                                    <span class="badge badge-warning">Protected</span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($role['name'] !== 'super_admin'): ?>
                             <div class="role-actions">
-                                <button onclick="editRole(<?php echo $role['id']; ?>)" class="btn btn-sm btn-outline">
-                                    <i class="fas fa-edit"></i>
+                                <button onclick="loadAndEditRole(<?php echo $role['id']; ?>)" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-edit"></i> Edit
                                 </button>
                             </div>
+                            <?php endif; ?>
                         </div>
                         <p class="role-description"><?php echo htmlspecialchars($role['description']); ?></p>
                         
                         <?php
                         // Get role permissions
-                        $stmt = $pdo->prepare("
-                            SELECT ap.display_name, ap.module
-                            FROM role_permissions rp
-                            JOIN admin_permissions ap ON rp.permission_id = ap.id
-                            WHERE rp.role_id = ?
-                            ORDER BY ap.module, ap.display_name
-                        ");
-                        $stmt->execute([$role['id']]);
-                        $role_permissions = $stmt->fetchAll();
+                        try {
+                            $stmt = $pdo->prepare("
+                                SELECT ap.display_name, ap.module
+                                FROM role_permissions rp
+                                JOIN admin_permissions ap ON rp.permission_id = ap.id
+                                WHERE rp.role_id = ?
+                                ORDER BY ap.module, ap.display_name
+                            ");
+                            $stmt->execute([$role['id']]);
+                            $role_permissions = $stmt->fetchAll();
+                        } catch (PDOException $e) {
+                            $role_permissions = [];
+                        }
                         ?>
                         
                         <div class="role-permissions">
-                            <strong>Permissions (<?php echo count($role_permissions); ?>):</strong>
+                            <div class="permissions-header">
+                                <strong><i class="fas fa-key"></i> Permissions (<?php echo count($role_permissions); ?>)</strong>
+                            </div>
                             <div class="permission-tags">
-                                <?php foreach ($role_permissions as $perm): ?>
-                                    <span class="permission-tag"><?php echo htmlspecialchars($perm['display_name']); ?></span>
-                                <?php endforeach; ?>
+                                <?php if (empty($role_permissions)): ?>
+                                    <span class="no-permissions">No permissions assigned</span>
+                                <?php else: ?>
+                                    <?php foreach (array_slice($role_permissions, 0, 8) as $perm): ?>
+                                        <span class="permission-tag"><?php echo htmlspecialchars($perm['display_name']); ?></span>
+                                    <?php endforeach; ?>
+                                    <?php if (count($role_permissions) > 8): ?>
+                                        <span class="permission-tag more-tag">+<?php echo count($role_permissions) - 8; ?> more</span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -383,7 +473,7 @@ function editRole($pdo) {
         <?php endif; ?>
     </main>
     
-     Create User Modal 
+    <!-- Create User Modal -->
     <div id="createUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -426,7 +516,7 @@ function editRole($pdo) {
                         <label for="password">
                             <i class="fas fa-lock"></i> Password *
                         </label>
-                        <input type="password" name="password" id="password" class="form-control" required placeholder="Minimum 6 characters">
+                        <input type="password" name="password" id="password" class="form-control" required placeholder="Minimum 6 characters" minlength="6">
                         <small class="form-text">Password must be at least 6 characters long</small>
                     </div>
                     
@@ -455,7 +545,7 @@ function editRole($pdo) {
         </div>
     </div>
     
-     Edit User Modal 
+    <!-- Edit User Modal -->
     <div id="editUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -499,7 +589,7 @@ function editRole($pdo) {
                         <label for="edit_password">
                             <i class="fas fa-lock"></i> New Password
                         </label>
-                        <input type="password" name="password" id="edit_password" class="form-control" placeholder="Leave blank to keep current">
+                        <input type="password" name="password" id="edit_password" class="form-control" placeholder="Leave blank to keep current" minlength="6">
                         <small class="form-text">Only fill this if you want to change the password</small>
                     </div>
                     
@@ -508,7 +598,7 @@ function editRole($pdo) {
                             <i class="fas fa-user-tag"></i> Role
                         </label>
                         <select name="role_id" id="edit_role_id" class="form-control">
-                            <option value="">Select Role</option>
+                            <option value="">No Role</option>
                             <?php foreach ($roles as $role): ?>
                                 <option value="<?php echo $role['id']; ?>"><?php echo htmlspecialchars($role['display_name']); ?></option>
                             <?php endforeach; ?>
@@ -535,54 +625,7 @@ function editRole($pdo) {
         </div>
     </div>
     
-     Manage Roles Modal 
-    <div id="manageRolesModal" class="modal">
-        <div class="modal-content modal-large">
-            <div class="modal-header">
-                <div class="modal-header-content">
-                    <div class="modal-icon">
-                        <i class="fas fa-user-tag"></i>
-                    </div>
-                    <div>
-                        <h3>Manage Roles</h3>
-                        <p class="modal-subtitle">Configure roles and permissions</p>
-                    </div>
-                </div>
-                <button onclick="closeModal('manageRolesModal')" class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="roles-management-grid">
-                    <?php foreach ($roles as $role): ?>
-                        <?php
-                        // Skip super_admin from editing
-                        if ($role['name'] === 'super_admin') continue;
-                        
-                        // Get current role permissions
-                        $stmt = $pdo->prepare("
-                            SELECT permission_id 
-                            FROM role_permissions 
-                            WHERE role_id = ?
-                        ");
-                        $stmt->execute([$role['id']]);
-                        $current_permissions = array_column($stmt->fetchAll(), 'permission_id');
-                        ?>
-                        
-                        <div class="role-management-card">
-                            <div class="role-card-header">
-                                <h4><?php echo htmlspecialchars($role['display_name']); ?></h4>
-                                <button onclick="openEditRoleModal(<?php echo $role['id']; ?>, '<?php echo htmlspecialchars($role['display_name']); ?>', '<?php echo htmlspecialchars($role['description']); ?>', <?php echo json_encode($current_permissions); ?>)" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                            </div>
-                            <p class="role-card-description"><?php echo htmlspecialchars($role['description']); ?></p>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-     Edit Role Modal 
+    <!-- Edit Role Modal -->
     <div id="editRoleModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -597,50 +640,20 @@ function editRole($pdo) {
                 </div>
                 <button onclick="closeModal('editRoleModal')" class="modal-close">&times;</button>
             </div>
-            <form method="POST" id="editRoleForm">
-                <input type="hidden" name="action" value="edit_role">
+            <form method="POST" id="editRoleForm" onsubmit="return saveRole(event)">
+                <input type="hidden" name="action" value="update_role">
                 <input type="hidden" name="role_id" id="role_id">
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label for="role_display_name">
-                            <i class="fas fa-tag"></i> Role Name *
-                        </label>
-                        <input type="text" name="display_name" id="role_display_name" class="form-control" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="role_description">
-                            <i class="fas fa-align-left"></i> Description
-                        </label>
-                        <textarea name="description" id="role_description" class="form-control" rows="3"></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label><i class="fas fa-key"></i> Permissions</label>
-                        <div class="permissions-grid">
-                            <?php foreach ($permissions_by_module as $module => $permissions): ?>
-                                <div class="permission-module">
-                                    <h5 class="module-title">
-                                        <i class="fas fa-folder"></i> <?php echo ucfirst($module); ?>
-                                    </h5>
-                                    <div class="permission-list">
-                                        <?php foreach ($permissions as $permission): ?>
-                                            <label class="permission-checkbox">
-                                                <input type="checkbox" name="permissions[]" value="<?php echo $permission['id']; ?>" class="permission-input">
-                                                <span class="permission-label"><?php echo htmlspecialchars($permission['display_name']); ?></span>
-                                            </label>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
+                <div class="modal-body" id="editRoleModalBody">
+                    <div style="text-align: center; padding: 40px;">
+                        <i class="fas fa-spinner fa-spin fa-2x"></i>
+                        <p>Loading role data...</p>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" onclick="closeModal('editRoleModal')" class="btn btn-secondary">
                         <i class="fas fa-times"></i> Cancel
                     </button>
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary" id="saveRoleBtn">
                         <i class="fas fa-save"></i> Save Changes
                     </button>
                 </div>
@@ -662,31 +675,20 @@ function editRole($pdo) {
             });
         });
         
-        function editUser(userId) {
-            // Get user data via AJAX
-            fetch(`api/users.php?action=get_user&id=${userId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const user = data.user;
-                        document.getElementById('edit_user_id').value = user.id;
-                        document.getElementById('edit_username').value = user.username;
-                        document.getElementById('edit_email').value = user.email;
-                        document.getElementById('edit_full_name').value = user.full_name;
-                        document.getElementById('edit_role_id').value = user.role_id || '';
-                        document.getElementById('edit_is_active').checked = user.is_active == 1;
-                        
-                        showModal('editUserModal');
-                    } else {
-                        showNotification('Failed to load user data', 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showNotification('Failed to load user data', 'error');
-                });
+        // Edit user function
+        function editUser(userData) {
+            document.getElementById('edit_user_id').value = userData.id;
+            document.getElementById('edit_username').value = userData.username;
+            document.getElementById('edit_email').value = userData.email;
+            document.getElementById('edit_full_name').value = userData.full_name;
+            document.getElementById('edit_role_id').value = userData.role_id || '';
+            document.getElementById('edit_is_active').checked = userData.is_active == 1;
+            document.getElementById('edit_password').value = '';
+            
+            showModal('editUserModal');
         }
         
+        // Delete user function
         function deleteUser(userId, username) {
             if (confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
                 const form = document.createElement('form');
@@ -700,26 +702,209 @@ function editRole($pdo) {
             }
         }
         
-        function openEditRoleModal(roleId, displayName, description, permissions) {
-            document.getElementById('role_id').value = roleId;
-            document.getElementById('role_display_name').value = displayName;
-            document.getElementById('role_description').value = description;
+        // Load and edit role function
+        function loadAndEditRole(roleId) {
+            showModal('editRoleModal');
             
-            // Clear all checkboxes first
+            // Fetch role data
+            fetch(`api/users.php?action=get_role&id=${roleId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        populateRoleForm(data.role);
+                    } else {
+                        showNotification('Failed to load role data: ' + data.message, 'error');
+                        closeModal('editRoleModal');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showNotification('Failed to load role data. Please try again.', 'error');
+                    closeModal('editRoleModal');
+                });
+        }
+        
+        function populateRoleForm(roleData) {
+            const modalBody = document.getElementById('editRoleModalBody');
+            
+            modalBody.innerHTML = `
+                <div class="form-group">
+                    <label for="role_display_name">
+                        <i class="fas fa-tag"></i> Role Name *
+                    </label>
+                    <input type="text" name="display_name" id="role_display_name" class="form-control" required value="${escapeHtml(roleData.display_name)}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="role_description">
+                        <i class="fas fa-align-left"></i> Description
+                    </label>
+                    <textarea name="description" id="role_description" class="form-control" rows="3">${escapeHtml(roleData.description || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <i class="fas fa-key"></i> Permissions 
+                        <span class="permission-counter">(<span id="selectedCount">0</span> selected)</span>
+                    </label>
+                    <div class="permissions-actions">
+                        <button type="button" class="btn btn-sm btn-outline" onclick="selectAllPermissions()">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="deselectAllPermissions()">
+                            <i class="fas fa-times"></i> Deselect All
+                        </button>
+                    </div>
+                    <div class="permissions-grid">
+                        ${generatePermissionsHTML(roleData.permissions)}
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('role_id').value = roleData.id;
+            updatePermissionCount();
+        }
+        
+        function generatePermissionsHTML(selectedPermissions) {
+            const permissionsByModule = <?php echo json_encode($permissions_by_module); ?>;
+            let html = '';
+            
+            for (const [module, permissions] of Object.entries(permissionsByModule)) {
+                html += `
+                    <div class="permission-module">
+                        <h5 class="module-title">
+                            <label class="module-label">
+                                <input type="checkbox" class="module-checkbox" data-module="${module}" onchange="toggleModulePermissions(this, '${module}')">
+                                <i class="fas fa-folder"></i> ${module.charAt(0).toUpperCase() + module.slice(1)}
+                            </label>
+                        </h5>
+                        <div class="permission-list">
+                `;
+                
+                permissions.forEach(perm => {
+                    const isChecked = selectedPermissions.includes(parseInt(perm.id));
+                    html += `
+                        <label class="permission-checkbox">
+                            <input type="checkbox" 
+                                   name="permissions[]" 
+                                   value="${perm.id}" 
+                                   class="permission-input" 
+                                   data-module="${module}"
+                                   onchange="updatePermissionCount()"
+                                   ${isChecked ? 'checked' : ''}>
+                            <span class="permission-label">${escapeHtml(perm.display_name)}</span>
+                        </label>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            return html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Save role via AJAX
+        function saveRole(event) {
+            event.preventDefault();
+            
+            const form = document.getElementById('editRoleForm');
+            const formData = new FormData(form);
+            const saveBtn = document.getElementById('saveRoleBtn');
+            
+            // Disable button and show loading
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            
+            fetch('api/users.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    closeModal('editRoleModal');
+                    // Reload page to show updated role
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification('Error: ' + data.message, 'error');
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Failed to save role. Please try again.', 'error');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+            });
+            
+            return false;
+        }
+        
+        // Update permission count
+        function updatePermissionCount() {
+            const checked = document.querySelectorAll('.permission-input:checked').length;
+            const counter = document.getElementById('selectedCount');
+            if (counter) {
+                counter.textContent = checked;
+            }
+            updateModuleCheckboxes();
+        }
+        
+        // Update module checkboxes based on selected permissions
+        function updateModuleCheckboxes() {
+            const modules = document.querySelectorAll('.module-checkbox');
+            modules.forEach(moduleCheckbox => {
+                const moduleName = moduleCheckbox.dataset.module;
+                const modulePermissions = document.querySelectorAll(`.permission-input[data-module="${moduleName}"]`);
+                const checkedPermissions = document.querySelectorAll(`.permission-input[data-module="${moduleName}"]:checked`);
+                
+                if (checkedPermissions.length === modulePermissions.length) {
+                    moduleCheckbox.checked = true;
+                    moduleCheckbox.indeterminate = false;
+                } else if (checkedPermissions.length > 0) {
+                    moduleCheckbox.checked = false;
+                    moduleCheckbox.indeterminate = true;
+                } else {
+                    moduleCheckbox.checked = false;
+                    moduleCheckbox.indeterminate = false;
+                }
+            });
+        }
+        
+        // Toggle all permissions in a module
+        function toggleModulePermissions(checkbox, moduleName) {
+            const modulePermissions = document.querySelectorAll(`.permission-input[data-module="${moduleName}"]`);
+            modulePermissions.forEach(perm => {
+                perm.checked = checkbox.checked;
+            });
+            updatePermissionCount();
+        }
+        
+        // Select all permissions
+        function selectAllPermissions() {
+            document.querySelectorAll('.permission-input').forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updatePermissionCount();
+        }
+        
+        // Deselect all permissions
+        function deselectAllPermissions() {
             document.querySelectorAll('.permission-input').forEach(checkbox => {
                 checkbox.checked = false;
             });
-            
-            // Check the permissions for this role
-            permissions.forEach(permId => {
-                const checkbox = document.querySelector(`.permission-input[value="${permId}"]`);
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            });
-            
-            closeModal('manageRolesModal');
-            showModal('editRoleModal');
+            updatePermissionCount();
         }
     </script>
     
@@ -744,12 +929,20 @@ function editRole($pdo) {
             justify-content: center;
             color: white;
             font-size: 1.3rem;
+            flex-shrink: 0;
         }
         
         .modal-subtitle {
             color: #6b7280;
             font-size: 0.9rem;
             margin: 0;
+        }
+        
+        .card-subtitle {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin: 4px 0 0 0;
+            font-weight: normal;
         }
         
         .form-control {
@@ -765,6 +958,10 @@ function editRole($pdo) {
             border-color: #2c5aa0;
             box-shadow: 0 0 0 3px rgba(44, 90, 160, 0.1);
             outline: none;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
         }
         
         .form-group label {
@@ -795,6 +992,7 @@ function editRole($pdo) {
             padding: 8px;
             border-radius: 6px;
             transition: background 0.3s;
+            font-weight: normal;
         }
         
         .checkbox-label:hover {
@@ -807,108 +1005,196 @@ function editRole($pdo) {
             cursor: pointer;
         }
         
-        .roles-management-grid {
+        .roles-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 20px;
         }
         
-        .role-management-card {
-            background: #f9fafb;
+        .role-card {
+            background: #ffffff;
             border: 2px solid #e5e7eb;
             border-radius: 12px;
-            padding: 20px;
+            padding: 24px;
             transition: all 0.3s;
         }
         
-        .role-management-card:hover {
+        .role-card:hover {
             border-color: #2c5aa0;
             box-shadow: 0 4px 12px rgba(44, 90, 160, 0.1);
         }
         
-        .role-card-header {
+        .role-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 12px;
         }
         
-        .role-card-header h4 {
-            margin: 0;
-            color: #1f2937;
+        .role-title-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
-        .role-card-description {
+        .role-title-section h4 {
+            margin: 0;
+            color: #1f2937;
+            font-size: 1.1rem;
+        }
+        
+        .role-description {
             color: #6b7280;
             font-size: 0.9rem;
-            margin: 0;
+            margin: 0 0 16px 0;
+            line-height: 1.5;
+        }
+        
+        .permissions-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .permissions-header strong {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #374151;
+            font-size: 0.9rem;
+        }
+        
+        .permissions-header i {
+            color: #2c5aa0;
+        }
+        
+        .permission-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        
+        .permission-tag {
+            background: #e0e7ff;
+            color: #4338ca;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .more-tag {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+        
+        .no-permissions {
+            color: #9ca3af;
+            font-style: italic;
+            font-size: 0.85rem;
+        }
+        
+        .permission-counter {
+            font-weight: normal;
+            color: #6b7280;
+            margin-left: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .permissions-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
         }
         
         .permissions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
             margin-top: 12px;
+            max-height: 450px;
+            overflow-y: auto;
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
         }
         
         .permission-module {
-            background: #f9fafb;
+            background: #ffffff;
             border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 16px;
         }
         
         .module-title {
+            margin: 0 0 12px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .module-label {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin: 0 0 12px 0;
             color: #374151;
             font-size: 0.95rem;
             font-weight: 600;
+            cursor: pointer;
+            margin: 0;
         }
         
-        .module-title i {
+        .module-label i {
             color: #2c5aa0;
+        }
+        
+        .module-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
         }
         
         .permission-list {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
         }
         
         .permission-checkbox {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 8px;
+            padding: 8px;
             border-radius: 6px;
             cursor: pointer;
             transition: background 0.3s;
+            margin: 0;
         }
         
         .permission-checkbox:hover {
-            background: white;
+            background: #f9fafb;
         }
         
         .permission-input {
             width: 16px;
             height: 16px;
             cursor: pointer;
+            flex-shrink: 0;
         }
         
         .permission-label {
             font-size: 0.85rem;
             color: #4b5563;
+            font-weight: normal;
         }
         
         .badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 12px;
             font-size: 0.75rem;
-            font-weight: 500;
+            font-weight: 600;
         }
         
         .badge-info {
@@ -926,59 +1212,39 @@ function editRole($pdo) {
             color: #6b7280;
         }
         
-        .roles-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1rem;
-        }
-        
-        .role-card {
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 1rem;
-            background: #f9fafb;
-        }
-        
-        .role-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
-        
-        .role-header h4 {
-            margin: 0;
-            color: #1f2937;
-        }
-        
-        .role-description {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-bottom: 1rem;
-        }
-        
-        .role-permissions {
-            font-size: 0.875rem;
-        }
-        
-        .permission-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.25rem;
-            margin-top: 0.5rem;
-        }
-        
-        .permission-tag {
-            background: #dbeafe;
-            color: #1e40af;
-            padding: 0.125rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
         }
         
         .action-buttons {
             display: flex;
-            gap: 0.25rem;
+            gap: 6px;
+        }
+        
+        .alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        
+        .mt-4 {
+            margin-top: 2rem;
         }
     </style>
 </body>

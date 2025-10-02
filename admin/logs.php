@@ -89,6 +89,17 @@ $actions = $actions_stmt->fetchAll();
 $modules_stmt = $pdo->query("SELECT DISTINCT module FROM admin_activity_logs ORDER BY module");
 $modules = $modules_stmt->fetchAll();
 
+// Get ALL logs for export (respecting filters)
+$export_stmt = $pdo->prepare("
+    SELECT aal.*, au.full_name as admin_name, au.username
+    FROM admin_activity_logs aal
+    JOIN admin_users au ON aal.admin_user_id = au.id
+    {$where_clause}
+    ORDER BY aal.created_at DESC
+");
+$export_stmt->execute($params);
+$all_logs = $export_stmt->fetchAll();
+
 function getActionIcon($action) {
     $icons = [
         'login' => 'sign-in-alt',
@@ -120,6 +131,15 @@ function getActionColor($action) {
     ];
     return $colors[$action] ?? 'secondary';
 }
+
+function getBrowserName($userAgent) {
+    if (strpos($userAgent, 'Chrome') !== false) return 'Chrome';
+    if (strpos($userAgent, 'Firefox') !== false) return 'Firefox';
+    if (strpos($userAgent, 'Safari') !== false) return 'Safari';
+    if (strpos($userAgent, 'Edge') !== false) return 'Edge';
+    if (strpos($userAgent, 'Opera') !== false) return 'Opera';
+    return 'Unknown';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -141,13 +161,10 @@ function getActionColor($action) {
                 <button onclick="exportLogs()" class="btn btn-primary">
                     <i class="fas fa-download"></i> Export Logs
                 </button>
-                <button onclick="clearOldLogs()" class="btn btn-outline">
-                    <i class="fas fa-broom"></i> Clear Old Logs
-                </button>
             </div>
         </div>
         
-        <!-- Filters -->
+         Filters 
         <div class="card mb-4">
             <div class="card-header">
                 <h3><i class="fas fa-filter"></i> Filter Logs</h3>
@@ -218,7 +235,7 @@ function getActionColor($action) {
             </div>
         </div>
         
-        <!-- Logs Table -->
+         Logs Table 
         <div class="card">
             <div class="card-header">
                 <h3><i class="fas fa-list"></i> Activity Logs</h3>
@@ -292,7 +309,7 @@ function getActionColor($action) {
                         <?php endforeach; ?>
                     </div>
                     
-                    <!-- Pagination -->
+                     Pagination 
                     <?php if ($total_pages > 1): ?>
                         <div class="pagination-wrapper">
                             <div class="pagination">
@@ -321,6 +338,9 @@ function getActionColor($action) {
     
     <script src="assets/admin.js"></script>
     <script>
+        // Store logs data for export
+        const logsData = <?php echo json_encode($all_logs); ?>;
+        
         function toggleDetails(logId) {
             const details = document.getElementById(`details-${logId}`);
             const button = details.previousElementSibling;
@@ -338,263 +358,266 @@ function getActionColor($action) {
         }
         
         function exportLogs() {
-            const params = new URLSearchParams(window.location.search);
-            params.set('export', 'csv');
-            window.location.href = `api/export_logs.php?${params.toString()}`;
-        }
-        
-        function clearOldLogs() {
-            if (confirm('Are you sure you want to clear logs older than 90 days? This action cannot be undone.')) {
-                fetch('api/logs.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: 'action=clear_old_logs'
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification(`Cleared ${data.deleted_count} old log entries`, 'success');
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        showNotification('Failed to clear old logs', 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showNotification('Failed to clear old logs', 'error');
-                });
+            if (logsData.length === 0) {
+                showNotification('No logs to export', 'error');
+                return;
             }
+            
+            // Prepare CSV data
+            const headers = ['Date/Time', 'Admin User', 'Username', 'Action', 'Module', 'Target Type', 'Target ID', 'IP Address', 'User Agent', 'Details'];
+            const rows = logsData.map(log => [
+                log.created_at,
+                log.admin_name,
+                log.username,
+                log.action,
+                log.module,
+                log.target_type || '',
+                log.target_id || '',
+                log.ip_address || '',
+                log.user_agent || '',
+                log.details || ''
+            ]);
+            
+            // Create CSV content
+            let csvContent = '\ufeff'; // UTF-8 BOM
+            csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+            rows.forEach(row => {
+                csvContent += row.map(cell => {
+                    const cellStr = String(cell || '');
+                    return `"${cellStr.replace(/"/g, '""')}"`;
+                }).join(',') + '\n';
+            });
+            
+            // Create download link
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `activity_logs_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`Exported ${logsData.length} log entries`, 'success');
         }
         
         function resetFilters() {
             window.location.href = 'logs.php';
         }
     </script>
+    
+    <style>
+        .logs-timeline {
+            position: relative;
+        }
+
+        .log-entry {
+            display: flex;
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .log-entry:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 40px;
+            bottom: -24px;
+            width: 2px;
+            background: #e5e7eb;
+        }
+
+        .log-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #f3f4f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 1rem;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .log-content {
+            flex: 1;
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .log-user {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .log-username {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .log-time {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .log-action {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .action-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .action-login { background: #dcfce7; color: #166534; }
+        .action-logout { background: #f3f4f6; color: #374151; }
+        .action-create { background: #dbeafe; color: #1e40af; }
+        .action-edit { background: #fef3c7; color: #92400e; }
+        .action-delete { background: #fee2e2; color: #dc2626; }
+        .action-validate { background: #dcfce7; color: #166534; }
+        .action-interview { background: #e0f2fe; color: #0369a1; }
+        .action-export { background: #dbeafe; color: #1e40af; }
+        .action-import { background: #dbeafe; color: #1e40af; }
+        .action-view { background: #f3f4f6; color: #374151; }
+
+        .module-badge {
+            background: #f3f4f6;
+            color: #374151;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .target-info {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .log-details {
+            margin-top: 0.5rem;
+        }
+
+        .log-details-content {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .log-details-content pre {
+            margin: 0;
+            font-size: 0.75rem;
+            color: #374151;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .log-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.75rem;
+            color: #6b7280;
+        }
+
+        .log-ip, .log-agent {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .pagination-wrapper {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pagination-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            color: #374151;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .pagination-btn:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+
+        .pagination-info {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .filter-form .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            align-items: end;
+        }
+
+        @media (max-width: 768px) {
+            .log-entry {
+                flex-direction: column;
+            }
+            
+            .log-icon {
+                align-self: flex-start;
+                margin-bottom: 0.5rem;
+                margin-right: 0;
+            }
+            
+            .log-entry:not(:last-child)::after {
+                display: none;
+            }
+            
+            .log-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+            
+            .log-meta {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
 </body>
 </html>
-
-<?php
-function getBrowserName($userAgent) {
-    if (strpos($userAgent, 'Chrome') !== false) return 'Chrome';
-    if (strpos($userAgent, 'Firefox') !== false) return 'Firefox';
-    if (strpos($userAgent, 'Safari') !== false) return 'Safari';
-    if (strpos($userAgent, 'Edge') !== false) return 'Edge';
-    if (strpos($userAgent, 'Opera') !== false) return 'Opera';
-    return 'Unknown';
-}
-?>
-
-<style>
-.logs-timeline {
-    position: relative;
-}
-
-.log-entry {
-    display: flex;
-    margin-bottom: 1.5rem;
-    position: relative;
-}
-
-.log-entry:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: 15px;
-    top: 40px;
-    bottom: -24px;
-    width: 2px;
-    background: #e5e7eb;
-}
-
-.log-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #f3f4f6;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 1rem;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 1;
-}
-
-.log-content {
-    flex: 1;
-    background: #f9fafb;
-    border-radius: 8px;
-    padding: 1rem;
-    border: 1px solid #e5e7eb;
-}
-
-.log-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
-}
-
-.log-user {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.log-username {
-    color: #6b7280;
-    font-size: 0.875rem;
-}
-
-.log-time {
-    color: #6b7280;
-    font-size: 0.875rem;
-}
-
-.log-action {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    flex-wrap: wrap;
-}
-
-.action-badge {
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-transform: uppercase;
-}
-
-.action-login { background: #dcfce7; color: #166534; }
-.action-logout { background: #f3f4f6; color: #374151; }
-.action-create { background: #dbeafe; color: #1e40af; }
-.action-edit { background: #fef3c7; color: #92400e; }
-.action-delete { background: #fee2e2; color: #dc2626; }
-.action-validate { background: #dcfce7; color: #166534; }
-.action-interview { background: #e0f2fe; color: #0369a1; }
-.action-export { background: #dbeafe; color: #1e40af; }
-.action-import { background: #dbeafe; color: #1e40af; }
-.action-view { background: #f3f4f6; color: #374151; }
-
-.module-badge {
-    background: #f3f4f6;
-    color: #374151;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-}
-
-.target-info {
-    color: #6b7280;
-    font-size: 0.875rem;
-}
-
-.log-details {
-    margin-top: 0.5rem;
-}
-
-.log-details-content {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 4px;
-    padding: 0.75rem;
-    margin-top: 0.5rem;
-}
-
-.log-details-content pre {
-    margin: 0;
-    font-size: 0.75rem;
-    color: #374151;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-
-.log-meta {
-    display: flex;
-    gap: 1rem;
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid #e5e7eb;
-    font-size: 0.75rem;
-    color: #6b7280;
-}
-
-.log-ip, .log-agent {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.pagination-wrapper {
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid #e5e7eb;
-}
-
-.pagination {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.pagination-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    color: #374151;
-    text-decoration: none;
-    transition: all 0.2s;
-}
-
-.pagination-btn:hover {
-    background: #f9fafb;
-    border-color: #9ca3af;
-}
-
-.pagination-info {
-    color: #6b7280;
-    font-size: 0.875rem;
-}
-
-.filter-form .form-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    align-items: end;
-}
-
-@media (max-width: 768px) {
-    .log-entry {
-        flex-direction: column;
-    }
-    
-    .log-icon {
-        align-self: flex-start;
-        margin-bottom: 0.5rem;
-        margin-right: 0;
-    }
-    
-    .log-entry:not(:last-child)::after {
-        display: none;
-    }
-    
-    .log-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.25rem;
-    }
-    
-    .log-meta {
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-}
-</style>

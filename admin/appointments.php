@@ -5,6 +5,171 @@ requirePermission($pdo, 'appointments.view');
 
 $admin = getCurrentAdmin($pdo);
 
+// Handle export request
+if (isset($_GET['export']) && $_GET['export'] == '1') {
+    requirePermission($pdo, 'appointments.view');
+    
+    // Get filter parameters
+    $status_filter = $_GET['status'] ?? '';
+    $date_filter = $_GET['date'] ?? '';
+    $date_range = $_GET['date_range'] ?? '';
+    $appointment_type_filter = $_GET['appointment_type'] ?? '';
+    $search = $_GET['search'] ?? '';
+    
+    // Build WHERE conditions
+    $where_conditions = [];
+    $params = [];
+    
+    if ($status_filter) {
+        $where_conditions[] = "a.status = ?";
+        $params[] = $status_filter;
+    }
+    
+    if ($appointment_type_filter) {
+        $where_conditions[] = "a.appointment_type = ?";
+        $params[] = $appointment_type_filter;
+    }
+    
+    if ($date_filter) {
+        $where_conditions[] = "DATE(a.preferred_date) = ?";
+        $params[] = $date_filter;
+    }
+    
+    if ($date_range) {
+        switch ($date_range) {
+            case 'today':
+                $where_conditions[] = "DATE(a.preferred_date) = CURDATE()";
+                break;
+            case 'tomorrow':
+                $where_conditions[] = "DATE(a.preferred_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)";
+                break;
+            case 'this_week':
+                $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(CURDATE())";
+                break;
+            case 'next_week':
+                $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(DATE_ADD(CURDATE(), INTERVAL 1 WEEK))";
+                break;
+            case 'this_month':
+                $where_conditions[] = "YEAR(a.preferred_date) = YEAR(CURDATE()) AND MONTH(a.preferred_date) = MONTH(CURDATE())";
+                break;
+        }
+    }
+    
+    if ($search) {
+        $where_conditions[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR a.reference_number LIKE ? OR u.phone LIKE ?)";
+        $search_param = "%{$search}%";
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+    }
+    
+    $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+    
+    // Set headers for CSV download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="PWD_Appointments_Export_' . date('Y-m-d_H-i-s') . '.csv"');
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    
+    $output = fopen('php://output', 'w');
+    
+    // Add BOM for UTF-8
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+    
+    // Write report header
+    fputcsv($output, ['PWD Appointments Report']);
+    fputcsv($output, ['Generated:', date('Y-m-d H:i:s')]);
+    fputcsv($output, ['Exported by:', $admin['full_name']]);
+    fputcsv($output, []);
+    
+    // Write data header
+    fputcsv($output, [
+        'Reference Number',
+        'First Name',
+        'Last Name',
+        'Phone',
+        'Email',
+        'Address',
+        'Disability Type',
+        'Appointment Type',
+        'Preferred Date',
+        'Preferred Time',
+        'Status',
+        'Created Date',
+        'Interview Status',
+        'PWD ID Number',
+        'Record Status',
+        'Notes'
+    ]);
+    
+    // Get appointments data
+    $stmt = $pdo->prepare("
+        SELECT 
+            a.reference_number,
+            u.first_name,
+            u.last_name,
+            u.phone,
+            u.email,
+            u.address,
+            u.disability_type,
+            a.appointment_type,
+            a.preferred_date,
+            a.preferred_time,
+            a.status,
+            a.created_at,
+            ir.status as interview_status,
+            pr.pwd_id_number,
+            pr.status as record_status,
+            a.notes
+        FROM appointments a
+        JOIN users u ON a.user_id = u.id
+        LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+        LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+        {$where_clause}
+        ORDER BY a.created_at DESC
+    ");
+    $stmt->execute($params);
+    
+    // Write data rows
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        fputcsv($output, [
+            $row['reference_number'] ?? '',
+            $row['first_name'] ?? '',
+            $row['last_name'] ?? '',
+            $row['phone'] ?? '',
+            $row['email'] ?? '',
+            $row['address'] ?? '',
+            $row['disability_type'] ?? '',
+            ucwords(str_replace('_', ' ', $row['appointment_type'] ?? '')),
+            $row['preferred_date'] ?? '',
+            $row['preferred_time'] ?? '',
+            ucfirst($row['status'] ?? ''),
+            $row['created_at'] ?? '',
+            $row['interview_status'] ? ucfirst($row['interview_status']) : 'Not Started',
+            $row['pwd_id_number'] ?? 'Not Issued',
+            $row['record_status'] ? ucfirst($row['record_status']) : 'No Record',
+            $row['notes'] ?? ''
+        ]);
+    }
+    
+    fclose($output);
+    
+    // Log the export activity
+    logAdminActivity($pdo, 'export', 'appointments', 'appointments_export', null, [
+        'filters' => array_filter([
+            'status' => $status_filter,
+            'appointment_type' => $appointment_type_filter,
+            'date_range' => $date_range,
+            'date' => $date_filter,
+            'search' => $search
+        ])
+    ]);
+    
+    exit;
+}
+
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -100,7 +265,7 @@ $count_stmt->execute($params);
 $total_appointments = $count_stmt->fetch()['total'];
 $total_pages = ceil($total_appointments / $per_page);
 
-// Get appointments - Fix: Don't use parameter binding for LIMIT and OFFSET
+// Get appointments
 $stmt = $pdo->prepare("
     SELECT a.*, u.first_name, u.last_name, u.phone, u.email, u.address, u.disability_type,
            ir.id as interview_id, ir.status as interview_status,
@@ -1132,9 +1297,26 @@ function handleGetAppointmentDetails() {
         
         // Export appointments
         function exportAppointments() {
-            const params = new URLSearchParams(window.location.search);
+            // Build the export URL with all current filters
+            const params = new URLSearchParams();
             params.append('export', '1');
-            window.open(`api/export_report.php?type=appointments&${params.toString()}`, '_blank');
+            
+            // Get filter values
+            const status = document.getElementById('status').value;
+            const appointmentType = document.getElementById('appointment_type').value;
+            const dateRange = document.getElementById('date_range').value;
+            const specificDate = document.getElementById('date').value;
+            const search = document.getElementById('search').value;
+            
+            // Add filters to params
+            if (status) params.append('status', status);
+            if (appointmentType) params.append('appointment_type', appointmentType);
+            if (dateRange) params.append('date_range', dateRange);
+            if (specificDate) params.append('date', specificDate);
+            if (search) params.append('search', search);
+            
+            // Trigger download
+            window.location.href = `appointments.php?${params.toString()}`;
         }
         
         // Refresh appointments

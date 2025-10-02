@@ -7,8 +7,8 @@ $admin = getCurrentAdmin($pdo);
 
 // Get filter parameters
 $report_type = $_GET['type'] ?? 'analytics';
-$date_from = $_GET['date_from'] ?? date('Y-m-01'); // First day of current month
-$date_to = $_GET['date_to'] ?? date('Y-m-d'); // Today
+$date_from = $_GET['date_from'] ?? date('Y-m-01');
+$date_to = $_GET['date_to'] ?? date('Y-m-d');
 $status_filter = $_GET['status'] ?? '';
 $disability_filter = $_GET['disability'] ?? '';
 $age_group = $_GET['age_group'] ?? '';
@@ -23,15 +23,12 @@ $available_disabilities = [];
 $available_employment = [];
 
 try {
-    // Get barangays
     $stmt = $pdo->query("SELECT DISTINCT barangay FROM pwd_records WHERE barangay IS NOT NULL ORDER BY barangay");
     $available_barangays = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
-    // Get disability types
     $stmt = $pdo->query("SELECT DISTINCT disability_type FROM pwd_records WHERE disability_type IS NOT NULL ORDER BY disability_type");
     $available_disabilities = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
-    // Get employment statuses
     $stmt = $pdo->query("SELECT DISTINCT employment_status FROM pwd_records WHERE employment_status IS NOT NULL ORDER BY employment_status");
     $available_employment = $stmt->fetchAll(PDO::FETCH_COLUMN);
 } catch (PDOException $e) {
@@ -55,7 +52,6 @@ switch ($report_type) {
 function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter) {
     $data = [];
     
-    // Build WHERE conditions
     $where_conditions = ["created_at BETWEEN ? AND ?"];
     $params = [$date_from, $date_to];
     
@@ -86,7 +82,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
     
-    // Summary statistics
     $stmt = $pdo->prepare("
         SELECT 
             COUNT(*) as total_individuals,
@@ -102,7 +97,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute($params);
     $data['summary'] = $stmt->fetch();
     
-    // Age group distribution
     $stmt = $pdo->prepare("
         SELECT 
             CASE 
@@ -122,7 +116,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['age_groups'] = $stmt->fetchAll();
     
-    // Gender distribution
     $stmt = $pdo->prepare("
         SELECT 
             gender,
@@ -135,7 +128,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['gender_distribution'] = $stmt->fetchAll();
     
-    // Disability type distribution
     $stmt = $pdo->prepare("
         SELECT 
             disability_type,
@@ -150,7 +142,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['disability_distribution'] = $stmt->fetchAll();
     
-    // Distribution by Barangay
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
@@ -167,7 +158,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['barangay_distribution'] = $stmt->fetchAll();
     
-    // Employment status distribution
     $stmt = $pdo->prepare("
         SELECT 
             COALESCE(employment_status, 'Not Specified') as employment_status,
@@ -181,7 +171,6 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['employment_distribution'] = $stmt->fetchAll();
     
-    // Time-based trends
     $date_format = $time_period == 'yearly' ? '%Y' : ($time_period == 'quarterly' ? '%Y-Q%q' : '%Y-%m');
     $stmt = $pdo->prepare("
         SELECT 
@@ -237,7 +226,6 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
     
-    // Barangay profiles
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
@@ -256,7 +244,6 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     $stmt->execute($params);
     $data['barangay_profiles'] = $stmt->fetchAll();
     
-    // Disability distribution by barangay
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
@@ -272,7 +259,6 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     $stmt->execute($params);
     $data['disability_by_barangay'] = $stmt->fetchAll();
     
-    // Age distribution by barangay
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
@@ -312,119 +298,241 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
     
-    // Barangay-specific resource recommendations
+    // Master service mapping by disability type
+    $service_recommendations = [
+        'Psychosocial Disability' => [
+            'services' => [
+                'Mental health counseling services',
+                'Peer support group meetings',
+                'Crisis intervention hotline',
+                'Medication management programs',
+                'Psychiatric consultation',
+                'Community mental health outreach'
+            ]
+        ],
+        'Hearing Impairment' => [
+            'services' => [
+                'Sign language interpretation services',
+                'Hearing aid maintenance and distribution',
+                'Speech therapy programs',
+                'Communication assistance',
+                'Visual alert system installation',
+                'Deaf community social groups'
+            ]
+        ],
+        'Visual Impairment' => [
+            'services' => [
+                'Braille literacy programs',
+                'Orientation and mobility training',
+                'Assistive technology support',
+                'Screen reader software training',
+                'White cane training sessions',
+                'Audio book library'
+            ]
+        ],
+        'Intellectual Disability' => [
+            'services' => [
+                'Inclusive education programs',
+                'Skills training workshops',
+                'Family counseling services',
+                'Behavioral therapy programs',
+                'Life skills development',
+                'Community integration support'
+            ]
+        ],
+        'Physical/Mobility Impairment' => [
+            'services' => [
+                'Mobility aids and assistive devices',
+                'Rehabilitation therapy',
+                'Accessibility infrastructure programs',
+                'Physical therapy sessions',
+                'Wheelchair maintenance',
+                'Accessible transportation'
+            ]
+        ]
+    ];
+    
+    // Get detailed barangay data with age groups and employment
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
             disability_type,
-            COUNT(*) as count,
-            AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
+            COUNT(*) as total_count,
+            COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 1 END) as children_count,
+            COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 18 AND 64 THEN 1 END) as adult_count,
+            COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) >= 65 THEN 1 END) as senior_count,
             COUNT(CASE WHEN employment_status = 'Unemployed' THEN 1 END) as unemployed_count,
-            COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 1 END) as children_count
+            COUNT(CASE WHEN employment_status = 'Employed' THEN 1 END) as employed_count,
+            AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age
         FROM pwd_records
         {$where_clause}
         AND barangay IS NOT NULL
         AND disability_type IS NOT NULL
         GROUP BY barangay, disability_type
-        ORDER BY barangay, count DESC
+        ORDER BY barangay, total_count DESC
     ");
     $stmt->execute($params);
-    $barangay_disabilities = $stmt->fetchAll();
+    $barangay_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Group by barangay and get recommendations
+    // Get total PWDs per barangay for percentage calculations
+    $stmt = $pdo->prepare("
+        SELECT 
+            barangay,
+            COUNT(*) as barangay_total,
+            disability_type
+        FROM pwd_records
+        {$where_clause}
+        AND barangay IS NOT NULL
+        GROUP BY barangay, disability_type
+    ");
+    $stmt->execute($params);
+    $barangay_totals_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Calculate totals per barangay
+    $barangay_totals = [];
+    foreach ($barangay_totals_raw as $row) {
+        $brgy = $row['barangay'];
+        if (!isset($barangay_totals[$brgy])) {
+            $barangay_totals[$brgy] = 0;
+        }
+        $barangay_totals[$brgy] += $row['barangay_total'];
+    }
+    
+    // Process and organize data by barangay
     $barangay_recommendations = [];
-    foreach ($barangay_disabilities as $row) {
+    
+    foreach ($barangay_data as $row) {
         $barangay = $row['barangay'];
+        $disability = $row['disability_type'];
+        $total = (int)$row['total_count'];
+        $barangay_total = $barangay_totals[$barangay] ?? $total;
+        
+        // Calculate concentration percentage
+        $concentration = $barangay_total > 0 ? ($total / $barangay_total) * 100 : 0;
+        
+        // Determine priority based on concentration
+        $priority = 'Medium';
+        if ($concentration > 50) {
+            $priority = 'Critical';
+        } elseif ($concentration > 30) {
+            $priority = 'High';
+        }
+        
+        // Age-based priority adjustments
+        $children_percentage = $total > 0 ? ((int)$row['children_count'] / $total) * 100 : 0;
+        $unemployment_rate = $total > 0 ? ((int)$row['unemployed_count'] / $total) * 100 : 0;
+        
+        // Initialize barangay if not exists
         if (!isset($barangay_recommendations[$barangay])) {
             $barangay_recommendations[$barangay] = [
                 'total_pwd' => 0,
+                'total_children' => 0,
+                'total_adults' => 0,
+                'total_seniors' => 0,
+                'total_unemployed' => 0,
                 'disabilities' => [],
-                'unemployed_count' => 0,
-                'children_count' => 0
+                'recommended_services' => []
             ];
         }
         
+        // Aggregate totals
+        $barangay_recommendations[$barangay]['total_pwd'] += $total;
+        $barangay_recommendations[$barangay]['total_children'] += (int)$row['children_count'];
+        $barangay_recommendations[$barangay]['total_adults'] += (int)$row['adult_count'];
+        $barangay_recommendations[$barangay]['total_seniors'] += (int)$row['senior_count'];
+        $barangay_recommendations[$barangay]['total_unemployed'] += (int)$row['unemployed_count'];
+        
+        // Add disability data
         $barangay_recommendations[$barangay]['disabilities'][] = [
-            'type' => $row['disability_type'],
-            'count' => $row['count'],
-            'avg_age' => $row['avg_age']
+            'type' => $disability,
+            'count' => $total,
+            'concentration' => round($concentration, 1),
+            'children_count' => (int)$row['children_count'],
+            'adult_count' => (int)$row['adult_count'],
+            'unemployed_count' => (int)$row['unemployed_count'],
+            'avg_age' => round((float)$row['avg_age'], 1)
         ];
         
-        $barangay_recommendations[$barangay]['total_pwd'] += $row['count'];
-        $barangay_recommendations[$barangay]['unemployed_count'] += $row['unemployed_count'];
-        $barangay_recommendations[$barangay]['children_count'] += $row['children_count'];
-    }
-    
-    // Add service recommendations
-    $service_recommendations = [
-        'Physical Disability' => [
-            'priority' => 'High',
-            'services' => [
-                'Mobile physical therapy units',
-                'Wheelchair and mobility aid distribution',
-                'Accessible public transportation',
-                'Ramp construction program'
-            ]
-        ],
-        'Visual Impairment' => [
-            'priority' => 'High',
-            'services' => [
-                'Braille literacy programs',
-                'White cane training sessions',
-                'Screen reader software training',
-                'Audio book library'
-            ]
-        ],
-        'Hearing Impairment' => [
-            'priority' => 'Medium',
-            'services' => [
-                'Sign language interpretation services',
-                'Hearing aid maintenance program',
-                'Deaf community social groups',
-                'Visual alert system installation'
-            ]
-        ],
-        'Intellectual Disability' => [
-            'priority' => 'High',
-            'services' => [
-                'Special education programs',
-                'Life skills training workshops',
-                'Supported employment initiatives',
-                'Family counseling services'
-            ]
-        ],
-        'Mental/Psychosocial Disability' => [
-            'priority' => 'Critical',
-            'services' => [
-                'Mental health counseling services',
-                'Peer support group meetings',
-                'Crisis intervention hotline',
-                'Medication management programs'
-            ]
-        ]
-    ];
-    
-    foreach ($barangay_recommendations as $barangay => &$data_item) {
-        $data_item['recommended_services'] = [];
-        
-        // Sort disabilities by count
-        usort($data_item['disabilities'], function($a, $b) {
-            return $b['count'] - $a['count'];
-        });
-        
-        // Get top 3 disabilities
-        $top_disabilities = array_slice($data_item['disabilities'], 0, 3);
-        
-        foreach ($top_disabilities as $disability) {
-            if (isset($service_recommendations[$disability['type']])) {
-                $data_item['recommended_services'][] = [
-                    'disability_type' => $disability['type'],
-                    'affected_count' => $disability['count'],
-                    'priority' => $service_recommendations[$disability['type']]['priority'],
-                    'services' => $service_recommendations[$disability['type']]['services']
-                ];
+        // Find matching service recommendations
+        $matched_services = [];
+        foreach ($service_recommendations as $key => $rec) {
+            if (stripos($disability, $key) !== false || stripos($key, $disability) !== false) {
+                $matched_services = $rec['services'];
+                break;
             }
         }
+        
+        // If no match, provide general services
+        if (empty($matched_services)) {
+            $matched_services = [
+                'General accessibility improvements',
+                'Community support programs',
+                'Healthcare coordination',
+                'Skills development training',
+                'Social integration activities',
+                'Transportation assistance'
+            ];
+        }
+        
+        // Build service recommendation with contextual additions
+        $contextual_services = $matched_services;
+        
+        // Add age-specific services
+        if ($children_percentage > 30) {
+            array_unshift($contextual_services, 
+                '🎓 Inclusive education programs',
+                '🎨 Therapy and special programs for children'
+            );
+            if ($priority === 'Medium') $priority = 'High';
+        }
+        
+        // Add employment services
+        if ($unemployment_rate > 40) {
+            array_push($contextual_services,
+                '💼 Livelihood programs and vocational training',
+                '🤝 Partnerships with local businesses'
+            );
+            if ($priority === 'Medium') $priority = 'High';
+        }
+        
+        // Add adult-specific services
+        if ((int)$row['adult_count'] > $total * 0.5) {
+            array_push($contextual_services,
+                '🎯 Employment and skills training',
+                '💪 Livelihood support programs'
+            );
+        }
+        
+        $barangay_recommendations[$barangay]['recommended_services'][] = [
+            'disability_type' => $disability,
+            'affected_count' => $total,
+            'concentration' => round($concentration, 1),
+            'priority' => $priority,
+            'children_count' => (int)$row['children_count'],
+            'unemployed_count' => (int)$row['unemployed_count'],
+            'services' => array_unique($contextual_services),
+            'factors' => [
+                'high_concentration' => $concentration > 30,
+                'many_children' => $children_percentage > 30,
+                'high_unemployment' => $unemployment_rate > 40
+            ]
+        ];
+    }
+    
+    // Sort disabilities by count within each barangay
+    foreach ($barangay_recommendations as $barangay => &$brgy_data) {
+        usort($brgy_data['disabilities'], function($a, $b) {
+            return $b['count'] - $a['count'];
+        });
+        usort($brgy_data['recommended_services'], function($a, $b) {
+            $priority_order = ['Critical' => 4, 'High' => 3, 'Medium' => 2, 'Low' => 1];
+            $a_priority = $priority_order[$a['priority']] ?? 0;
+            $b_priority = $priority_order[$b['priority']] ?? 0;
+            if ($a_priority !== $b_priority) {
+                return $b_priority - $a_priority;
+            }
+            return $b['affected_count'] - $a['affected_count'];
+        });
     }
     
     $data['barangay_recommendations'] = $barangay_recommendations;
@@ -668,6 +776,33 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             background: #dc2626;
         }
         
+        .factor-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-right: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .factor-concentration {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .factor-children {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        
+        .factor-unemployment {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
         @media (max-width: 768px) {
             .analytics-header h1 {
                 font-size: 2rem;
@@ -693,7 +828,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             <p>Data-driven insights to support our community and improve services</p>
         </div>
         
-        <!-- Report Type Tabs -->
         <div class="report-tabs">
             <a href="?type=analytics" class="report-tab <?php echo $report_type == 'analytics' ? 'active' : ''; ?>">
                 <i class="fas fa-chart-bar"></i> Overview Analytics
@@ -706,19 +840,18 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             </a>
         </div>
         
-        <!-- Filters Panel -->
         <div class="filters-panel">
             <form method="GET" id="filtersForm">
-                <input type="hidden" name="type" value="<?php echo $report_type; ?>">
+                <input type="hidden" name="type" value="<?php echo htmlspecialchars($report_type); ?>">
                 <div class="filters-grid">
                     <div class="form-group">
                         <label for="date_from">From Date</label>
-                        <input type="date" name="date_from" id="date_from" class="form-control" value="<?php echo $date_from; ?>">
+                        <input type="date" name="date_from" id="date_from" class="form-control" value="<?php echo htmlspecialchars($date_from); ?>">
                     </div>
                     
                     <div class="form-group">
                         <label for="date_to">To Date</label>
-                        <input type="date" name="date_to" id="date_to" class="form-control" value="<?php echo $date_to; ?>">
+                        <input type="date" name="date_to" id="date_to" class="form-control" value="<?php echo htmlspecialchars($date_to); ?>">
                     </div>
                     
                     <?php if ($report_type == 'analytics'): ?>
@@ -730,7 +863,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                             <option value="yearly" <?php echo $time_period == 'yearly' ? 'selected' : ''; ?>>Yearly</option>
                         </select>
                     </div>
-                    <?php endif; ?>
                     
                     <div class="form-group">
                         <label for="status_filter">Status</label>
@@ -741,6 +873,28 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                             <option value="issued" <?php echo $status_filter == 'issued' ? 'selected' : ''; ?>>ID Issued</option>
                         </select>
                     </div>
+                    
+                    <div class="form-group">
+                        <label for="gender_filter">Gender</label>
+                        <select name="gender" id="gender_filter" class="form-control">
+                            <option value="">All Genders</option>
+                            <option value="Male" <?php echo $gender_filter == 'Male' ? 'selected' : ''; ?>>Male</option>
+                            <option value="Female" <?php echo $gender_filter == 'Female' ? 'selected' : ''; ?>>Female</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="employment_filter">Employment</label>
+                        <select name="employment" id="employment_filter" class="form-control">
+                            <option value="">All Employment</option>
+                            <?php foreach ($available_employment as $employment): ?>
+                            <option value="<?php echo htmlspecialchars($employment); ?>" <?php echo $employment_filter == $employment ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($employment); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php endif; ?>
                     
                     <div class="form-group">
                         <label for="barangay_filter">Barangay</label>
@@ -766,15 +920,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                         </select>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="gender_filter">Gender</label>
-                        <select name="gender" id="gender_filter" class="form-control">
-                            <option value="">All Genders</option>
-                            <option value="Male" <?php echo $gender_filter == 'Male' ? 'selected' : ''; ?>>Male</option>
-                            <option value="Female" <?php echo $gender_filter == 'Female' ? 'selected' : ''; ?>>Female</option>
-                        </select>
-                    </div>
-                    
                     <?php if ($report_type == 'demographics'): ?>
                     <div class="form-group">
                         <label for="age_group">Age Group</label>
@@ -788,20 +933,8 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                     <?php endif; ?>
                     
                     <div class="form-group">
-                        <label for="employment_filter">Employment</label>
-                        <select name="employment" id="employment_filter" class="form-control">
-                            <option value="">All Employment</option>
-                            <?php foreach ($available_employment as $employment): ?>
-                            <option value="<?php echo htmlspecialchars($employment); ?>" <?php echo $employment_filter == $employment ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($employment); ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-sync-alt"></i> Update Analytics
+                            <i class="fas fa-sync-alt"></i> Update Report
                         </button>
                     </div>
                     
@@ -813,14 +946,13 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                     
                     <div class="form-group">
                         <button type="button" onclick="exportReport()" class="btn btn-outline">
-                            <i class="fas fa-download"></i> Export Data
+                            <i class="fas fa-download"></i> Export Report
                         </button>
                     </div>
                 </div>
             </form>
         </div>
         
-        <!-- Report Content -->
         <div id="reportContent">
             <?php if ($report_type == 'analytics'): ?>
                 <?php include 'reports/analytics.php'; ?>
@@ -834,20 +966,118 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     
     <script src="assets/admin.js"></script>
     <script>
+        // Store report data for export
+        const reportData = <?php echo json_encode($report_data); ?>;
+        const reportType = '<?php echo $report_type; ?>';
+        const filters = {
+            date_from: '<?php echo $date_from; ?>',
+            date_to: '<?php echo $date_to; ?>',
+            status: '<?php echo $status_filter; ?>',
+            disability: '<?php echo $disability_filter; ?>',
+            barangay: '<?php echo $barangay_filter; ?>',
+            gender: '<?php echo $gender_filter; ?>',
+            employment: '<?php echo $employment_filter; ?>',
+            age_group: '<?php echo $age_group; ?>'
+        };
+        
         function exportReport() {
-            const form = document.getElementById('filtersForm');
-            const formData = new FormData(form);
+            let csvContent = "data:text/csv;charset=utf-8,\ufeff";
             
-            // Build query string from form data
-            const params = new URLSearchParams();
-            for (let [key, value] of formData.entries()) {
-                if (value) {
-                    params.append(key, value);
-                }
+            if (reportType === 'analytics') {
+                csvContent += exportAnalyticsData();
+            } else if (reportType === 'demographics') {
+                csvContent += exportDemographicsData();
+            } else if (reportType === 'resources') {
+                csvContent += exportResourcesData();
             }
             
-            // Open export in new window
-            window.open(`api/export_report.php?${params.toString()}`, '_blank');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `PWD_${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification('Report exported successfully!', 'success');
+        }
+        
+        function exportAnalyticsData() {
+            let csv = "PWD Analytics Report\n";
+            csv += `Generated: ${new Date().toLocaleString()}\n`;
+            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
+            
+            csv += "Summary Statistics\n";
+            csv += "Metric,Value\n";
+            if (reportData.summary) {
+                csv += `Total Individuals,${reportData.summary.total_individuals || 0}\n`;
+                csv += `Validated Profiles,${reportData.summary.validated_profiles || 0}\n`;
+                csv += `Active IDs,${reportData.summary.active_ids || 0}\n`;
+                csv += `Pending Support,${reportData.summary.pending_support || 0}\n`;
+                csv += `Average Age,${reportData.summary.avg_age ? Math.round(reportData.summary.avg_age) : 'N/A'}\n`;
+            }
+            
+            csv += "\n\nDisability Type Distribution\n";
+            csv += "Disability Type,Count,Percentage\n";
+            if (reportData.disability_distribution) {
+                reportData.disability_distribution.forEach(row => {
+                    csv += `"${row.disability_type}",${row.count},${row.percentage}%\n`;
+                });
+            }
+            
+            csv += "\n\nBarangay Distribution\n";
+            csv += "Barangay,Count,Active IDs,Average Age,Percentage\n";
+            if (reportData.barangay_distribution) {
+                reportData.barangay_distribution.forEach(row => {
+                    csv += `"${row.barangay}",${row.count},${row.active_ids},${Math.round(row.avg_age)},${row.percentage}%\n`;
+                });
+            }
+            
+            return csv;
+        }
+        
+        function exportDemographicsData() {
+            let csv = "PWD Demographics Report\n";
+            csv += `Generated: ${new Date().toLocaleString()}\n`;
+            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
+            
+            csv += "Barangay Summary\n";
+            csv += "Barangay,Total PWDs,Male,Female,Children,Average Age,Active IDs\n";
+            if (reportData.barangay_profiles) {
+                reportData.barangay_profiles.forEach(row => {
+                    csv += `"${row.barangay}",${row.total_individuals},${row.male_count},${row.female_count},${row.children_count},${Math.round(row.avg_age)},${row.active_ids}\n`;
+                });
+            }
+            
+            return csv;
+        }
+        
+        function exportResourcesData() {
+            let csv = "PWD Resource Planning Report\n";
+            csv += `Generated: ${new Date().toLocaleString()}\n`;
+            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
+            
+            csv += "Barangay Resource Recommendations\n";
+            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Unemployed,Key Factors,Recommended Services\n";
+            
+            if (reportData.barangay_recommendations) {
+                Object.entries(reportData.barangay_recommendations).forEach(([barangay, data]) => {
+                    if (data.recommended_services) {
+                        data.recommended_services.forEach(service => {
+                            const factors = [];
+                            if (service.factors?.high_concentration) factors.push('High Concentration');
+                            if (service.factors?.many_children) factors.push('Many Children');
+                            if (service.factors?.high_unemployment) factors.push('High Unemployment');
+                            
+                            const services = service.services.slice(0, 5).join('; ');
+                            
+                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
+                        });
+                    }
+                });
+            }
+            
+            return csv;
         }
         
         function clearFilters() {
@@ -861,16 +1091,14 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                     } else if (input.name === 'date_to') {
                         input.value = '<?php echo date('Y-m-d'); ?>';
                     }
-                } else {
+                } else if (input.name !== 'type') {
                     input.selectedIndex = 0;
                 }
             });
             
-            // Submit form to apply cleared filters
             form.submit();
         }
         
-        // Initialize charts when page loads
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof initializeAnalyticsCharts === 'function') {
                 initializeAnalyticsCharts();
