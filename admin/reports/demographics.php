@@ -1,6 +1,6 @@
-Demographics Report 
+
 <div class="analytics-grid">
-     Summary Cards 
+     
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format(array_sum(array_column($report_data['barangay_profiles'] ?? [], 'total_individuals'))); ?></div>
         <div class="metric-label">Community Members</div>
@@ -47,7 +47,7 @@ Demographics Report
     </div>
 </div>
 
- Narrative Insights 
+ 
 <div class="analytics-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-left: 4px solid #f59e0b;">
     <h3><i class="fas fa-info-circle"></i> Demographic Insights</h3>
     <div style="line-height: 1.8; color: #92400e;">
@@ -114,7 +114,7 @@ Demographics Report
     </div>
 </div>
 
- Cross-Demographic Visualizations 
+ 
 <div class="analytics-grid">
     <div class="analytics-card">
         <h3><i class="fas fa-chart-pie"></i> Gender × Barangay Distribution</h3>
@@ -133,7 +133,7 @@ Demographics Report
     </div>
 </div>
 
- Barangay Profiles Table 
+ 
 <?php if (!empty($report_data['barangay_profiles'])): ?>
 <div class="analytics-grid">
     <div class="analytics-card" style="grid-column: 1 / -1;">
@@ -194,7 +194,7 @@ Demographics Report
 </div>
 <?php endif; ?>
 
- Disability Characteristics by Area 
+ 
 <?php if (!empty($report_data['disability_by_barangay'])): ?>
 <div class="analytics-grid">
     <div class="analytics-card" style="grid-column: 1 / -1;">

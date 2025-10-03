@@ -698,7 +698,7 @@ function handleCreateDirectRecord() {
             </div>
         </div>
         
-         Statistics Cards 
+          
         <div class="stats-grid">
             <?php
             $stats_query = "
@@ -754,7 +754,7 @@ function handleCreateDirectRecord() {
             </div>
         </div>
         
-         Enhanced Filters 
+          
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -845,7 +845,7 @@ function handleCreateDirectRecord() {
             </form>
         </div>
         
-         Records Table 
+          
         <div class="data-card">
             <div class="card-header">
                 <h3>PWD Records</h3>
@@ -969,7 +969,7 @@ function handleCreateDirectRecord() {
                 </table>
             </div>
             
-             Pagination 
+             
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
@@ -993,7 +993,6 @@ function handleCreateDirectRecord() {
         </div>
     </main>
     
-     Record Details Modal 
     <div id="recordModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
@@ -1006,7 +1005,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-     Edit Record Modal 
+    
     <div id="editRecordModal" class="modal">
         <div class="modal-content extra-large-modal">
             <div class="modal-header">
@@ -1197,7 +1196,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-     Validation Modal 
+     
     <div id="validationModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1225,7 +1224,7 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-     Issue ID Modal 
+     
     <div id="issueModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1260,7 +1259,6 @@ function handleCreateDirectRecord() {
         </div>
     </div>
     
-     Create PWD Record Modal 
     <div id="createRecordModal" class="modal">
         <div class="modal-content extra-large-modal">
             <div class="modal-header">

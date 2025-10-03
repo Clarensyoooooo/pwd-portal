@@ -462,7 +462,7 @@ function handleCreatePWDRecord() {
             </div>
         <?php endif; ?>
         
-         Interview Progress 
+         
         <div class="interview-progress">
             <div class="progress-steps">
                 <div class="step completed">
@@ -484,7 +484,7 @@ function handleCreatePWDRecord() {
             </div>
         </div>
         
-         Interview Status Card 
+         
         <div class="status-overview-card">
             <div class="status-grid">
                 <div class="status-item">
@@ -535,7 +535,7 @@ function handleCreatePWDRecord() {
             </div>
         </div>
         
-         Interview Tabs 
+         
         <div class="interview-container">
             <div class="interview-tabs">
                 <button class="tab-btn active" onclick="switchTab('applicant-info')">
@@ -555,7 +555,7 @@ function handleCreatePWDRecord() {
                 <?php endif; ?>
             </div>
             
-             Applicant Information Tab 
+             
             <div id="applicant-info" class="tab-content active">
                 <div class="applicant-overview">
                     <div class="applicant-card">
@@ -628,7 +628,7 @@ function handleCreatePWDRecord() {
                 </div>
             </div>
             
-             Interview Notes Tab 
+              
             <div id="interview-notes" class="tab-content">
                 <div class="interview-form-container">
                     <form method="POST" class="interview-form">
@@ -728,7 +728,7 @@ function handleCreatePWDRecord() {
                 </div>
             </div>
             
-             PWD Record Creation Tab 
+             
             <?php if (!$interview['record_id']): ?>
                 <div id="pwd-record" class="tab-content">
                     <div class="record-form-container">

@@ -1,6 +1,6 @@
-Analytics Overview Report 
+
 <div class="analytics-grid">
-     Key Metrics 
+     
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($report_data['summary']['total_individuals']); ?></div>
         <div class="metric-label">Registered Community Members</div>
@@ -48,7 +48,7 @@ Analytics Overview Report
     </div>
 </div>
 
- Narrative Insights 
+ 
 <div class="analytics-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #2c5aa0;">
     <h3><i class="fas fa-lightbulb"></i> Key Insights</h3>
     <div style="line-height: 1.8; color: #1e40af;">
@@ -162,7 +162,7 @@ Analytics Overview Report
     </div>
 </div>
 
- Charts Section 
+ 
 <div class="analytics-grid">
     <div class="analytics-card">
         <h3><i class="fas fa-birthday-cake"></i> Age Distribution Overview</h3>
@@ -286,7 +286,7 @@ Analytics Overview Report
     </div>
 </div>
 
- Geographic Distribution 
+ 
 <div class="analytics-card" style="grid-column: 1 / -1;">
     <h3><i class="fas fa-map-marked-alt"></i> Geographic Distribution Across Barangays</h3>
     <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1rem;">Community members are distributed across various barangays, each with unique characteristics</p>

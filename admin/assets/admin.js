@@ -1,73 +1,96 @@
 // PWD Portal Admin Panel JavaScript
 
 // Global variables
-let sidebarCollapsed = false
+let sidebarOpen = true
 
 // Initialize admin panel
 document.addEventListener("DOMContentLoaded", () => {
-  initializeAdminPanel()
+  initializeSidebar()
   initializeNotifications()
+  initializeUserDropdown()
   initializeModals()
   initializeTooltips()
 
   // Auto-refresh notifications every 30 seconds
   setInterval(refreshNotifications, 30000)
+
+  // Check if on mobile
+  if (window.innerWidth <= 1024) {
+    sidebarOpen = false
+    document.getElementById("adminSidebar").classList.remove("show")
+  }
 })
 
-function initializeAdminPanel() {
-  // Sidebar toggle functionality
-  const sidebarToggle = document.querySelector(".sidebar-toggle")
+function initializeSidebar() {
+  const sidebarToggle = document.getElementById("sidebarToggle")
   const sidebar = document.getElementById("adminSidebar")
-  const mainContent = document.querySelector(".main-content")
+  const mainContent = document.getElementById("mainContent")
 
-  if (sidebarToggle) {
-    sidebarToggle.addEventListener("click", toggleSidebar)
-  }
+  if (sidebarToggle && sidebar) {
+    sidebarToggle.addEventListener("click", (e) => {
+      e.stopPropagation()
+      toggleSidebar()
+    })
 
-  // Close sidebar on mobile when clicking outside
-  document.addEventListener("click", (e) => {
-    if (window.innerWidth <= 1024) {
-      if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
-        sidebar.classList.remove("show")
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener("click", (e) => {
+      if (window.innerWidth <= 1024) {
+        if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
+          if (sidebar.classList.contains("show")) {
+            sidebar.classList.remove("show")
+            sidebarOpen = false
+          }
+        }
       }
-    }
-  })
+    })
 
-  // Handle window resize
-  window.addEventListener("resize", () => {
-    if (window.innerWidth > 1024) {
-      sidebar.classList.remove("show")
-      mainContent.classList.remove("expanded")
-    }
-  })
+    // Handle window resize
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 1024) {
+        sidebar.classList.remove("show")
+        sidebar.classList.remove("collapsed")
+        if (mainContent) {
+          mainContent.classList.remove("sidebar-open")
+        }
+        sidebarOpen = true
+      } else {
+        sidebar.classList.remove("show")
+        if (mainContent) {
+          mainContent.classList.remove("sidebar-open")
+        }
+        sidebarOpen = false
+      }
+    })
+  }
 }
 
 function toggleSidebar() {
   const sidebar = document.getElementById("adminSidebar")
-  const mainContent = document.querySelector(".main-content")
+  const mainContent = document.getElementById("mainContent")
 
   if (window.innerWidth <= 1024) {
-    // Mobile behavior - toggle show class
+    // Mobile behavior
     sidebar.classList.toggle("show")
+    sidebarOpen = sidebar.classList.contains("show")
 
-    // Close user dropdown when opening sidebar
-    const userDropdown = document.getElementById("userDropdown")
-    if (userDropdown) {
-      userDropdown.classList.remove("show")
+    if (sidebarOpen) {
+      mainContent.classList.add("sidebar-open")
+    } else {
+      mainContent.classList.remove("sidebar-open")
     }
   } else {
-    // Desktop behavior - toggle collapsed
+    // Desktop behavior
     sidebar.classList.toggle("collapsed")
     mainContent.classList.toggle("expanded")
-    sidebarCollapsed = !sidebarCollapsed
+    sidebarOpen = !sidebar.classList.contains("collapsed")
 
     // Store preference
-    localStorage.setItem("sidebarCollapsed", sidebarCollapsed)
+    localStorage.setItem("sidebarCollapsed", !sidebarOpen)
   }
 }
 
 function initializeNotifications() {
-  const notificationBtn = document.querySelector(".notification-btn")
+  const notificationBtn = document.getElementById("notificationBtn")
   const notificationDropdown = document.getElementById("notificationDropdown")
 
   if (notificationBtn && notificationDropdown) {
@@ -78,26 +101,8 @@ function initializeNotifications() {
 
     // Close dropdown when clicking outside
     document.addEventListener("click", (e) => {
-      if (!notificationDropdown.contains(e.target)) {
+      if (!notificationDropdown.contains(e.target) && !notificationBtn.contains(e.target)) {
         notificationDropdown.classList.remove("show")
-      }
-    })
-  }
-
-  // User dropdown
-  const userDropdownToggle = document.querySelector(".dropdown-toggle")
-  const userDropdown = document.getElementById("userDropdown")
-
-  if (userDropdownToggle && userDropdown) {
-    userDropdownToggle.addEventListener("click", (e) => {
-      e.stopPropagation()
-      toggleUserDropdown(e)
-    })
-
-    // Close dropdown when clicking outside
-    document.addEventListener("click", (e) => {
-      if (!userDropdown.contains(e.target)) {
-        userDropdown.classList.remove("show")
       }
     })
   }
@@ -105,18 +110,48 @@ function initializeNotifications() {
 
 function toggleNotifications() {
   const dropdown = document.getElementById("notificationDropdown")
+  const userDropdown = document.getElementById("userDropdown")
+
   if (dropdown) {
     dropdown.classList.toggle("show")
+
+    // Close user dropdown if open
+    if (userDropdown) {
+      userDropdown.classList.remove("show")
+    }
   }
 }
 
-function toggleUserDropdown(e) {
-  if (e) {
-    e.stopPropagation()
+function initializeUserDropdown() {
+  const userDropdownToggle = document.getElementById("userDropdownToggle")
+  const userDropdown = document.getElementById("userDropdown")
+
+  if (userDropdownToggle && userDropdown) {
+    userDropdownToggle.addEventListener("click", (e) => {
+      e.stopPropagation()
+      toggleUserDropdown()
+    })
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", (e) => {
+      if (!userDropdown.contains(e.target) && !userDropdownToggle.contains(e.target)) {
+        userDropdown.classList.remove("show")
+      }
+    })
   }
+}
+
+function toggleUserDropdown() {
   const dropdown = document.getElementById("userDropdown")
+  const notificationDropdown = document.getElementById("notificationDropdown")
+
   if (dropdown) {
     dropdown.classList.toggle("show")
+
+    // Close notification dropdown if open
+    if (notificationDropdown) {
+      notificationDropdown.classList.remove("show")
+    }
   }
 }
 
@@ -153,14 +188,14 @@ function updateNotificationList(notifications) {
     list.innerHTML = notifications
       .map(
         (notification) => `
-            <div class="notification-item ${notification.read ? "" : "unread"}">
-                <i class="fas fa-${getNotificationIcon(notification.type)}"></i>
-                <div class="notification-content">
-                    <p>${notification.message}</p>
-                    <span>${timeAgo(notification.created_at)}</span>
-                </div>
-            </div>
-        `,
+      <div class="notification-item ${notification.read ? "" : "unread"}">
+        <i class="fas fa-${getNotificationIcon(notification.type)}"></i>
+        <div class="notification-content">
+          <p>${notification.message}</p>
+          <span>${timeAgo(notification.created_at)}</span>
+        </div>
+      </div>
+    `,
       )
       .join("")
   }
@@ -231,16 +266,16 @@ function showTooltip(e) {
     tooltip.className = "tooltip"
     tooltip.textContent = tooltipText
     tooltip.style.cssText = `
-            position: absolute;
-            background: #333;
-            color: white;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            z-index: 10000;
-            pointer-events: none;
-            white-space: nowrap;
-        `
+      position: absolute;
+      background: #333;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      z-index: 10000;
+      pointer-events: none;
+      white-space: nowrap;
+    `
 
     document.body.appendChild(tooltip)
 
@@ -270,28 +305,28 @@ function showNotification(message, type = "info", duration = 5000) {
   const notification = document.createElement("div")
   notification.className = `admin-notification notification-${type}`
   notification.innerHTML = `
-        <div class="notification-content">
-            <i class="fas fa-${getNotificationTypeIcon(type)}"></i>
-            <span class="notification-message">${message}</span>
-            <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
-        </div>
-    `
+    <div class="notification-content">
+      <i class="fas fa-${getNotificationTypeIcon(type)}"></i>
+      <span class="notification-message">${message}</span>
+      <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    </div>
+  `
 
   // Add styles
   notification.style.cssText = `
-        position: fixed;
-        top: 90px;
-        right: 20px;
-        z-index: 10000;
-        padding: 15px 20px;
-        border-radius: 8px;
-        color: white;
-        font-weight: 500;
-        max-width: 400px;
-        transform: translateX(100%);
-        transition: transform 0.3s ease;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-    `
+    position: fixed;
+    top: 90px;
+    right: 20px;
+    z-index: 10000;
+    padding: 15px 20px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    max-width: 400px;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+  `
 
   // Set background color based on type
   const colors = {
@@ -327,59 +362,6 @@ function getNotificationTypeIcon(type) {
     info: "info-circle",
   }
   return icons[type] || "bell"
-}
-
-// Data table utilities
-function sortTable(table, column, direction = "asc") {
-  const tbody = table.querySelector("tbody")
-  const rows = Array.from(tbody.querySelectorAll("tr"))
-
-  rows.sort((a, b) => {
-    const aValue = a.cells[column].textContent.trim()
-    const bValue = b.cells[column].textContent.trim()
-
-    if (direction === "asc") {
-      return aValue.localeCompare(bValue, undefined, { numeric: true })
-    } else {
-      return bValue.localeCompare(aValue, undefined, { numeric: true })
-    }
-  })
-
-  rows.forEach((row) => tbody.appendChild(row))
-}
-
-function filterTable(table, searchTerm) {
-  const tbody = table.querySelector("tbody")
-  const rows = tbody.querySelectorAll("tr")
-
-  rows.forEach((row) => {
-    const text = row.textContent.toLowerCase()
-    const matches = text.includes(searchTerm.toLowerCase())
-    row.style.display = matches ? "" : "none"
-  })
-}
-
-// Form utilities
-function validateForm(form) {
-  const requiredFields = form.querySelectorAll("[required]")
-  let isValid = true
-
-  requiredFields.forEach((field) => {
-    if (!field.value.trim()) {
-      field.classList.add("error")
-      isValid = false
-    } else {
-      field.classList.remove("error")
-    }
-  })
-
-  return isValid
-}
-
-function resetForm(form) {
-  form.reset()
-  const errorFields = form.querySelectorAll(".error")
-  errorFields.forEach((field) => field.classList.remove("error"))
 }
 
 // Date utilities
@@ -423,6 +405,29 @@ function timeAgo(dateString) {
   } else {
     return formatDate(dateString)
   }
+}
+
+// Form utilities
+function validateForm(form) {
+  const requiredFields = form.querySelectorAll("[required]")
+  let isValid = true
+
+  requiredFields.forEach((field) => {
+    if (!field.value.trim()) {
+      field.classList.add("error")
+      isValid = false
+    } else {
+      field.classList.remove("error")
+    }
+  })
+
+  return isValid
+}
+
+function resetForm(form) {
+  form.reset()
+  const errorFields = form.querySelectorAll(".error")
+  errorFields.forEach((field) => field.classList.remove("error"))
 }
 
 // Export utilities
@@ -524,15 +529,17 @@ function loadFromLocalStorage(key, defaultValue = null) {
 
 // Initialize saved preferences
 document.addEventListener("DOMContentLoaded", () => {
-  // Restore sidebar state
-  const savedSidebarState = loadFromLocalStorage("sidebarCollapsed", false)
-  if (savedSidebarState && window.innerWidth > 1024) {
-    const sidebar = document.getElementById("adminSidebar")
-    const mainContent = document.querySelector(".main-content")
-    if (sidebar && mainContent) {
-      sidebar.classList.add("collapsed")
-      mainContent.classList.add("expanded")
-      sidebarCollapsed = true
+  // Restore sidebar state on desktop
+  if (window.innerWidth > 1024) {
+    const savedSidebarState = loadFromLocalStorage("sidebarCollapsed", false)
+    if (savedSidebarState) {
+      const sidebar = document.getElementById("adminSidebar")
+      const mainContent = document.getElementById("mainContent")
+      if (sidebar && mainContent) {
+        sidebar.classList.add("collapsed")
+        mainContent.classList.add("expanded")
+        sidebarOpen = false
+      }
     }
   }
 })
@@ -540,11 +547,9 @@ document.addEventListener("DOMContentLoaded", () => {
 // Global error handler
 window.addEventListener("error", (e) => {
   console.error("Global error:", e.error)
-  showNotification("An unexpected error occurred. Please refresh the page.", "error")
 })
 
 // Global unhandled promise rejection handler
 window.addEventListener("unhandledrejection", (e) => {
   console.error("Unhandled promise rejection:", e.reason)
-  showNotification("A network error occurred. Please check your connection.", "error")
 })
