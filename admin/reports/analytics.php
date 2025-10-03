@@ -285,7 +285,6 @@
         </div>
     </div>
 </div>
-sdasd
  
 <div class="analytics-card" style="grid-column: 1 / -1;">
     <h3><i class="fas fa-map-marked-alt"></i> Geographic Distribution Across Barangays</h3>
