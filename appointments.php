@@ -1,5 +1,7 @@
 <?php
 require_once 'config.php';
+require_once 'resend_email.php';
+
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -89,6 +91,23 @@ function handleBookAppointment() {
         
         // Send SMS verification (in real app, use actual SMS service)
         sendSMSVerification($user['phone'], $sms_code);
+        // Send email verification using Resend (for development)
+$emailSubject = "Your Appointment Verification Code – PWD Portal";
+$emailBody = "
+    <h2>Appointment Verification</h2>
+    <p>Hi {$user['first_name']} {$user['last_name']},</p>
+    <p>Your verification code is:</p>
+    <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
+    <p>Reference Number: <strong>{$reference_number}</strong></p>
+    <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
+    <p>This email was sent via Resend API (test mode).</p>
+    <br>
+    <p>– PWD Portal Team</p>
+";
+
+// Send the test email
+sendResendEmail($user['email'], $emailSubject, $emailBody);
+
         
         // Update SMS sent status
         $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");

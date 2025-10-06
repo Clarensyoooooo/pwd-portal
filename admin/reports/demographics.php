@@ -48,7 +48,7 @@
 </div>
 
  
-<div class="analytics-card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-left: 4px solid #f59e0b;">
+<div class="analytics-card" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #f59e0b; margin-bottom: 1.5rem;">
     <h3><i class="fas fa-info-circle"></i> Demographic Insights</h3>
     <div style="line-height: 1.8; color: #92400e;">
         <?php

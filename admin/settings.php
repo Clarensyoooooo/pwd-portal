@@ -6,11 +6,60 @@ $admin = getCurrentAdmin($pdo);
 $success_message = '';
 $error_message = '';
 
+// Get current settings
+$current_settings = [];
+try {
+    $stmt = $pdo->prepare("
+        SELECT setting_key, setting_value 
+        FROM admin_user_settings 
+        WHERE admin_user_id = ?
+    ");
+    $stmt->execute([$_SESSION['admin_user_id']]);
+    while ($row = $stmt->fetch()) {
+        $current_settings[$row['setting_key']] = $row['setting_value'];
+    }
+} catch (PDOException $e) {
+    error_log("Error loading settings: " . $e->getMessage());
+}
+
+// Set defaults if not exists
+$settings = [
+    'email_notifications' => $current_settings['email_notifications'] ?? '1',
+    'appointment_alerts' => $current_settings['appointment_alerts'] ?? '1',
+    'feedback_alerts' => $current_settings['feedback_alerts'] ?? '1',
+    'dark_mode' => $current_settings['dark_mode'] ?? '0',
+];
+
 // Handle settings update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // For now, this is a placeholder for future settings
-    $success_message = 'Settings saved successfully!';
-    logAdminActivity($pdo, 'update', 'settings', 'preferences', $_SESSION['admin_user_id']);
+    try {
+        // Get form values (checkboxes return '1' if checked, null if unchecked)
+        $new_settings = [
+            'email_notifications' => isset($_POST['email_notifications']) ? '1' : '0',
+            'appointment_alerts' => isset($_POST['appointment_alerts']) ? '1' : '0',
+            'feedback_alerts' => isset($_POST['feedback_alerts']) ? '1' : '0',
+            'dark_mode' => isset($_POST['dark_mode']) ? '1' : '0',
+        ];
+
+        // Update or insert each setting
+        foreach ($new_settings as $key => $value) {
+            $stmt = $pdo->prepare("
+                INSERT INTO admin_user_settings (admin_user_id, setting_key, setting_value)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE setting_value = ?
+            ");
+            $stmt->execute([$_SESSION['admin_user_id'], $key, $value, $value]);
+        }
+
+        // Update current settings array
+        $settings = $new_settings;
+
+        $success_message = 'Settings saved successfully!';
+        logAdminActivity($pdo, 'update', 'settings', 'preferences', $_SESSION['admin_user_id'], $new_settings);
+    } catch (PDOException $e) {
+        error_log("Error saving settings: " . $e->getMessage());
+        $error_message = 'Failed to save settings. Please try again.';
+    }
 }
 
 $page_title = 'Settings';
@@ -21,7 +70,7 @@ include 'includes/header.php';
     <?php include 'includes/sidebar.php'; ?>
 </div>
 
-<div class="main-content">
+<div class="main-content" id="mainContent" data-theme="<?php echo $settings['dark_mode'] === '1' ? 'dark' : 'light'; ?>">
     <div class="page-header">
         <div>
             <h1><i class="fas fa-cog"></i> Settings</h1>
@@ -48,7 +97,7 @@ include 'includes/header.php';
             <h3><i class="fas fa-bell"></i> Notification Preferences</h3>
         </div>
         <div class="card-content">
-            <form method="POST" action="">
+            <form method="POST" action="" id="settingsForm">
                 <div class="settings-group">
                     <div class="setting-item">
                         <div class="setting-info">
@@ -57,7 +106,8 @@ include 'includes/header.php';
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" name="email_notifications" checked>
+                                <input type="checkbox" name="email_notifications" 
+                                       <?php echo $settings['email_notifications'] === '1' ? 'checked' : ''; ?>>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -70,7 +120,8 @@ include 'includes/header.php';
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" name="appointment_alerts" checked>
+                                <input type="checkbox" name="appointment_alerts" 
+                                       <?php echo $settings['appointment_alerts'] === '1' ? 'checked' : ''; ?>>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -83,7 +134,8 @@ include 'includes/header.php';
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" name="feedback_alerts" checked>
+                                <input type="checkbox" name="feedback_alerts" 
+                                       <?php echo $settings['feedback_alerts'] === '1' ? 'checked' : ''; ?>>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -104,33 +156,29 @@ include 'includes/header.php';
             <h3><i class="fas fa-palette"></i> Appearance</h3>
         </div>
         <div class="card-content">
-            <div class="settings-group">
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <h4>Dark Mode</h4>
-                        <p class="text-muted">Switch to dark theme (Coming soon)</p>
-                    </div>
-                    <div class="setting-control">
-                        <label class="toggle-switch">
-                            <input type="checkbox" name="dark_mode" disabled>
-                            <span class="toggle-slider"></span>
-                        </label>
+            <form method="POST" action="" id="appearanceForm">
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h4>Dark Mode</h4>
+                            <p class="text-muted">Switch to dark theme for better viewing at night</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" name="dark_mode" id="darkModeToggle"
+                                       <?php echo $settings['dark_mode'] === '1' ? 'checked' : ''; ?>>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <h4>Compact View</h4>
-                        <p class="text-muted">Use compact layout for tables and lists (Coming soon)</p>
-                    </div>
-                    <div class="setting-control">
-                        <label class="toggle-switch">
-                            <input type="checkbox" name="compact_view" disabled>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
+                <div class="form-group" style="margin-top: 24px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Appearance
+                    </button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -169,6 +217,15 @@ include 'includes/header.php';
                         echo 'MySQL';
                     }
                     ?>
+                </div>
+            </div>
+
+            <div class="info-row">
+                <div class="info-label">
+                    <i class="fas fa-clock"></i> Last Login
+                </div>
+                <div class="info-value">
+                    <?php echo isset($admin['last_login']) ? date('M d, Y g:i A', strtotime($admin['last_login'])) : 'N/A'; ?>
                 </div>
             </div>
         </div>
@@ -285,6 +342,102 @@ input:disabled + .toggle-slider {
     font-weight: 500;
     color: var(--text-primary);
 }
+
+/* Dark Mode Styles */
+[data-theme="dark"] {
+    --bg-primary: #1e293b;
+    --bg-secondary: #0f172a;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border-color: #334155;
+}
+
+[data-theme="dark"] .admin-header,
+[data-theme="dark"] .admin-sidebar {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .dashboard-card,
+[data-theme="dark"] .data-card,
+[data-theme="dark"] .stat-card {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .setting-item {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .nav-link:hover {
+    background: #1e293b;
+}
+
+[data-theme="dark"] .nav-link.active {
+    background: var(--primary-color);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+    background: #0f172a;
+    border-color: #334155;
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .data-table th {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .data-table tr:hover {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .alert-success {
+    background: #064e3b;
+    color: #d1fae5;
+    border-color: #065f46;
+}
+
+[data-theme="dark"] .alert-error {
+    background: #7f1d1d;
+    color: #fee2e2;
+    border-color: #991b1b;
+}
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Apply saved dark mode on page load
+    const mainContent = document.getElementById('mainContent');
+    if (mainContent && mainContent.dataset.theme === 'dark') {
+        document.body.setAttribute('data-theme', 'dark');
+    }
+
+    // Handle dark mode toggle with live preview
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    if (darkModeToggle) {
+        darkModeToggle.addEventListener('change', function() {
+            if (this.checked) {
+                document.body.setAttribute('data-theme', 'dark');
+            } else {
+                document.body.removeAttribute('data-theme');
+            }
+        });
+    }
+
+    // Show success notification after form submission
+    const successAlert = document.querySelector('.alert-success');
+    if (successAlert) {
+        setTimeout(() => {
+            successAlert.style.opacity = '0';
+            setTimeout(() => {
+                successAlert.remove();
+            }, 300);
+        }, 3000);
+    }
+});
+</script>
 
 <?php include 'includes/footer.php'; ?>

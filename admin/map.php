@@ -30,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'get_detailed_stats':
                 handleGetDetailedStats();
                 break;
+            case 'export_map_report':
+                handleExportMapReport();
+                break;
             default:
                 adminJsonResponse(['error' => 'Invalid action'], 400);
         }
@@ -223,6 +226,156 @@ function handleGetDetailedStats() {
     }
 }
 
+function handleExportMapReport() {
+    global $pdo;
+    
+    try {
+        requirePermission($pdo, 'reports.export');
+        
+        $filters = $_POST['filters'] ?? [];
+        $stats = $_POST['stats'] ?? [];
+        $visible_location_ids = $_POST['visible_locations'] ?? [];
+        
+        // Build query based on filters
+        $where_clauses = ['1=1'];
+        $params = [];
+        
+        if (!empty($filters['disability_type'])) {
+            $where_clauses[] = 'disability_type = ?';
+            $params[] = $filters['disability_type'];
+        }
+        
+        if (!empty($filters['status'])) {
+            $where_clauses[] = 'status = ?';
+            $params[] = $filters['status'];
+        }
+        
+        if (!empty($visible_location_ids)) {
+            $placeholders = str_repeat('?,', count($visible_location_ids) - 1) . '?';
+            $where_clauses[] = "id IN ($placeholders)";
+            $params = array_merge($params, $visible_location_ids);
+        }
+        
+        $where_sql = implode(' AND ', $where_clauses);
+        
+        // Get detailed data
+        $stmt = $pdo->prepare("
+            SELECT 
+                pwd_id_number, first_name, last_name, disability_type,
+                address_line1, barangay, city_municipality, province,
+                status, created_at
+            FROM pwd_records 
+            WHERE $where_sql
+            ORDER BY barangay, last_name, first_name
+        ");
+        $stmt->execute($params);
+        $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Get barangay summary
+        $stmt = $pdo->prepare("
+            SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
+            FROM barangay_boundaries b
+            LEFT JOIN pwd_records p ON b.id = p.barangay_id
+            WHERE p.id IN (" . ($visible_location_ids ? str_repeat('?,', count($visible_location_ids) - 1) . '?' : 'SELECT id FROM pwd_records WHERE 0') . ")
+            GROUP BY b.id, b.barangay_name, b.city_municipality
+            HAVING count > 0
+            ORDER BY count DESC
+        ");
+        $stmt->execute($visible_location_ids);
+        $barangay_summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Generate PDF using TCPDF or FPDF
+        require_once 'vendor/autoload.php'; // Assuming you have TCPDF installed via composer
+        
+        $pdf = new \TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+        
+        // Set document information
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($_SESSION['admin_username']);
+        $pdf->SetTitle('PWD Map Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('Community Presence Report');
+        
+        // Remove default header/footer
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        // Set margins
+        $pdf->SetMargins(15, 15, 15);
+        $pdf->SetAutoPageBreak(TRUE, 15);
+        
+        // Add a page
+        $pdf->AddPage();
+        
+        // Title
+        $pdf->SetFont('helvetica', 'B', 20);
+        $pdf->Cell(0, 10, 'PWD Community Presence Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Santo Tomas, Batangas', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+        
+        // Summary section
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 8, 'Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 10);
+        
+        $pdf->Cell(90, 6, 'Total Community Members:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($records), 0, 1, 'L');
+        
+        $pdf->Cell(90, 6, 'Barangays Covered:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($barangay_summary), 0, 1, 'L');
+        
+        if (!empty($filters['disability_type'])) {
+            $pdf->Cell(90, 6, 'Disability Type Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, $filters['disability_type'], 0, 1, 'L');
+        }
+        
+        if (!empty($filters['status'])) {
+            $pdf->Cell(90, 6, 'Status Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, ucfirst($filters['status']), 0, 1, 'L');
+        }
+        
+        $pdf->Ln(5);
+        
+        // Barangay summary
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 8, 'Community Presence by Barangay', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        
+        // Table header
+        $pdf->SetFillColor(44, 90, 160);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(120, 7, 'Barangay', 1, 0, 'L', true);
+        $pdf->Cell(60, 7, 'Registered Members', 1, 1, 'C', true);
+        
+        // Table rows
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+        
+        foreach ($barangay_summary as $row) {
+            $pdf->Cell(120, 6, $row['barangay_name'] . ', ' . $row['city_municipality'], 1, 0, 'L', $fill);
+            $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
+            $fill = !$fill;
+        }
+        
+        // Log the export
+        logAdminActivity($pdo, 'export', 'gis', 'map_report', null, [
+            'record_count' => count($records),
+            'barangay_count' => count($barangay_summary),
+            'filters' => $filters
+        ]);
+        
+        // Output PDF
+        $pdf->Output('pwd_map_report_' . date('Y-m-d') . '.pdf', 'D');
+        exit();
+        
+    } catch (Exception $e) {
+        error_log("Map report export error: " . $e->getMessage());
+        adminJsonResponse(['error' => 'Export failed: ' . $e->getMessage()], 500);
+    }
+}
+
 function handleGetBarangayRecords() {
     global $pdo;
     requirePermission($pdo, 'records.view');
@@ -409,7 +562,7 @@ function getBarangayBoundaries() {
     
     try {
         $stmt = $pdo->prepare("
-            SELECT id, barangay_code, barangay_name, 
+            SELECT id, barangay_code, barangay_name, city_municipality, province, 
                    area_sqkm, population, pwd_count, geojson_data
             FROM barangay_boundaries
             ORDER BY barangay_name ASC
@@ -1156,8 +1309,11 @@ $last_import = $pdo->query("
                     <a href="gis_diagnostic.php" class="btn btn-success btn-sm" data-tooltip="Import GeoJSON, refresh data, and manage map">
                         <i class="fas fa-cogs"></i> Manage Map Data
                     </a>
-                    <button class="btn btn-outline btn-sm" onclick="quickRefresh()" data-tooltip="Quickly refresh PWD counts and assignments">
+                    <button class="btn btn-outline btn-sm" onclick="quickRefresh()" data-tooltip="Quickly refresh counts and assignments">
                         <i class="fas fa-sync-alt"></i> Quick Refresh
+                    </button>
+                    <button class="btn btn-outline btn-sm" onclick="exportMapReport()" data-tooltip="Export map data as PDF report">
+                        <i class="fas fa-file-export"></i> Export Report
                     </button>
                     <button class="btn btn-outline btn-sm" onclick="toggleSidebar()" data-tooltip="Show/hide filters and controls">
                         <i class="fas fa-sliders-h"></i> Filters
@@ -1236,11 +1392,11 @@ $last_import = $pdo->query("
                             </label>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="showBoundaries" checked onchange="toggleBoundaries()">
-                                Barangay Boundaries
+                                Barangay Areas
                             </label>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="choroplethMode" onchange="toggleChoropleth()">
-                                Density Colors
+                                Community Highlights
                             </label>
                         </div>
                     </div>
@@ -1264,39 +1420,40 @@ $last_import = $pdo->query("
             
             <!-- Map Legend -->
             <div class="map-legend">
-                <div class="legend-title">Legend</div>
+                <div class="legend-title">Map Legend</div>
                 <div class="legend-items">
                     <div class="legend-item">
                         <div class="legend-marker boundary"></div>
-                        <span>Boundaries</span>
+                        <span>Barangay Areas</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker draft"></div>
-                        <span>Draft</span>
+                        <span>Pending Review</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker validated"></div>
-                        <span>Validated</span>
+                        <span>Verified</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker issued"></div>
-                        <span>Issued</span>
+                        <span>ID Issued</span>
                     </div>
                 </div>
             </div>
             
             <!-- Choropleth Legend -->
             <div id="choroplethLegend" class="choropleth-legend">
-                <div class="legend-title">PWD Density</div>
+                <div class="legend-title">Community Presence</div>
                 <div class="legend-scale">
-                    <span>Low</span>
-                    <div class="legend-color" style="background: #f0f9ff;"></div>
-                    <div class="legend-color" style="background: #bae6fd;"></div>
-                    <div class="legend-color" style="background: #38bdf8;"></div>
-                    <div class="legend-color" style="background: #0284c7;"></div>
-                    <div class="legend-color" style="background: #1e40af;"></div>
-                    <span>High</span>
+                    <span style="font-size: 0.75rem;">Fewer</span>
+                    <div class="legend-color" style="background: #d1fae5;"></div>
+                    <div class="legend-color" style="background: #a7f3d0;"></div>
+                    <div class="legend-color" style="background: #6ee7b7;"></div>
+                    <div class="legend-color" style="background: #34d399;"></div>
+                    <div class="legend-color" style="background: #10b981;"></div>
+                    <span style="font-size: 0.75rem;">More</span>
                 </div>
+                <p style="font-size: 0.7rem; color: #64748b; margin: 6px 0 0 0; text-align: center;">Registered Community Members</p>
             </div>
             
             <!-- Loading Overlay -->
@@ -1378,7 +1535,7 @@ $last_import = $pdo->query("
                 <!-- Location Tab -->
                 <div id="locationTab" class="tab-content" style="display: none;">
                     <div class="chart-card">
-                        <h4><i class="fas fa-map"></i> Top 10 Barangays by PWD Count</h4>
+                        <h4><i class="fas fa-map"></i> Community Presence by Barangay</h4>
                         <div class="chart-canvas large">
                             <canvas id="barangayChart"></canvas>
                         </div>
@@ -1636,8 +1793,8 @@ $last_import = $pdo->query("
 
         function getColorForIntensity(intensity) {
             const colors = [
-                '#f0f9ff', '#e0f2fe', '#bae6fd', '#7dd3fc', 
-                '#38bdf8', '#0ea5e9', '#0284c7', '#0369a1', '#1e40af'
+                '#f0fdf4', '#dcfce7', '#bbf7d0', '#86efac', 
+                '#4ade80', '#22c55e', '#16a34a', '#15803d', '#14532d'
             ];
             const index = Math.floor(intensity * (colors.length - 1));
             return colors[index] || colors[0];
@@ -1660,9 +1817,6 @@ $last_import = $pdo->query("
             if (document.getElementById('clusterMarkers').checked) {
                 map.addLayer(markerClusterGroup);
             }
-              {
-                map.addLayer(markerClusterGroup);
-            }
             
             updateVisibleMarkers();
         }
@@ -1674,11 +1828,23 @@ $last_import = $pdo->query("
             const iconColor = getStatusColor(location.status);
             const icon = L.divIcon({
                 className: 'custom-marker',
-                html: `<div class="marker-icon ${location.status}" style="background-color: ${iconColor};">
-                         <i class="fas fa-wheelchair"></i>
-                       </div>`,
-                iconSize: [30, 30],
-                iconAnchor: [15, 15]
+                html: `<div style="
+                    width: 24px; 
+                    height: 24px; 
+                    background-color: ${iconColor}; 
+                    border: 2px solid white; 
+                    border-radius: 50%; 
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    color: white;
+                ">
+                    <i class="fas fa-user" style="font-size: 10px;"></i>
+                </div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
             });
             
             const marker = L.marker([lat, lng], { icon: icon });
@@ -1687,9 +1853,9 @@ $last_import = $pdo->query("
                 <div class="marker-popup">
                     <h4>${location.pwd_id_number}</h4>
                     <p><strong>${location.first_name} ${location.last_name}</strong></p>
-                    <p><i class="fas fa-wheelchair"></i> ${location.disability_type}</p>
+                    <p><i class="fas fa-info-circle"></i> ${location.disability_type}</p>
                     <p><i class="fas fa-map-marker-alt"></i> ${location.city_municipality}, ${location.province}</p>
-                    <p><i class="fas fa-flag"></i> Status: <span class="status-badge status-${location.status}">${location.status}</span></p>
+                    <p><i class="fas fa-flag"></i> Status: <span class="status-badge status-${location.status}">${getStatusLabel(location.status)}</span></p>
                     <div class="popup-actions">
                         <button class="btn btn-sm btn-primary" onclick="viewRecord(${location.id})">
                             <i class="fas fa-eye"></i> View Details
@@ -1711,6 +1877,17 @@ $last_import = $pdo->query("
                 'revoked': '#6b7280'
             };
             return colors[status] || '#6b7280';
+        }
+
+        function getStatusLabel(status) {
+            const labels = {
+                'draft': 'Pending Review',
+                'validated': 'Verified',
+                'issued': 'ID Issued',
+                'expired': 'Renewal Needed',
+                'revoked': 'Inactive'
+            };
+            return labels[status] || status;
         }
         
         function clearMarkers() {
@@ -2122,6 +2299,12 @@ $last_import = $pdo->query("
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
@@ -2130,12 +2313,6 @@ $last_import = $pdo->query("
                                     return `${context.label}: ${context.parsed.y} PWDs`;
                                 }
                             }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { precision: 0 }
                         }
                     }
                 }
@@ -2225,6 +2402,12 @@ $last_import = $pdo->query("
                     responsive: true,
                     maintainAspectRatio: false,
                     indexAxis: 'y',
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
@@ -2233,12 +2416,6 @@ $last_import = $pdo->query("
                                     return `${context.label}: ${context.parsed.x} PWDs`;
                                 }
                             }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            ticks: { precision: 0 }
                         }
                     }
                 }
@@ -2284,6 +2461,12 @@ $last_import = $pdo->query("
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 }
+                        }
+                    },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
@@ -2292,12 +2475,6 @@ $last_import = $pdo->query("
                                     return `${context.label}: ${context.parsed.y} new registrations`;
                                 }
                             }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: { precision: 0 }
                         }
                     }
                 }
@@ -2553,6 +2730,58 @@ $last_import = $pdo->query("
         
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('show');
+        }
+
+        function exportMapReport() {
+            showLoading('Preparing map report for export...');
+            
+            // Collect current map state
+            const reportData = {
+                action: 'export_map_report',
+                filters: {
+                    disability_type: document.getElementById('disabilityFilter').value,
+                    status: document.getElementById('statusFilter').value
+                },
+                stats: {
+                    total_records: filteredLocations.length,
+                    total_barangays: barangayBoundaries.length,
+                    map_center: mapCenter,
+                    map_zoom: map.getZoom()
+                },
+                visible_locations: filteredLocations.map(loc => loc.id)
+            };
+            
+            fetch('map.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams(reportData)
+            })
+            .then(response => {
+                hideLoading();
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pwd_map_report_${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                showToast('Map report exported successfully', 'success');
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Export error:', error);
+                showToast('Export failed: ' + error.message, 'error');
+            });
         }
     </script>
 </body>

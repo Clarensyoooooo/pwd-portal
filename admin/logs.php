@@ -5,6 +5,111 @@ requirePermission($pdo, 'system.logs');
 
 $admin = getCurrentAdmin($pdo);
 
+// Handle export
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    // Get filter parameters
+    $search = $_GET['search'] ?? '';
+    $admin_filter = $_GET['admin_user'] ?? '';
+    $action_filter = $_GET['action'] ?? '';
+    $module_filter = $_GET['module'] ?? '';
+    $date_from = $_GET['date_from'] ?? date('Y-m-d', strtotime('-30 days'));
+    $date_to = $_GET['date_to'] ?? date('Y-m-d');
+
+    // Build query conditions
+    $where_conditions = [];
+    $params = [];
+
+    if ($search) {
+        $where_conditions[] = "(aal.action LIKE ? OR aal.module LIKE ? OR au.full_name LIKE ? OR aal.details LIKE ?)";
+        $search_param = "%{$search}%";
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+    }
+
+    if ($admin_filter) {
+        $where_conditions[] = "aal.admin_user_id = ?";
+        $params[] = $admin_filter;
+    }
+
+    if ($action_filter) {
+        $where_conditions[] = "aal.action = ?";
+        $params[] = $action_filter;
+    }
+
+    if ($module_filter) {
+        $where_conditions[] = "aal.module = ?";
+        $params[] = $module_filter;
+    }
+
+    if ($date_from) {
+        $where_conditions[] = "DATE(aal.created_at) >= ?";
+        $params[] = $date_from;
+    }
+
+    if ($date_to) {
+        $where_conditions[] = "DATE(aal.created_at) <= ?";
+        $params[] = $date_to;
+    }
+
+    $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT aal.*, au.full_name as admin_name, au.username
+            FROM admin_activity_logs aal
+            JOIN admin_users au ON aal.admin_user_id = au.id
+            {$where_clause}
+            ORDER BY aal.created_at DESC
+        ");
+        $stmt->execute($params);
+        $logs = $stmt->fetchAll();
+        
+        // Set headers for CSV download
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="activity_logs_' . date('Y-m-d_H-i-s') . '.csv"');
+        
+        $output = fopen('php://output', 'w');
+        
+        // Write CSV header
+        fputcsv($output, [
+            'Date/Time', 'Admin User', 'Username', 'Action', 'Module', 
+            'Target Type', 'Target ID', 'IP Address', 'User Agent', 'Details'
+        ]);
+        
+        // Write data rows
+        foreach ($logs as $log) {
+            fputcsv($output, [
+                $log['created_at'],
+                $log['admin_name'],
+                $log['username'],
+                $log['action'],
+                $log['module'],
+                $log['target_type'],
+                $log['target_id'],
+                $log['ip_address'],
+                $log['user_agent'],
+                $log['details']
+            ]);
+        }
+        
+        fclose($output);
+        
+        logAdminActivity($pdo, 'export', 'system', 'activity_logs', null, [
+            'log_count' => count($logs),
+            'filters' => compact('search', 'admin_filter', 'action_filter', 'module_filter', 'date_from', 'date_to')
+        ]);
+        
+        exit;
+        
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo 'Export failed: ' . $e->getMessage();
+        exit;
+    }
+}
+
 // Get filter parameters
 $search = $_GET['search'] ?? '';
 $admin_filter = $_GET['admin_user'] ?? '';
@@ -89,17 +194,6 @@ $actions = $actions_stmt->fetchAll();
 $modules_stmt = $pdo->query("SELECT DISTINCT module FROM admin_activity_logs ORDER BY module");
 $modules = $modules_stmt->fetchAll();
 
-// Get ALL logs for export (respecting filters)
-$export_stmt = $pdo->prepare("
-    SELECT aal.*, au.full_name as admin_name, au.username
-    FROM admin_activity_logs aal
-    JOIN admin_users au ON aal.admin_user_id = au.id
-    {$where_clause}
-    ORDER BY aal.created_at DESC
-");
-$export_stmt->execute($params);
-$all_logs = $export_stmt->fetchAll();
-
 function getActionIcon($action) {
     $icons = [
         'login' => 'sign-in-alt',
@@ -158,9 +252,16 @@ function getBrowserName($userAgent) {
         <div class="page-header">
             <h1><i class="fas fa-list-alt"></i> Activity Logs</h1>
             <div class="page-actions">
-                <button onclick="exportLogs()" class="btn btn-primary">
+                <a href="?export=csv&<?php echo http_build_query(array_filter([
+                    'search' => $search,
+                    'admin_user' => $admin_filter,
+                    'action' => $action_filter,
+                    'module' => $module_filter,
+                    'date_from' => $date_from,
+                    'date_to' => $date_to
+                ])); ?>" class="btn btn-primary">
                     <i class="fas fa-download"></i> Export Logs
-                </button>
+                </a>
             </div>
         </div>
         
@@ -168,7 +269,7 @@ function getBrowserName($userAgent) {
         <div class="card mb-4">
             <div class="card-header">
                 <h3><i class="fas fa-filter"></i> Filter Logs</h3>
-                <button onclick="resetFilters()" class="btn btn-sm btn-outline">Reset Filters</button>
+                <a href="logs.php" class="btn btn-sm btn-outline">Reset Filters</a>
             </div>
             <div class="card-content">
                 <form method="GET" class="filter-form">
@@ -289,7 +390,37 @@ function getBrowserName($userAgent) {
                                                 <i class="fas fa-chevron-down"></i> View Details
                                             </button>
                                             <div id="details-<?php echo $log['id']; ?>" class="log-details-content" style="display: none;">
-                                                <pre><?php echo htmlspecialchars(json_encode(json_decode($log['details']), JSON_PRETTY_PRINT)); ?></pre>
+                                                <?php 
+                                                $details = json_decode($log['details'], true);
+                                                if (is_array($details)) {
+                                                    echo '<div class="details-list">';
+                                                    foreach ($details as $key => $value) {
+                                                        $displayKey = ucwords(str_replace('_', ' ', $key));
+                                                        if (is_array($value)) {
+                                                            echo '<div class="detail-item">';
+                                                            echo '<span class="detail-label">' . htmlspecialchars($displayKey) . ':</span>';
+                                                            echo '<div class="detail-value nested">';
+                                                            foreach ($value as $subKey => $subValue) {
+                                                                $subDisplayKey = ucwords(str_replace('_', ' ', $subKey));
+                                                                echo '<div class="detail-subitem">';
+                                                                echo '<span class="detail-label">' . htmlspecialchars($subDisplayKey) . ':</span> ';
+                                                                echo '<span class="detail-value">' . htmlspecialchars(is_bool($subValue) ? ($subValue ? 'Yes' : 'No') : $subValue) . '</span>';
+                                                                echo '</div>';
+                                                            }
+                                                            echo '</div>';
+                                                            echo '</div>';
+                                                        } else {
+                                                            echo '<div class="detail-item">';
+                                                            echo '<span class="detail-label">' . htmlspecialchars($displayKey) . ':</span> ';
+                                                            echo '<span class="detail-value">' . htmlspecialchars(is_bool($value) ? ($value ? 'Yes' : 'No') : $value) . '</span>';
+                                                            echo '</div>';
+                                                        }
+                                                    }
+                                                    echo '</div>';
+                                                } else {
+                                                    echo '<p>' . htmlspecialchars($log['details']) . '</p>';
+                                                }
+                                                ?>
                                             </div>
                                         </div>
                                     <?php endif; ?>
@@ -338,9 +469,6 @@ function getBrowserName($userAgent) {
     
     <script src="assets/admin.js"></script>
     <script>
-        // Store logs data for export
-        const logsData = <?php echo json_encode($all_logs); ?>;
-        
         function toggleDetails(logId) {
             const details = document.getElementById(`details-${logId}`);
             const button = details.previousElementSibling;
@@ -356,268 +484,275 @@ function getBrowserName($userAgent) {
                 button.innerHTML = '<i class="fas fa-chevron-down"></i> View Details';
             }
         }
-        
-        function exportLogs() {
-            if (logsData.length === 0) {
-                showNotification('No logs to export', 'error');
-                return;
-            }
-            
-            // Prepare CSV data
-            const headers = ['Date/Time', 'Admin User', 'Username', 'Action', 'Module', 'Target Type', 'Target ID', 'IP Address', 'User Agent', 'Details'];
-            const rows = logsData.map(log => [
-                log.created_at,
-                log.admin_name,
-                log.username,
-                log.action,
-                log.module,
-                log.target_type || '',
-                log.target_id || '',
-                log.ip_address || '',
-                log.user_agent || '',
-                log.details || ''
-            ]);
-            
-            // Create CSV content
-            let csvContent = '\ufeff'; // UTF-8 BOM
-            csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
-            rows.forEach(row => {
-                csvContent += row.map(cell => {
-                    const cellStr = String(cell || '');
-                    return `"${cellStr.replace(/"/g, '""')}"`;
-                }).join(',') + '\n';
-            });
-            
-            // Create download link
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `activity_logs_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification(`Exported ${logsData.length} log entries`, 'success');
-        }
-        
-        function resetFilters() {
-            window.location.href = 'logs.php';
-        }
     </script>
-    
-    <style>
-        .logs-timeline {
-            position: relative;
-        }
-
-        .log-entry {
-            display: flex;
-            margin-bottom: 1.5rem;
-            position: relative;
-        }
-
-        .log-entry:not(:last-child)::after {
-            content: '';
-            position: absolute;
-            left: 15px;
-            top: 40px;
-            bottom: -24px;
-            width: 2px;
-            background: #e5e7eb;
-        }
-
-        .log-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: #f3f4f6;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 1rem;
-            flex-shrink: 0;
-            position: relative;
-            z-index: 1;
-        }
-
-        .log-content {
-            flex: 1;
-            background: #f9fafb;
-            border-radius: 8px;
-            padding: 1rem;
-            border: 1px solid #e5e7eb;
-        }
-
-        .log-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-
-        .log-user {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .log-username {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .log-time {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .log-action {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .action-badge {
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            text-transform: uppercase;
-        }
-
-        .action-login { background: #dcfce7; color: #166534; }
-        .action-logout { background: #f3f4f6; color: #374151; }
-        .action-create { background: #dbeafe; color: #1e40af; }
-        .action-edit { background: #fef3c7; color: #92400e; }
-        .action-delete { background: #fee2e2; color: #dc2626; }
-        .action-validate { background: #dcfce7; color: #166534; }
-        .action-interview { background: #e0f2fe; color: #0369a1; }
-        .action-export { background: #dbeafe; color: #1e40af; }
-        .action-import { background: #dbeafe; color: #1e40af; }
-        .action-view { background: #f3f4f6; color: #374151; }
-
-        .module-badge {
-            background: #f3f4f6;
-            color: #374151;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-
-        .target-info {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .log-details {
-            margin-top: 0.5rem;
-        }
-
-        .log-details-content {
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 4px;
-            padding: 0.75rem;
-            margin-top: 0.5rem;
-        }
-
-        .log-details-content pre {
-            margin: 0;
-            font-size: 0.75rem;
-            color: #374151;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .log-meta {
-            display: flex;
-            gap: 1rem;
-            margin-top: 0.75rem;
-            padding-top: 0.75rem;
-            border-top: 1px solid #e5e7eb;
-            font-size: 0.75rem;
-            color: #6b7280;
-        }
-
-        .log-ip, .log-agent {
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-        }
-
-        .pagination-wrapper {
-            margin-top: 2rem;
-            padding-top: 1rem;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        .pagination {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .pagination-btn {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            color: #374151;
-            text-decoration: none;
-            transition: all 0.2s;
-        }
-
-        .pagination-btn:hover {
-            background: #f9fafb;
-            border-color: #9ca3af;
-        }
-
-        .pagination-info {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .filter-form .form-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            align-items: end;
-        }
-
-        @media (max-width: 768px) {
-            .log-entry {
-                flex-direction: column;
-            }
-            
-            .log-icon {
-                align-self: flex-start;
-                margin-bottom: 0.5rem;
-                margin-right: 0;
-            }
-            
-            .log-entry:not(:last-child)::after {
-                display: none;
-            }
-            
-            .log-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 0.25rem;
-            }
-            
-            .log-meta {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-        }
-    </style>
 </body>
 </html>
+
+<style>
+.logs-timeline {
+    position: relative;
+}
+
+.log-entry {
+    display: flex;
+    margin-bottom: 1.5rem;
+    position: relative;
+}
+
+.log-entry:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 40px;
+    bottom: -24px;
+    width: 2px;
+    background: #e5e7eb;
+}
+
+.log-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 1rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.log-content {
+    flex: 1;
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.log-user {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.log-username {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.log-time {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.log-action {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.action-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.action-login { background: #dcfce7; color: #166534; }
+.action-logout { background: #f3f4f6; color: #374151; }
+.action-create { background: #dbeafe; color: #1e40af; }
+.action-edit { background: #fef3c7; color: #92400e; }
+.action-delete { background: #fee2e2; color: #dc2626; }
+.action-validate { background: #dcfce7; color: #166534; }
+.action-interview { background: #e0f2fe; color: #0369a1; }
+.action-export { background: #dbeafe; color: #1e40af; }
+.action-import { background: #dbeafe; color: #1e40af; }
+.action-view { background: #f3f4f6; color: #374151; }
+
+.module-badge {
+    background: #f3f4f6;
+    color: #374151;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.target-info {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.log-details {
+    margin-top: 0.5rem;
+}
+
+.log-details-content {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.details-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.detail-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 0.375rem 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.detail-item:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    font-weight: 600;
+    color: #374151;
+    min-width: 120px;
+    margin-right: 0.75rem;
+}
+
+.detail-value {
+    color: #6b7280;
+    flex: 1;
+}
+
+.detail-value.nested {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.detail-subitem {
+    display: flex;
+    padding-left: 1rem;
+    font-size: 0.875rem;
+}
+
+.detail-subitem .detail-label {
+    min-width: 100px;
+    font-weight: 500;
+}
+
+.log-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e5e7eb;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.log-ip, .log-agent {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.pagination-wrapper {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+}
+
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    color: #374151;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+.pagination-info {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.filter-form .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    align-items: end;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #6b7280;
+}
+
+.empty-state i {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    color: #d1d5db;
+}
+
+.empty-state h3 {
+    margin-bottom: 0.5rem;
+    color: #374151;
+}
+
+@media (max-width: 768px) {
+    .log-entry {
+        flex-direction: column;
+    }
+    
+    .log-icon {
+        align-self: flex-start;
+        margin-bottom: 0.5rem;
+        margin-right: 0;
+    }
+    
+    .log-entry:not(:last-child)::after {
+        display: none;
+    }
+    
+    .log-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .log-meta {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+</style>

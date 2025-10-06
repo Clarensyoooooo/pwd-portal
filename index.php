@@ -37,7 +37,7 @@ $current_user = getCurrentUser($pdo);
             <div class="container">
                 <div class="nav-brand">
                     <img src="assets/logo.png" alt="PWD Logo" class="logo">
-                    <span class="brand-text">PWD Portal</span>
+                    <span class="brand-text">PDAOHelps</span>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#home">Home</a></li>
@@ -160,8 +160,8 @@ $current_user = getCurrentUser($pdo);
 
                         <!-- SMS Verification Section -->
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
-                            <h4>SMS Verification Required</h4>
-                            <p>Please enter the 6-digit code sent to your phone:</p>
+                            <h4>Email Verification Required</h4>
+                            <p>Please enter the 6-digit code sent to your email:</p>
                             <div class="sms-verification-form">
                                 <input type="text" id="smsVerificationCode" placeholder="Enter 6-digit code" maxlength="6">
                                 <button class="btn-verify" onclick="verifySMS()">Verify</button>
@@ -371,11 +371,11 @@ $current_user = getCurrentUser($pdo);
                 </div>
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>What is the SMS verification process?</span>
+                        <span>What is the Email verification process?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>After booking your appointment, you'll receive a 6-digit verification code via SMS. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
+                        <p>After booking your appointment, you'll receive a 6-digit verification code via email. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -460,27 +460,7 @@ $current_user = getCurrentUser($pdo);
                         </div>
                     </div>
                     
-                    <div class="feedback-stats">
-                        <h3><i class="fas fa-chart-bar"></i> Service Statistics</h3>
-                        <div class="stats-grid">
-                            <div class="stat-item">
-                                <span class="stat-number">15,000+</span>
-                                <span class="stat-label">PWD IDs Issued</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">98%</span>
-                                <span class="stat-label">Customer Satisfaction</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">24/7</span>
-                                <span class="stat-label">Online Support</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">50+</span>
-                                <span class="stat-label">Partner Organizations</span>
-                            </div>
-                        </div>
-                    </div>
+                  
                 </div>
             </div>
         </div>
@@ -615,14 +595,12 @@ $current_user = getCurrentUser($pdo);
                 <div class="form-group">
                     <label for="disabilityType">Type of Disability</label>
                     <select id="disabilityType" name="disability_type">
-                        <option value="">Select disability type</option>
                         <option value="Physical Disability">Physical Disability</option>
                         <option value="Visual Impairment">Visual Impairment</option>
                         <option value="Hearing Impairment">Hearing Impairment</option>
                         <option value="Intellectual Disability">Intellectual Disability</option>
                         <option value="Psychosocial Disability">Psychosocial Disability</option>
                         <option value="Multiple Disabilities">Multiple Disabilities</option>
-                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="form-row">
@@ -654,7 +632,6 @@ $current_user = getCurrentUser($pdo);
                 <div class="form-group">
                     <label for="appointmentType">Appointment Type</label>
                     <select id="appointmentType" name="appointment_type" required>
-                        <option value="">Select appointment type</option>
                         <option value="new_application">New PWD ID Application</option>
                         <option value="renewal">PWD ID Renewal</option>
                         <option value="replacement">PWD ID Replacement</option>
