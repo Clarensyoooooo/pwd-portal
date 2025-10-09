@@ -19,27 +19,6 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 // Helper functions
-function isLoggedIn() {
-    return isset($_SESSION['user_id']);
-}
-
-function requireLogin() {
-    if (!isLoggedIn()) {
-        header('Location: login.php');
-        exit();
-    }
-}
-
-function getCurrentUser($pdo) {
-    if (!isLoggedIn()) {
-        return null;
-    }
-    
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
-    return $stmt->fetch();
-}
-
 function generateReferenceNumber() {
     $year = date('Y');
     $month = date('m');
@@ -49,18 +28,17 @@ function generateReferenceNumber() {
 }
 
 function sendSMSVerification($phone, $code) {
+    // For development - use a fixed test code
+    if (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false) {
+        // Development mode - use fixed code for easy testing
+        error_log("SMS Verification Code for {$phone}: {$code} (TEST MODE)");
+        return true;
+    }
+    
     // In a real application, integrate with SMS service like Twilio
     // For now, we'll just log it
     error_log("SMS Verification Code for {$phone}: {$code}");
     return true;
-}
-
-function hashPassword($password) {
-    return password_hash($password, PASSWORD_DEFAULT);
-}
-
-function verifyPassword($password, $hash) {
-    return password_verify($password, $hash);
 }
 
 // Response helper

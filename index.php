@@ -1,6 +1,5 @@
 <?php
 require_once 'config.php';
-$current_user = getCurrentUser($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -20,24 +19,13 @@ $current_user = getCurrentUser($pdo);
                     <span><i class="fas fa-phone"></i> Hotline: 8888-1000</span>
                     <span><i class="fas fa-envelope"></i> info@pwd.gov.ph</span>
                 </div>
-                <div class="header-actions">
-                    <?php if ($current_user): ?>
-                        <div class="user-menu">
-                            <span class="user-greeting">Hello, <?php echo htmlspecialchars($current_user['first_name']); ?>!</span>
-                            <button class="btn-logout" onclick="logout()">Logout</button>
-                        </div>
-                    <?php else: ?>
-                        <button class="btn-login" onclick="showLoginModal()">Login</button>
-                        <button class="btn-register" onclick="showRegisterModal()">Register</button>
-                    <?php endif; ?>
-                </div>
             </div>
         </div>
         <nav class="navbar">
             <div class="container">
                 <div class="nav-brand">
                     <img src="assets/logo.png" alt="PWD Logo" class="logo">
-                    <span class="brand-text">PDAOHelps</span>
+                    <span class="brand-text">PWD Portal</span>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#home">Home</a></li>
@@ -160,8 +148,8 @@ $current_user = getCurrentUser($pdo);
 
                         <!-- SMS Verification Section -->
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
-                            <h4>Email Verification Required</h4>
-                            <p>Please enter the 6-digit code sent to your email:</p>
+                            <h4>SMS Verification Required</h4>
+                            <p>Please enter the 6-digit code sent to your phone:</p>
                             <div class="sms-verification-form">
                                 <input type="text" id="smsVerificationCode" placeholder="Enter 6-digit code" maxlength="6">
                                 <button class="btn-verify" onclick="verifySMS()">Verify</button>
@@ -348,7 +336,7 @@ $current_user = getCurrentUser($pdo);
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>You can book an appointment by registering or logging into your account, then clicking "Start Application" and following the 3-step process: Fill up the form, set your preferred appointment date and time, then visit our office with all required documents.</p>
+                        <p>Click "Start Application" and follow the 3-step process: Fill up the form with your information, set your preferred appointment date and time, then visit our office with all required documents.</p>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -371,11 +359,11 @@ $current_user = getCurrentUser($pdo);
                 </div>
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>What is the Email verification process?</span>
+                        <span>What is the SMS verification process?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>After booking your appointment, you'll receive a 6-digit verification code via email. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
+                        <p>After booking your appointment, you'll receive a 6-digit verification code via SMS. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -460,7 +448,27 @@ $current_user = getCurrentUser($pdo);
                         </div>
                     </div>
                     
-                  
+                    <div class="feedback-stats">
+                        <h3><i class="fas fa-chart-bar"></i> Service Statistics</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-number">15,000+</span>
+                                <span class="stat-label">PWD IDs Issued</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number">98%</span>
+                                <span class="stat-label">Customer Satisfaction</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number">24/7</span>
+                                <span class="stat-label">Online Support</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number">50+</span>
+                                <span class="stat-label">Partner Organizations</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -519,148 +527,437 @@ $current_user = getCurrentUser($pdo);
                 </div>
             </div>
             <div class="copyright">
-                <p>&copy; 2024 PWD Portal. All rights reserved. | Developed with ❤️ for the PWD Community</p>
+                <p>&copy; 2025 PWD Portal. All rights reserved. | Developed with ❤️ for the PWD Community</p>
             </div>
         </div>
     </footer>
 
-    <!-- Login Modal -->
-    <div id="loginModal" class="modal">
-        <div class="modal-content">
+    <!-- Terms and Conditions Modal -->
+    <div id="termsModal" class="modal">
+        <div class="modal-content modal-large">
             <div class="modal-header">
-                <h2>Login to Your Account</h2>
-                <span class="close" onclick="closeModal('loginModal')">&times;</span>
+                <h2>Terms and Conditions & Privacy Policy</h2>
+                <span class="close" onclick="closeModal('termsModal')">&times;</span>
             </div>
-            <form id="loginForm" onsubmit="handleLogin(event)">
-                <div class="form-group">
-                    <label for="loginEmail">Email</label>
-                    <input type="email" id="loginEmail" name="email" required>
+            <div class="terms-content">
+                <div class="terms-section">
+                    <h3><i class="fas fa-file-contract"></i> Terms and Conditions</h3>
+                    <div class="terms-scroll">
+                        <h4>1. Acceptance of Terms</h4>
+                        <p>By using the PWD Portal and booking an appointment, you agree to comply with and be bound by these Terms and Conditions. If you do not agree with any part of these terms, please do not use our services.</p>
+                        
+                        <h4>2. Appointment Booking</h4>
+                        <p>- You must provide accurate and complete information when booking an appointment.</p>
+                        <p>- Each email address can only have one active (pending or confirmed) appointment at a time.</p>
+                        <p>- You will receive an SMS verification code to confirm your appointment.</p>
+                        <p>- Appointments are subject to availability and confirmation.</p>
+                        
+                        <h4>3. Required Documents</h4>
+                        <p>You must bring all required documents to your scheduled appointment, including:</p>
+                        <p>- Medical certificate from a licensed physician</p>
+                        <p>- Barangay certificate of residency</p>
+                        <p>- 2 recent 1x1 ID pictures</p>
+                        <p>- Valid government-issued ID</p>
+                        <p>- Birth certificate</p>
+                        
+                        <h4>4. Cancellation and Rescheduling</h4>
+                        <p>- You may cancel or reschedule your appointment by contacting our hotline at 8888-1000.</p>
+                        <p>- We reserve the right to cancel appointments if required documents are not presented.</p>
+                        <p>- Failure to attend your scheduled appointment may result in restrictions on future bookings.</p>
+                        
+                        <h4>5. Service Limitations</h4>
+                        <p>- The PWD Portal is intended for legitimate PWD ID applications only.</p>
+                        <p>- We reserve the right to verify the authenticity of all submitted information.</p>
+                        <p>- Processing time may vary depending on the completeness of documents and verification requirements.</p>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="loginPassword">Password</label>
-                    <input type="password" id="loginPassword" name="password" required>
+                
+                <div class="terms-section">
+                    <h3><i class="fas fa-user-shield"></i> Privacy Policy</h3>
+                    <div class="terms-scroll">
+                        <h4>1. Information We Collect</h4>
+                        <p>We collect the following personal information:</p>
+                        <p>- Full name, date of birth, and contact information (email, phone)</p>
+                        <p>- Address and emergency contact details</p>
+                        <p>- Disability type and medical information</p>
+                        <p>- Appointment preferences and notes</p>
+                        
+                        <h4>2. How We Use Your Information</h4>
+                        <p>Your information is used to:</p>
+                        <p>- Process your PWD ID application</p>
+                        <p>- Schedule and manage appointments</p>
+                        <p>- Send appointment reminders and updates via SMS</p>
+                        <p>- Maintain records as required by law (RA 7277, RA 9442, RA 10070)</p>
+                        <p>- Improve our services and user experience</p>
+                        
+                        <h4>3. Data Protection</h4>
+                        <p>- We implement appropriate security measures to protect your personal information.</p>
+                        <p>- Your data is stored securely and accessed only by authorized personnel.</p>
+                        <p>- We comply with the Data Privacy Act of 2012 (RA 10173).</p>
+                        <p>- Your medical and disability information is treated with strict confidentiality.</p>
+                        
+                        <h4>4. Data Sharing</h4>
+                        <p>We may share your information with:</p>
+                        <p>- Government agencies as required by law for PWD ID processing</p>
+                        <p>- Healthcare providers for verification purposes</p>
+                        <p>- Partner organizations involved in PWD programs and services</p>
+                        <p>- We will never sell your personal information to third parties.</p>
+                        
+                        <h4>5. Your Rights</h4>
+                        <p>You have the right to:</p>
+                        <p>- Access and review your personal information</p>
+                        <p>- Request corrections to inaccurate information</p>
+                        <p>- Object to the processing of your data</p>
+                        <p>- Request deletion of your data (subject to legal requirements)</p>
+                        <p>- File a complaint with the National Privacy Commission</p>
+                        
+                        <h4>6. Contact for Privacy Concerns</h4>
+                        <p>For privacy-related questions or concerns, contact us at:</p>
+                        <p>Email: privacy@pwd.gov.ph</p>
+                        <p>Hotline: 8888-1000</p>
+                        <p>Data Protection Officer: dpo@pwd.gov.ph</p>
+                    </div>
                 </div>
-                <button type="submit" class="btn-primary">Login</button>
-                <p class="modal-footer-text">
-                    Don't have an account? <a href="#" onclick="switchToRegister()">Register here</a>
-                </p>
-            </form>
+                
+                <div class="terms-acceptance">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="termsCheckbox">
+                        <span class="checkmark"></span>
+                        <span class="checkbox-label">I have read and agree to the Terms and Conditions and Privacy Policy</span>
+                    </label>
+                    <button class="btn-primary btn-block" onclick="acceptTerms()">Accept and Continue</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Register Modal -->
-    <div id="registerModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Create Your Account</h2>
-                <span class="close" onclick="closeModal('registerModal')">&times;</span>
-            </div>
-            <form id="registerForm" onsubmit="handleRegister(event)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="firstName">First Name</label>
-                        <input type="text" id="firstName" name="first_name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="lastName">Last Name</label>
-                        <input type="text" id="lastName" name="last_name" required>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="registerEmail">Email</label>
-                    <input type="email" id="registerEmail" name="email" required>
-                </div>
-                <div class="form-group">
-                    <label for="phone">Phone Number</label>
-                    <input type="tel" id="phone" name="phone" required placeholder="+63 912 345 6789">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="registerPassword">Password</label>
-                        <input type="password" id="registerPassword" name="password" required minlength="6">
-                    </div>
-                    <div class="form-group">
-                        <label for="confirmPassword">Confirm Password</label>
-                        <input type="password" id="confirmPassword" name="confirm_password" required>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="dateOfBirth">Date of Birth</label>
-                    <input type="date" id="dateOfBirth" name="date_of_birth">
-                </div>
-                <div class="form-group">
-                    <label for="address">Address</label>
-                    <textarea id="address" name="address" rows="3" placeholder="Complete address..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="disabilityType">Type of Disability</label>
-                    <select id="disabilityType" name="disability_type">
-                        <option value="Physical Disability">Physical Disability</option>
-                        <option value="Visual Impairment">Visual Impairment</option>
-                        <option value="Hearing Impairment">Hearing Impairment</option>
-                        <option value="Intellectual Disability">Intellectual Disability</option>
-                        <option value="Psychosocial Disability">Psychosocial Disability</option>
-                        <option value="Multiple Disabilities">Multiple Disabilities</option>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="emergencyContactName">Emergency Contact Name</label>
-                        <input type="text" id="emergencyContactName" name="emergency_contact_name" placeholder="Full name">
-                    </div>
-                    <div class="form-group">
-                        <label for="emergencyContactPhone">Emergency Contact Phone</label>
-                        <input type="tel" id="emergencyContactPhone" name="emergency_contact_phone" placeholder="+63 912 345 6789">
-                    </div>
-                </div>
-                <button type="submit" class="btn-primary">Register</button>
-                <p class="modal-footer-text">
-                    Already have an account? <a href="#" onclick="switchToLogin()">Login here</a>
-                </p>
-            </form>
-        </div>
-    </div>
-
-    <!-- Appointment Booking Modal -->
+    <!-- Multi-Step Appointment Modal -->
     <div id="appointmentModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content modal-large">
             <div class="modal-header">
                 <h2>Book Your Appointment</h2>
                 <span class="close" onclick="closeModal('appointmentModal')">&times;</span>
             </div>
+            
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-steps">
+                    <div class="progress-step active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-label">PWD Status</div>
+                    </div>
+                    <div class="progress-step" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-label">Verification</div>
+                    </div>
+                    <div class="progress-step" data-step="3">
+                        <div class="step-number">3</div>
+                        <div class="step-label">Details</div>
+                    </div>
+                    <div class="progress-step" data-step="4">
+                        <div class="step-number">4</div>
+                        <div class="step-label">Schedule</div>
+                    </div>
+                </div>
+            </div>
+
             <form id="appointmentForm" onsubmit="handleAppointmentBooking(event)">
-                <div class="form-group">
-                    <label for="appointmentType">Appointment Type</label>
-                    <select id="appointmentType" name="appointment_type" required>
-                        <option value="new_application">New PWD ID Application</option>
-                        <option value="renewal">PWD ID Renewal</option>
-                        <option value="replacement">PWD ID Replacement</option>
-                        <option value="update">Update Information</option>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="preferredDate">Preferred Date</label>
-                        <input type="date" id="preferredDate" name="preferred_date" required>
+                <!-- Step 1: PWD Status Check -->
+                <div class="form-step active" data-step="1">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-id-card"></i>
+                            <h3>Do you already have a PWD ID?</h3>
+                            <p>This helps us determine the type of service you need</p>
+                        </div>
+                        
+                        <div class="pwd-status-options">
+                            <label class="status-option">
+                                <input type="radio" name="pwd_status" value="existing" onclick="handlePWDStatus('existing')">
+                                <div class="option-card">
+                                    <i class="fas fa-check-circle"></i>
+                                    <h4>Yes, I have a PWD ID</h4>
+                                    <p>I need to renew or update my information</p>
+                                </div>
+                            </label>
+                            
+                            <label class="status-option">
+                                <input type="radio" name="pwd_status" value="new" onclick="handlePWDStatus('new')">
+                                <div class="option-card">
+                                    <i class="fas fa-user-plus"></i>
+                                    <h4>No, I'm a new applicant</h4>
+                                    <p>I need to apply for a new PWD ID</p>
+                                </div>
+                            </label>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="preferredTime">Preferred Time</label>
-                        <select id="preferredTime" name="preferred_time" required>
-                            <option value="">Select time</option>
-                            <option value="09:00:00">9:00 AM</option>
-                            <option value="10:00:00">10:00 AM</option>
-                            <option value="11:00:00">11:00 AM</option>
-                            <option value="14:00:00">2:00 PM</option>
-                            <option value="15:00:00">3:00 PM</option>
-                            <option value="16:00:00">4:00 PM</option>
-                        </select>
+                </div>
+
+                <!-- Step 2A: Existing PWD Verification -->
+                <div class="form-step" data-step="2a">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-shield-alt"></i>
+                            <h3>Verify Your PWD Identity</h3>
+                            <p>Enter your information to verify your existing PWD ID</p>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="form-group">
+                                <label for="pwdIdNumber">PWD ID Number</label>
+                                <input type="text" id="pwdIdNumber" name="pwd_id_number" placeholder="e.g., PWD-2024-01-01-1234">
+                                <small>Enter your PWD ID number if you remember it</small>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="verifyFirstName">First Name *</label>
+                                    <input type="text" id="verifyFirstName" name="verify_first_name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="verifyLastName">Last Name *</label>
+                                    <input type="text" id="verifyLastName" name="verify_last_name" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="verifyDateOfBirth">Date of Birth *</label>
+                                <input type="date" id="verifyDateOfBirth" name="verify_date_of_birth" required>
+                            </div>
+                            
+                            <button type="button" class="btn-primary btn-block" onclick="verifyExistingPWD()">
+                                <i class="fas fa-search"></i> Verify My Information
+                            </button>
+                        </div>
+                        
+                        <div id="verificationResult" class="verification-result" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="step-navigation">
+                        <button type="button" class="btn-secondary" onclick="previousStep()">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="appointmentNotes">Additional Notes (Optional)</label>
-                    <textarea id="appointmentNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
+
+                <!-- Step 2B: New Applicant Personal Info -->
+                <div class="form-step" data-step="2b">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-user"></i>
+                            <h3>Personal Information</h3>
+                            <p>Please provide your basic information</p>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="firstName">First Name *</label>
+                                    <input type="text" id="firstName" name="first_name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="lastName">Last Name *</label>
+                                    <input type="text" id="lastName" name="last_name" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="email">Email Address *</label>
+                                    <input type="email" id="email" name="email" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="phone">Phone Number *</label>
+                                    <input type="tel" id="phone" name="phone" required placeholder="+63 912 345 6789">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="dateOfBirth">Date of Birth *</label>
+                                <input type="date" id="dateOfBirth" name="date_of_birth" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="address">Complete Address *</label>
+                                <textarea id="address" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step-navigation">
+                        <button type="button" class="btn-secondary" onclick="previousStep()">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="button" class="btn-primary" onclick="nextStep()">
+                            Next <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
                 </div>
-                <button type="submit" class="btn-primary">Book Appointment</button>
+
+                <!-- Step 3A: Existing PWD - Select Service Type -->
+                <div class="form-step" data-step="3a">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-clipboard-list"></i>
+                            <h3>Select Service Type</h3>
+                            <p>Choose what you need help with</p>
+                        </div>
+                        
+                        <div class="service-type-options">
+                            <label class="service-option">
+                                <input type="radio" name="appointment_type" value="renewal" required>
+                                <div class="option-card">
+                                    <i class="fas fa-sync"></i>
+                                    <h4>PWD ID Renewal</h4>
+                                    <p>Renew your existing PWD ID</p>
+                                </div>
+                            </label>
+                            
+                            <label class="service-option">
+                                <input type="radio" name="appointment_type" value="update" required>
+                                <div class="option-card">
+                                    <i class="fas fa-edit"></i>
+                                    <h4>Update Information</h4>
+                                    <p>Update your personal details or address</p>
+                                </div>
+                            </label>
+                            
+                            <label class="service-option">
+                                <input type="radio" name="appointment_type" value="replacement" required>
+                                <div class="option-card">
+                                    <i class="fas fa-id-card"></i>
+                                    <h4>ID Replacement</h4>
+                                    <p>Replace lost or damaged PWD ID</p>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="existingNotes">Additional Notes (Optional)</label>
+                            <textarea id="existingNotes" name="notes" rows="3" placeholder="Any special requirements or information we should know..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="step-navigation">
+                        <button type="button" class="btn-secondary" onclick="previousStep()">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="button" class="btn-primary" onclick="nextStep()">
+                            Next <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3B: New Applicant - Disability Info & Emergency Contact -->
+                <div class="form-step" data-step="3b">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-notes-medical"></i>
+                            <h3>Disability Information & Emergency Contact</h3>
+                            <p>Help us understand your needs better</p>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Disability Information</h4>
+                            <div class="form-group">
+                                <label for="disabilityType">Type of Disability *</label>
+                                <select id="disabilityType" name="disability_type" required>
+                                    <option value="">Select disability type</option>
+                                    <option value="Physical Disability">Physical Disability</option>
+                                    <option value="Visual Impairment">Visual Impairment</option>
+                                    <option value="Hearing Impairment">Hearing Impairment</option>
+                                    <option value="Intellectual Disability">Intellectual Disability</option>
+                                    <option value="Psychosocial Disability">Psychosocial Disability</option>
+                                    <option value="Multiple Disabilities">Multiple Disabilities</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Emergency Contact</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="emergencyContactName">Contact Name</label>
+                                    <input type="text" id="emergencyContactName" name="emergency_contact_name" placeholder="Full name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="emergencyContactPhone">Contact Phone</label>
+                                    <input type="tel" id="emergencyContactPhone" name="emergency_contact_phone" placeholder="+63 912 345 6789">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="newNotes">Additional Notes (Optional)</label>
+                            <textarea id="newNotes" name="notes" rows="3" placeholder="Any special requirements or medical information we should know..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="step-navigation">
+                        <button type="button" class="btn-secondary" onclick="previousStep()">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="button" class="btn-primary" onclick="nextStep()">
+                            Next <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Schedule Appointment (Both paths) -->
+                <div class="form-step" data-step="4">
+                    <div class="step-content">
+                        <div class="step-header">
+                            <i class="fas fa-calendar-alt"></i>
+                            <h3>Schedule Your Appointment</h3>
+                            <p>Select your preferred date and time</p>
+                        </div>
+                        
+                        <div class="appointment-summary" id="appointmentSummary">
+                            <!-- Will be populated by JavaScript -->
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="preferredDate">Preferred Date *</label>
+                                    <input type="date" id="preferredDate" name="preferred_date" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="preferredTime">Preferred Time *</label>
+                                    <select id="preferredTime" name="preferred_time" required>
+                                        <option value="">Select time</option>
+                                        <option value="09:00:00">9:00 AM</option>
+                                        <option value="10:00:00">10:00 AM</option>
+                                        <option value="11:00:00">11:00 AM</option>
+                                        <option value="14:00:00">2:00 PM</option>
+                                        <option value="15:00:00">3:00 PM</option>
+                                        <option value="16:00:00">4:00 PM</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="requirements-reminder">
+                                <h4><i class="fas fa-exclamation-circle"></i> Important Reminders</h4>
+                                <ul id="requirementsList">
+                                    <!-- Will be populated based on appointment type -->
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step-navigation">
+                        <button type="button" class="btn-secondary" onclick="previousStep()">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            <i class="fas fa-check"></i> Confirm Appointment
+                        </button>
+                    </div>
+                </div>
             </form>
         </div>
     </div>
@@ -679,9 +976,5 @@ $current_user = getCurrentUser($pdo);
     </div>
 
     <script src="script.js"></script>
-    <script>
-        // Pass PHP data to JavaScript
-        window.currentUser = <?php echo json_encode($current_user); ?>;
-    </script>
 </body>
 </html>

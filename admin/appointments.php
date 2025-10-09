@@ -942,7 +942,7 @@ function handleGetAppointmentDetails() {
                                             
                                             <!-- Continue Interview - Only if interview exists and record not completed -->
                                             <?php if ($appointment['interview_id'] && $appointment['record_status'] !== 'issued'): ?>
-                                                <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
+                                                <a href="interview.php?id=<?php echo $apt['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
                                                     <i class="fas fa-arrow-right"></i>
                                                 </a>
                                             <?php endif; ?>

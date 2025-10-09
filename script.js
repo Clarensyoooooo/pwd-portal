@@ -1,7 +1,11 @@
-// Enhanced script.js for PWD Portal Appointment System
+// Enhanced script.js for Multi-Step PWD Portal Appointment System
 
 // Global variables
 let currentAppointment = null
+let currentStep = 1
+let maxStep = 1
+let pwdStatus = null // 'existing' or 'new'
+let verifiedPWD = null
 
 // Mobile menu toggle and navigation
 document.addEventListener("DOMContentLoaded", () => {
@@ -68,152 +72,322 @@ document.addEventListener("DOMContentLoaded", () => {
   // Add accessibility features
   addAccessibilityFeatures()
 
-  // Update UI based on login status
-  updateUIForUser()
-
-  // Pre-fill feedback form if user is logged in
-  prefillFeedbackForm()
+  // Initialize email checking for new applicants
+  initializeEmailCheck()
 })
 
-// Authentication Functions
-function showLoginModal() {
-  document.getElementById("loginModal").style.display = "block"
+// Multi-Step Form Functions
+function startApplication() {
+  // Show terms modal first
+  document.getElementById("termsModal").style.display = "block"
 }
 
-function showRegisterModal() {
-  document.getElementById("registerModal").style.display = "block"
-}
+function acceptTerms() {
+  const checkbox = document.getElementById("termsCheckbox")
 
-function closeModal(modalId) {
-  document.getElementById(modalId).style.display = "none"
-}
-
-function switchToRegister() {
-  closeModal("loginModal")
-  showRegisterModal()
-}
-
-function switchToLogin() {
-  closeModal("registerModal")
-  showLoginModal()
-}
-
-async function handleLogin(event) {
-  event.preventDefault()
-
-  const formData = new FormData(event.target)
-  formData.append("action", "login")
-
-  try {
-    const response = await fetch("auth.php", {
-      method: "POST",
-      body: formData,
-    })
-
-    const result = await response.json()
-
-    if (result.success) {
-      showNotification(result.message, "success")
-      closeModal("loginModal")
-
-      // Update global user variable
-      window.currentUser = result.user
-
-      // Update UI
-      updateUIForUser()
-
-      // Reload page to update header
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
-    } else {
-      showNotification(result.error, "error")
-    }
-  } catch (error) {
-    showNotification("Login failed. Please try again.", "error")
-  }
-}
-
-async function handleRegister(event) {
-  event.preventDefault()
-
-  const formData = new FormData(event.target)
-  formData.append("action", "register")
-
-  // Validate password confirmation
-  const password = formData.get("password")
-  const confirmPassword = formData.get("confirm_password")
-
-  if (password !== confirmPassword) {
-    showNotification("Passwords do not match", "error")
+  if (!checkbox.checked) {
+    showNotification("Please read and accept the terms and conditions to continue", "error")
     return
   }
 
-  try {
-    const response = await fetch("auth.php", {
-      method: "POST",
-      body: formData,
-    })
+  closeModal("termsModal")
 
-    const result = await response.json()
+  // Reset form state
+  resetMultiStepForm()
 
-    if (result.success) {
-      showNotification(result.message, "success")
-      closeModal("registerModal")
-
-      // Update global user variable
-      window.currentUser = result.user
-
-      // Update UI
-      updateUIForUser()
-
-      // Reload page to update header
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
-    } else {
-      showNotification(result.error, "error")
-    }
-  } catch (error) {
-    showNotification("Registration failed. Please try again.", "error")
-  }
+  // Show appointment modal at step 1
+  document.getElementById("appointmentModal").style.display = "block"
 }
 
-async function logout() {
+function resetMultiStepForm() {
+  currentStep = 1
+  maxStep = 1
+  pwdStatus = null
+  verifiedPWD = null
+
+  // Reset form
+  document.getElementById("appointmentForm").reset()
+
+  // Hide all steps
+  document.querySelectorAll(".form-step").forEach((step) => {
+    step.classList.remove("active")
+  })
+
+  // Show first step
+  document.querySelector('.form-step[data-step="1"]').classList.add("active")
+
+  // Reset progress
+  updateProgress()
+}
+
+function handlePWDStatus(status) {
+  pwdStatus = status
+
+  // Wait a bit for visual feedback
+  setTimeout(() => {
+    if (status === "existing") {
+      // Go to existing PWD verification
+      goToStep("2a")
+    } else {
+      // Go to new applicant personal info
+      goToStep("2b")
+    }
+  }, 300)
+}
+
+async function verifyExistingPWD() {
+  const pwdId = document.getElementById("pwdIdNumber").value.trim()
+  const firstName = document.getElementById("verifyFirstName").value.trim()
+  const lastName = document.getElementById("verifyLastName").value.trim()
+  const dob = document.getElementById("verifyDateOfBirth").value
+
+  if (!firstName || !lastName || !dob) {
+    showNotification("Please fill in all required fields", "error")
+    return
+  }
+
+  // Show loading
+  const button = event.target
+  const originalText = button.innerHTML
+  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifying...'
+  button.disabled = true
+
   try {
     const formData = new FormData()
-    formData.append("action", "logout")
+    formData.append("action", "verify_pwd")
+    formData.append("pwd_id_number", pwdId)
+    formData.append("first_name", firstName)
+    formData.append("last_name", lastName)
+    formData.append("date_of_birth", dob)
 
-    const response = await fetch("auth.php", {
+    const response = await fetch("appointments.php", {
       method: "POST",
       body: formData,
     })
 
     const result = await response.json()
 
-    if (result.success) {
-      showNotification(result.message, "success")
-      window.currentUser = null
+    const verificationResult = document.getElementById("verificationResult")
 
-      // Reload page
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
+    if (result.success) {
+      verifiedPWD = result.pwd_data
+
+      verificationResult.className = "verification-result success"
+      verificationResult.innerHTML = `
+        <h4><i class="fas fa-check-circle"></i> Verification Successful!</h4>
+        <p>We found your PWD record in our system.</p>
+        <div class="verified-info">
+          <p><strong>Name:</strong> ${verifiedPWD.full_name}</p>
+          <p><strong>PWD ID:</strong> ${verifiedPWD.pwd_id_number || "Not available"}</p>
+          <p><strong>Disability Type:</strong> ${verifiedPWD.disability_type}</p>
+        </div>
+        <button type="button" class="btn-primary btn-block" onclick="proceedAfterVerification()" style="margin-top: 15px;">
+          Continue to Service Selection <i class="fas fa-arrow-right"></i>
+        </button>
+      `
+      verificationResult.style.display = "block"
+    } else {
+      verificationResult.className = "verification-result error"
+      verificationResult.innerHTML = `
+        <h4><i class="fas fa-times-circle"></i> Verification Failed</h4>
+        <p>${result.error}</p>
+        <p>Please check your information and try again, or contact our office at 8888-1000 for assistance.</p>
+      `
+      verificationResult.style.display = "block"
     }
   } catch (error) {
-    showNotification("Logout failed. Please try again.", "error")
+    showNotification("Verification failed. Please try again.", "error")
+  } finally {
+    button.innerHTML = originalText
+    button.disabled = false
   }
 }
 
-// Appointment Functions
-function startApplication() {
-  if (!window.currentUser) {
-    showNotification("Please login or register to book an appointment", "warning")
-    showLoginModal()
+function proceedAfterVerification() {
+  goToStep("3a")
+}
+
+function nextStep() {
+  // Validate current step before proceeding
+  const currentStepEl = document.querySelector(`.form-step[data-step="${currentStep}"]`)
+  const requiredInputs = currentStepEl.querySelectorAll("[required]")
+
+  let isValid = true
+  requiredInputs.forEach((input) => {
+    if (!input.value.trim()) {
+      isValid = false
+      input.style.borderColor = "#ef4444"
+    } else {
+      input.style.borderColor = "#e2e8f0"
+    }
+  })
+
+  if (!isValid) {
+    showNotification("Please fill in all required fields", "error")
     return
   }
 
-  document.getElementById("appointmentModal").style.display = "block"
+  // Determine next step based on current step and path
+  if (currentStep === "2b") {
+    goToStep("3b")
+  } else if (currentStep === "3a" || currentStep === "3b") {
+    // Both paths converge to step 4
+    prepareScheduleStep()
+    goToStep("4")
+  }
+}
+
+function previousStep() {
+  // Determine previous step based on current step and path
+  if (currentStep === "2a" || currentStep === "2b") {
+    goToStep("1")
+  } else if (currentStep === "3a") {
+    goToStep("2a")
+  } else if (currentStep === "3b") {
+    goToStep("2b")
+  } else if (currentStep === "4") {
+    if (pwdStatus === "existing") {
+      goToStep("3a")
+    } else {
+      goToStep("3b")
+    }
+  }
+}
+
+function goToStep(stepId) {
+  // Hide all steps
+  document.querySelectorAll(".form-step").forEach((step) => {
+    step.classList.remove("active")
+  })
+
+  // Show target step
+  const targetStep = document.querySelector(`.form-step[data-step="${stepId}"]`)
+  if (targetStep) {
+    targetStep.classList.add("active")
+    currentStep = stepId
+
+    // Update max step for progress
+    const numericStep = typeof stepId === "string" ? Number.parseInt(stepId.charAt(0)) : stepId
+    if (numericStep > maxStep) {
+      maxStep = numericStep
+    }
+
+    updateProgress()
+
+    // Scroll to top of modal
+    document.querySelector(".modal-content").scrollTop = 0
+  }
+}
+
+function updateProgress() {
+  const numericStep = typeof currentStep === "string" ? Number.parseInt(currentStep.charAt(0)) : currentStep
+  const progressPercent = (numericStep / 4) * 100
+
+  // Update progress bar
+  document.getElementById("progressFill").style.width = `${progressPercent}%`
+
+  // Update progress steps
+  document.querySelectorAll(".progress-step").forEach((step) => {
+    const stepNum = Number.parseInt(step.dataset.step)
+    step.classList.remove("active", "completed")
+
+    if (stepNum < numericStep) {
+      step.classList.add("completed")
+    } else if (stepNum === numericStep) {
+      step.classList.add("active")
+    }
+  })
+}
+
+function prepareScheduleStep() {
+  const summary = document.getElementById("appointmentSummary")
+  const requirementsList = document.getElementById("requirementsList")
+
+  let summaryHTML = '<h4><i class="fas fa-info-circle"></i> Appointment Summary</h4>'
+  let requirementsHTML = ""
+
+  if (pwdStatus === "existing" && verifiedPWD) {
+    const serviceType = document.querySelector('input[name="appointment_type"]:checked')?.value || ""
+
+    summaryHTML += `
+      <div class="summary-item">
+        <span class="summary-label">Applicant Type:</span>
+        <span class="summary-value">Existing PWD</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Name:</span>
+        <span class="summary-value">${verifiedPWD.full_name}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Service Type:</span>
+        <span class="summary-value">${formatServiceType(serviceType)}</span>
+      </div>
+    `
+
+    // Requirements based on service type
+    if (serviceType === "renewal") {
+      requirementsHTML = `
+        <li>Bring your current PWD ID</li>
+        <li>Updated medical certificate (if disability status changed)</li>
+        <li>2 recent 1x1 ID pictures</li>
+        <li>Valid government-issued ID</li>
+      `
+    } else if (serviceType === "update") {
+      requirementsHTML = `
+        <li>Bring your current PWD ID</li>
+        <li>Documents supporting the information update</li>
+        <li>Valid government-issued ID</li>
+      `
+    } else if (serviceType === "replacement") {
+      requirementsHTML = `
+        <li>Affidavit of Loss (if lost)</li>
+        <li>Police report (if applicable)</li>
+        <li>2 recent 1x1 ID pictures</li>
+        <li>Valid government-issued ID</li>
+        <li>Payment for replacement fee</li>
+      `
+    }
+  } else {
+    const firstName = document.getElementById("firstName").value
+    const lastName = document.getElementById("lastName").value
+    const disabilityType = document.getElementById("disabilityType").value
+
+    summaryHTML += `
+      <div class="summary-item">
+        <span class="summary-label">Applicant Type:</span>
+        <span class="summary-value">New Application</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Name:</span>
+        <span class="summary-value">${firstName} ${lastName}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Disability Type:</span>
+        <span class="summary-value">${disabilityType}</span>
+      </div>
+    `
+
+    requirementsHTML = `
+      <li>Medical certificate from licensed physician</li>
+      <li>Barangay certificate of residency</li>
+      <li>2 recent 1x1 ID pictures</li>
+      <li>Valid government-issued ID</li>
+      <li>Birth certificate (original and photocopy)</li>
+    `
+  }
+
+  summary.innerHTML = summaryHTML
+  requirementsList.innerHTML = requirementsHTML
+}
+
+function formatServiceType(type) {
+  const types = {
+    renewal: "PWD ID Renewal",
+    update: "Update Information",
+    replacement: "ID Replacement",
+    new_application: "New PWD ID Application",
+  }
+  return types[type] || type
 }
 
 async function handleAppointmentBooking(event) {
@@ -221,6 +395,29 @@ async function handleAppointmentBooking(event) {
 
   const formData = new FormData(event.target)
   formData.append("action", "book_appointment")
+  formData.append("pwd_status", pwdStatus)
+  formData.append("terms_accepted", "true")
+
+  // If existing PWD, add verified data
+  if (pwdStatus === "existing" && verifiedPWD) {
+    formData.append("user_id", verifiedPWD.id)
+    formData.append("first_name", verifiedPWD.first_name)
+    formData.append("last_name", verifiedPWD.last_name)
+    formData.append("email", verifiedPWD.email)
+    formData.append("phone", verifiedPWD.phone)
+    formData.append("date_of_birth", verifiedPWD.date_of_birth)
+    formData.append("address", verifiedPWD.address)
+    formData.append("disability_type", verifiedPWD.disability_type)
+  } else {
+    // New applicant - set appointment type
+    formData.set("appointment_type", "new_application")
+  }
+
+  // Show loading state
+  const submitBtn = event.target.querySelector('button[type="submit"]')
+  const originalText = submitBtn.innerHTML
+  submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Booking...'
+  submitBtn.disabled = true
 
   try {
     const response = await fetch("appointments.php", {
@@ -244,14 +441,83 @@ async function handleAppointmentBooking(event) {
           behavior: "smooth",
         })
       }, 1000)
+
+      // Reset form
+      resetMultiStepForm()
     } else {
       showNotification(result.error, "error")
     }
   } catch (error) {
     showNotification("Booking failed. Please try again.", "error")
+  } finally {
+    submitBtn.innerHTML = originalText
+    submitBtn.disabled = false
   }
 }
 
+function initializeEmailCheck() {
+  const emailInput = document.getElementById("email")
+  if (emailInput) {
+    let emailCheckTimeout = null
+
+    emailInput.addEventListener("input", function () {
+      clearTimeout(emailCheckTimeout)
+
+      const email = this.value.trim()
+
+      // Clear previous messages
+      const existingMessage = document.querySelector(".email-check-message")
+      if (existingMessage) {
+        existingMessage.remove()
+      }
+
+      if (email && email.includes("@")) {
+        emailCheckTimeout = setTimeout(() => {
+          checkEmailAvailability(email)
+        }, 500)
+      }
+    })
+  }
+}
+
+async function checkEmailAvailability(email) {
+  try {
+    const formData = new FormData()
+    formData.append("action", "check_email")
+    formData.append("email", email)
+
+    const response = await fetch("appointments.php", {
+      method: "POST",
+      body: formData,
+    })
+
+    const result = await response.json()
+
+    const emailInput = document.getElementById("email")
+    const existingMessage = document.querySelector(".email-check-message")
+    if (existingMessage) {
+      existingMessage.remove()
+    }
+
+    if (!result.available) {
+      const message = document.createElement("div")
+      message.className = "email-check-message email-unavailable"
+      message.innerHTML = `
+        <i class="fas fa-exclamation-circle"></i>
+        This email already has a ${result.appointment.status} appointment (Ref: ${result.appointment.reference_number}).
+        Please use a different email or complete your existing appointment first.
+      `
+      emailInput.parentElement.appendChild(message)
+      emailInput.style.borderColor = "#ef4444"
+    } else {
+      emailInput.style.borderColor = "#10b981"
+    }
+  } catch (error) {
+    console.error("Error checking email:", error)
+  }
+}
+
+// Tracking Functions
 async function trackAppointment() {
   const trackingNumber = document.getElementById("trackingNumber").value.trim()
 
@@ -341,8 +607,8 @@ function updateStatusProgress(appointment) {
     },
     {
       id: "step2",
-      title: "Email Verification Sent",
-      description: "A 6-digit confirmation code was sent to your email.",
+      title: "SMS Verification Sent",
+      description: "A 6-digit confirmation code was sent to your number.",
       completed: appointment.sms_verification_sent,
     },
     {
@@ -442,7 +708,7 @@ async function verifySMS() {
       showNotification(result.error, "error")
     }
   } catch (error) {
-    showNotification("Email verification failed. Please try again.", "error")
+    showNotification("SMS verification failed. Please try again.", "error")
   }
 }
 
@@ -488,9 +754,9 @@ function updateAppointmentTimeline(appointment) {
   // Show SMS sent if applicable
   if (appointment.sms_verification_sent) {
     timelineItems.push({
-      title: "Email Verification Sent",
-      date: appointment.created_at, // In real app, track SMS sent time
-      description: "A 6-digit confirmation code was sent to your email.",
+      title: "SMS Verification Sent",
+      date: appointment.created_at,
+      description: "A 6-digit confirmation code was sent to your number.",
       completed: true,
     })
   }
@@ -596,28 +862,11 @@ async function handleFeedback(event) {
       // Reset form
       event.target.reset()
       resetStarRating()
-
-      // Pre-fill user info again if logged in
-      prefillFeedbackForm()
     } else {
       showNotification(result.error, "error")
     }
   } catch (error) {
     showNotification("Failed to submit feedback. Please try again.", "error")
-  }
-}
-
-function prefillFeedbackForm() {
-  if (window.currentUser) {
-    const nameField = document.getElementById("feedbackName")
-    const emailField = document.getElementById("feedbackEmail")
-
-    if (nameField && !nameField.value) {
-      nameField.value = window.currentUser.name || ""
-    }
-    if (emailField && !emailField.value) {
-      emailField.value = window.currentUser.email || ""
-    }
   }
 }
 
@@ -847,19 +1096,15 @@ function toggleFAQ(element) {
 }
 
 // Utility functions
-function updateUIForUser() {
-  // Update any UI elements based on login status
-  if (window.currentUser) {
-    // User is logged in
-    console.log("User logged in:", window.currentUser)
-  } else {
-    // User is not logged in
-    console.log("User not logged in")
-  }
+function closeModal(modalId) {
+  document.getElementById(modalId).style.display = "none"
 }
 
 function initializeDateRestrictions() {
   const dateInput = document.getElementById("preferredDate")
+  const dobInput = document.getElementById("dateOfBirth")
+  const verifyDobInput = document.getElementById("verifyDateOfBirth")
+
   if (dateInput) {
     // Set minimum date to tomorrow
     const tomorrow = new Date()
@@ -870,6 +1115,28 @@ function initializeDateRestrictions() {
     const maxDate = new Date()
     maxDate.setDate(maxDate.getDate() + 30)
     dateInput.max = maxDate.toISOString().split("T")[0]
+  }
+
+  if (dobInput) {
+    // Set maximum date to today for date of birth
+    const today = new Date()
+    dobInput.max = today.toISOString().split("T")[0]
+
+    // Set minimum date to 120 years ago
+    const minDate = new Date()
+    minDate.setFullYear(minDate.getFullYear() - 120)
+    dobInput.min = minDate.toISOString().split("T")[0]
+  }
+
+  if (verifyDobInput) {
+    // Set maximum date to today for date of birth
+    const today = new Date()
+    verifyDobInput.max = today.toISOString().split("T")[0]
+
+    // Set minimum date to 120 years ago
+    const minDate = new Date()
+    minDate.setFullYear(minDate.getFullYear() - 120)
+    verifyDobInput.min = minDate.toISOString().split("T")[0]
   }
 }
 
@@ -1087,22 +1354,12 @@ window.addEventListener("load", () => {
   document.body.classList.add("loaded")
 
   // Initialize any additional features
-  console.log("PWD Portal with Real Database Integration loaded successfully!")
+  console.log("PWD Portal Multi-Step Form loaded successfully!")
 
   // Show welcome message for first-time visitors
   if (!localStorage.getItem("pwd_portal_visited")) {
     setTimeout(() => {
-      if (window.currentUser) {
-        showNotification(
-          `Welcome back, ${window.currentUser.name}! You can now book appointments and track them in real-time.`,
-          "info",
-        )
-      } else {
-        showNotification(
-          "Welcome to PWD Portal! Register or login to book appointments and track them in real-time.",
-          "info",
-        )
-      }
+      showNotification("Welcome to PWD Portal! Book your appointment easily with our new streamlined process.", "info")
       localStorage.setItem("pwd_portal_visited", "true")
     }, 2000)
   }
