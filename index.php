@@ -11,7 +11,7 @@ require_once 'config.php';
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <!-- Header -->
+     Header 
     <header class="header">
         <div class="top-bar">
             <div class="container">
@@ -45,7 +45,7 @@ require_once 'config.php';
         </nav>
     </header>
 
-    <!-- Hero Section -->
+     Hero Section 
     <section class="hero" id="home">
         <div class="container">
             <div class="hero-content">
@@ -66,7 +66,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- PWD ID Application Process -->
+     PWD ID Application Process 
     <section class="application-process" id="services">
         <div class="container">
             <h2>PWD ID Application Process</h2>
@@ -99,7 +99,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Track Appointment -->
+     Track Appointment 
     <section class="track-appointment">
         <div class="container">
             <div class="track-header">
@@ -108,7 +108,7 @@ require_once 'config.php';
             </div>
             
             <div class="tracking-layout">
-                <!-- Left Side - Requirements and Input -->
+                 Left Side - Requirements and Input 
                 <div class="tracking-left">
                     <div class="tracking-input-section">
                         <h3>Appointment Reference Number</h3>
@@ -131,22 +131,22 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                <!-- Right Side - Appointment Status -->
+                 Right Side - Appointment Status 
                 <div class="tracking-right">
                     <div class="appointment-status-section" id="appointmentStatusSection" style="display: none;">
                         <h3>Appointment Status</h3>
                         
-                        <!-- Status Progress -->
+                         Status Progress 
                         <div class="status-progress" id="statusProgress">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- Appointment Details -->
+                         Appointment Details 
                         <div class="appointment-details-card" id="appointmentDetailsCard">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- SMS Verification Section -->
+                         SMS Verification Section 
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
                             <h4>SMS Verification Required</h4>
                             <p>Please enter the 6-digit code sent to your phone:</p>
@@ -156,18 +156,18 @@ require_once 'config.php';
                             </div>
                         </div>
 
-                        <!-- Final Confirmation Box -->
+                         Final Confirmation Box 
                         <div class="final-confirmation" id="finalConfirmation" style="display: none;">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- Appointment Timeline -->
+                         Appointment Timeline 
                         <div class="appointment-timeline" id="appointmentTimeline">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
                     </div>
 
-                    <!-- Default message when no tracking -->
+                     Default message when no tracking 
                     <div class="no-tracking-message" id="noTrackingMessage">
                         <div class="no-tracking-content">
                             <i class="fas fa-search"></i>
@@ -180,7 +180,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Programs and Initiatives -->
+     Programs and Initiatives 
     <section class="programs-section" id="programs">
         <div class="container">
             <h2>Programs and Initiatives</h2>
@@ -267,7 +267,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Partner Organizations -->
+     Partner Organizations 
     <section class="partners-section" id="organizations">
         <div class="container">
             <h2>Partner Organizations</h2>
@@ -325,7 +325,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- FAQ Section -->
+     FAQ Section 
     <section class="faq-section">
         <div class="container">
             <h2>Frequently Asked Questions</h2>
@@ -336,7 +336,7 @@ require_once 'config.php';
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Click "Start Application" and follow the 3-step process: Fill up the form with your information, set your preferred appointment date and time, then visit our office with all required documents.</p>
+                        <p>Click "Start Application" and follow the process: Accept terms, indicate if you already have a PWD ID, then proceed with either renewal/update or new application.</p>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -388,7 +388,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Feedback Section -->
+     Feedback Section 
     <section class="feedback-section" id="contact">
         <div class="container">
             <h2>Share Your Feedback</h2>
@@ -474,7 +474,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Footer -->
+     Footer 
     <footer class="footer" id="about">
         <div class="container">
             <div class="footer-content">
@@ -532,7 +532,7 @@ require_once 'config.php';
         </div>
     </footer>
 
-    <!-- Terms and Conditions Modal -->
+     Terms and Conditions Modal 
     <div id="termsModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -631,338 +631,286 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- Multi-Step Appointment Modal -->
-    <div id="appointmentModal" class="modal">
+     PWD Status Check Modal 
+    <div id="pwdStatusModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Do you already have a PWD ID?</h2>
+                <span class="close" onclick="closeModal('pwdStatusModal')">&times;</span>
+            </div>
+            <div class="pwd-status-content">
+                <p>Please select the option that applies to you:</p>
+                <div class="status-options">
+                    <button class="status-option-btn" onclick="selectPWDStatus(true)">
+                        <i class="fas fa-id-card"></i>
+                        <span>Yes, I have a PWD ID</span>
+                        <small>For renewal or updating information</small>
+                    </button>
+                    <button class="status-option-btn" onclick="selectPWDStatus(false)">
+                        <i class="fas fa-user-plus"></i>
+                        <span>No, I'm a new applicant</span>
+                        <small>For first-time PWD ID application</small>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+     Existing PWD Email Verification Modal 
+    <div id="existingPWDModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Verify Your Email</h2>
+                <span class="close" onclick="closeModal('existingPWDModal')">&times;</span>
+            </div>
+            <form id="existingPWDForm" onsubmit="verifyExistingPWD(event)">
+                <div class="form-group">
+                    <label for="existingEmail">Email Address *</label>
+                    <input type="email" id="existingEmail" name="email" required placeholder="Enter your registered email">
+                    <small>Enter the email address you used when you first registered for your PWD ID</small>
+                </div>
+                <button type="submit" class="btn-primary btn-block">Verify Email</button>
+            </form>
+        </div>
+    </div>
+
+     Renewal/Update Appointment Modal 
+    <div id="renewalUpdateModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Book Renewal/Update Appointment</h2>
+                <span class="close" onclick="closeModal('renewalUpdateModal')">&times;</span>
+            </div>
+            <form id="renewalUpdateForm" onsubmit="handleRenewalUpdate(event)">
+                <div class="form-section">
+                    <h3>Your Information</h3>
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="renewalName" readonly>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="renewalEmail" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Phone</label>
+                            <input type="tel" id="renewalPhone" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Appointment Purpose</h3>
+                    <div class="form-group">
+                        <label for="renewalType">Purpose *</label>
+                        <select id="renewalType" name="appointment_type" required>
+                            <option value="">Select purpose</option>
+                            <option value="renewal">PWD ID Renewal</option>
+                            <option value="update">Update Information</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Schedule</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="renewalDate">Preferred Date *</label>
+                            <input type="date" id="renewalDate" name="preferred_date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="renewalTime">Preferred Time *</label>
+                            <select id="renewalTime" name="preferred_time" required>
+                                <option value="">Select time</option>
+                                <option value="09:00:00">9:00 AM</option>
+                                <option value="10:00:00">10:00 AM</option>
+                                <option value="11:00:00">11:00 AM</option>
+                                <option value="14:00:00">2:00 PM</option>
+                                <option value="15:00:00">3:00 PM</option>
+                                <option value="16:00:00">4:00 PM</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="renewalNotes">Additional Notes (Optional)</label>
+                        <textarea id="renewalNotes" name="notes" rows="3" placeholder="Any special requirements or concerns..."></textarea>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary btn-block">Book Appointment</button>
+            </form>
+        </div>
+    </div>
+
+     New Applicant Progress Form Modal 
+    <div id="newApplicantModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
-                <h2>Book Your Appointment</h2>
-                <span class="close" onclick="closeModal('appointmentModal')">&times;</span>
+                <h2>New PWD ID Application</h2>
+                <span class="close" onclick="closeModal('newApplicantModal')">&times;</span>
             </div>
             
-            <!-- Progress Bar -->
+             Progress Bar 
             <div class="progress-container">
                 <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+                    <div class="progress-fill" id="progressBar"></div>
                 </div>
                 <div class="progress-steps">
-                    <div class="progress-step active" data-step="1">
-                        <div class="step-number">1</div>
-                        <div class="step-label">PWD Status</div>
+                    <div class="step-indicator active" id="stepIndicator1">
+                        <span class="step-number">1</span>
+                        <span class="step-label">Personal Info</span>
                     </div>
-                    <div class="progress-step" data-step="2">
-                        <div class="step-number">2</div>
-                        <div class="step-label">Verification</div>
+                    <div class="step-indicator" id="stepIndicator2">
+                        <span class="step-number">2</span>
+                        <span class="step-label">Disability Info</span>
                     </div>
-                    <div class="progress-step" data-step="3">
-                        <div class="step-number">3</div>
-                        <div class="step-label">Details</div>
+                    <div class="step-indicator" id="stepIndicator3">
+                        <span class="step-number">3</span>
+                        <span class="step-label">Emergency Contact</span>
                     </div>
-                    <div class="progress-step" data-step="4">
-                        <div class="step-number">4</div>
-                        <div class="step-label">Schedule</div>
+                    <div class="step-indicator" id="stepIndicator4">
+                        <span class="step-number">4</span>
+                        <span class="step-label">Schedule</span>
                     </div>
                 </div>
+                <p class="progress-text" id="progressText">Step 1 of 4</p>
             </div>
 
-            <form id="appointmentForm" onsubmit="handleAppointmentBooking(event)">
-                <!-- Step 1: PWD Status Check -->
-                <div class="form-step active" data-step="1">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-id-card"></i>
-                            <h3>Do you already have a PWD ID?</h3>
-                            <p>This helps us determine the type of service you need</p>
-                        </div>
-                        
-                        <div class="pwd-status-options">
-                            <label class="status-option">
-                                <input type="radio" name="pwd_status" value="existing" onclick="handlePWDStatus('existing')">
-                                <div class="option-card">
-                                    <i class="fas fa-check-circle"></i>
-                                    <h4>Yes, I have a PWD ID</h4>
-                                    <p>I need to renew or update my information</p>
-                                </div>
-                            </label>
-                            
-                            <label class="status-option">
-                                <input type="radio" name="pwd_status" value="new" onclick="handlePWDStatus('new')">
-                                <div class="option-card">
-                                    <i class="fas fa-user-plus"></i>
-                                    <h4>No, I'm a new applicant</h4>
-                                    <p>I need to apply for a new PWD ID</p>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Step 2A: Existing PWD Verification -->
-                <div class="form-step" data-step="2a">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-shield-alt"></i>
-                            <h3>Verify Your PWD Identity</h3>
-                            <p>Enter your information to verify your existing PWD ID</p>
-                        </div>
-                        
-                        <div class="form-section">
-                            <div class="form-group">
-                                <label for="pwdIdNumber">PWD ID Number</label>
-                                <input type="text" id="pwdIdNumber" name="pwd_id_number" placeholder="e.g., PWD-2024-01-01-1234">
-                                <small>Enter your PWD ID number if you remember it</small>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="verifyFirstName">First Name *</label>
-                                    <input type="text" id="verifyFirstName" name="verify_first_name" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="verifyLastName">Last Name *</label>
-                                    <input type="text" id="verifyLastName" name="verify_last_name" required>
-                                </div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="verifyDateOfBirth">Date of Birth *</label>
-                                <input type="date" id="verifyDateOfBirth" name="verify_date_of_birth" required>
-                            </div>
-                            
-                            <button type="button" class="btn-primary btn-block" onclick="verifyExistingPWD()">
-                                <i class="fas fa-search"></i> Verify My Information
-                            </button>
-                        </div>
-                        
-                        <div id="verificationResult" class="verification-result" style="display: none;"></div>
-                    </div>
-                    
-                    <div class="step-navigation">
-                        <button type="button" class="btn-secondary" onclick="previousStep()">
-                            <i class="fas fa-arrow-left"></i> Back
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Step 2B: New Applicant Personal Info -->
-                <div class="form-step" data-step="2b">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-user"></i>
-                            <h3>Personal Information</h3>
-                            <p>Please provide your basic information</p>
-                        </div>
-                        
-                        <div class="form-section">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="firstName">First Name *</label>
-                                    <input type="text" id="firstName" name="first_name" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="lastName">Last Name *</label>
-                                    <input type="text" id="lastName" name="last_name" required>
-                                </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="email">Email Address *</label>
-                                    <input type="email" id="email" name="email" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="phone">Phone Number *</label>
-                                    <input type="tel" id="phone" name="phone" required placeholder="+63 912 345 6789">
-                                </div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="dateOfBirth">Date of Birth *</label>
-                                <input type="date" id="dateOfBirth" name="date_of_birth" required>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="address">Complete Address *</label>
-                                <textarea id="address" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="step-navigation">
-                        <button type="button" class="btn-secondary" onclick="previousStep()">
-                            <i class="fas fa-arrow-left"></i> Back
-                        </button>
-                        <button type="button" class="btn-primary" onclick="nextStep()">
-                            Next <i class="fas fa-arrow-right"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Step 3A: Existing PWD - Select Service Type -->
-                <div class="form-step" data-step="3a">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-clipboard-list"></i>
-                            <h3>Select Service Type</h3>
-                            <p>Choose what you need help with</p>
-                        </div>
-                        
-                        <div class="service-type-options">
-                            <label class="service-option">
-                                <input type="radio" name="appointment_type" value="renewal" required>
-                                <div class="option-card">
-                                    <i class="fas fa-sync"></i>
-                                    <h4>PWD ID Renewal</h4>
-                                    <p>Renew your existing PWD ID</p>
-                                </div>
-                            </label>
-                            
-                            <label class="service-option">
-                                <input type="radio" name="appointment_type" value="update" required>
-                                <div class="option-card">
-                                    <i class="fas fa-edit"></i>
-                                    <h4>Update Information</h4>
-                                    <p>Update your personal details or address</p>
-                                </div>
-                            </label>
-                            
-                            <label class="service-option">
-                                <input type="radio" name="appointment_type" value="replacement" required>
-                                <div class="option-card">
-                                    <i class="fas fa-id-card"></i>
-                                    <h4>ID Replacement</h4>
-                                    <p>Replace lost or damaged PWD ID</p>
-                                </div>
-                            </label>
-                        </div>
-                        
+            <form id="newApplicantForm" onsubmit="handleNewApplication(event)">
+                 Step 1: Personal Information 
+                <div id="step1" class="form-step">
+                    <h3>Personal Information</h3>
+                    <div class="form-row">
                         <div class="form-group">
-                            <label for="existingNotes">Additional Notes (Optional)</label>
-                            <textarea id="existingNotes" name="notes" rows="3" placeholder="Any special requirements or information we should know..."></textarea>
+                            <label for="newFirstName">First Name *</label>
+                            <input type="text" id="newFirstName" name="first_name" required>
                         </div>
-                    </div>
-                    
-                    <div class="step-navigation">
-                        <button type="button" class="btn-secondary" onclick="previousStep()">
-                            <i class="fas fa-arrow-left"></i> Back
-                        </button>
-                        <button type="button" class="btn-primary" onclick="nextStep()">
-                            Next <i class="fas fa-arrow-right"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Step 3B: New Applicant - Disability Info & Emergency Contact -->
-                <div class="form-step" data-step="3b">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-notes-medical"></i>
-                            <h3>Disability Information & Emergency Contact</h3>
-                            <p>Help us understand your needs better</p>
-                        </div>
-                        
-                        <div class="form-section">
-                            <h4>Disability Information</h4>
-                            <div class="form-group">
-                                <label for="disabilityType">Type of Disability *</label>
-                                <select id="disabilityType" name="disability_type" required>
-                                    <option value="">Select disability type</option>
-                                    <option value="Physical Disability">Physical Disability</option>
-                                    <option value="Visual Impairment">Visual Impairment</option>
-                                    <option value="Hearing Impairment">Hearing Impairment</option>
-                                    <option value="Intellectual Disability">Intellectual Disability</option>
-                                    <option value="Psychosocial Disability">Psychosocial Disability</option>
-                                    <option value="Multiple Disabilities">Multiple Disabilities</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div class="form-section">
-                            <h4>Emergency Contact</h4>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="emergencyContactName">Contact Name</label>
-                                    <input type="text" id="emergencyContactName" name="emergency_contact_name" placeholder="Full name">
-                                </div>
-                                <div class="form-group">
-                                    <label for="emergencyContactPhone">Contact Phone</label>
-                                    <input type="tel" id="emergencyContactPhone" name="emergency_contact_phone" placeholder="+63 912 345 6789">
-                                </div>
-                            </div>
-                        </div>
-                        
                         <div class="form-group">
-                            <label for="newNotes">Additional Notes (Optional)</label>
-                            <textarea id="newNotes" name="notes" rows="3" placeholder="Any special requirements or medical information we should know..."></textarea>
+                            <label for="newLastName">Last Name *</label>
+                            <input type="text" id="newLastName" name="last_name" required>
                         </div>
                     </div>
-                    
-                    <div class="step-navigation">
-                        <button type="button" class="btn-secondary" onclick="previousStep()">
-                            <i class="fas fa-arrow-left"></i> Back
-                        </button>
-                        <button type="button" class="btn-primary" onclick="nextStep()">
-                            Next <i class="fas fa-arrow-right"></i>
-                        </button>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newApplicantEmail">Email *</label>
+                            <input type="email" id="newApplicantEmail" name="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newPhone">Phone Number *</label>
+                            <input type="tel" id="newPhone" name="phone" required placeholder="+63 912 345 6789">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="newDateOfBirth">Date of Birth *</label>
+                        <input type="date" id="newDateOfBirth" name="date_of_birth" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAddress">Complete Address *</label>
+                        <textarea id="newAddress" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
                     </div>
                 </div>
 
-                <!-- Step 4: Schedule Appointment (Both paths) -->
-                <div class="form-step" data-step="4">
-                    <div class="step-content">
-                        <div class="step-header">
-                            <i class="fas fa-calendar-alt"></i>
-                            <h3>Schedule Your Appointment</h3>
-                            <p>Select your preferred date and time</p>
+                 Step 2: Disability Information 
+                <div id="step2" class="form-step" style="display: none;">
+                    <h3>Disability Information</h3>
+                    <div class="form-group">
+                        <label for="newDisabilityType">Type of Disability *</label>
+                        <select id="newDisabilityType" name="disability_type" required>
+                            <option value="">Select disability type</option>
+                            <option value="Physical Disability">Physical Disability</option>
+                            <option value="Visual Impairment">Visual Impairment</option>
+                            <option value="Hearing Impairment">Hearing Impairment</option>
+                            <option value="Intellectual Disability">Intellectual Disability</option>
+                            <option value="Psychosocial Disability">Psychosocial Disability</option>
+                            <option value="Multiple Disabilities">Multiple Disabilities</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="info-box">
+                        <i class="fas fa-info-circle"></i>
+                        <p><strong>Required Documents:</strong> Please prepare the following documents for your appointment:</p>
+                        <ul>
+                            <li>Medical certificate from a licensed physician</li>
+                            <li>Barangay certificate of residency</li>
+                            <li>2 recent 1x1 ID pictures</li>
+                            <li>Valid government-issued ID</li>
+                            <li>Birth certificate</li>
+                        </ul>
+                    </div>
+                </div>
+
+                 Step 3: Emergency Contact 
+                <div id="step3" class="form-step" style="display: none;">
+                    <h3>Emergency Contact Information</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newEmergencyName">Emergency Contact Name</label>
+                            <input type="text" id="newEmergencyName" name="emergency_contact_name" placeholder="Full name">
                         </div>
-                        
-                        <div class="appointment-summary" id="appointmentSummary">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
-                        
-                        <div class="form-section">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="preferredDate">Preferred Date *</label>
-                                    <input type="date" id="preferredDate" name="preferred_date" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="preferredTime">Preferred Time *</label>
-                                    <select id="preferredTime" name="preferred_time" required>
-                                        <option value="">Select time</option>
-                                        <option value="09:00:00">9:00 AM</option>
-                                        <option value="10:00:00">10:00 AM</option>
-                                        <option value="11:00:00">11:00 AM</option>
-                                        <option value="14:00:00">2:00 PM</option>
-                                        <option value="15:00:00">3:00 PM</option>
-                                        <option value="16:00:00">4:00 PM</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div class="requirements-reminder">
-                                <h4><i class="fas fa-exclamation-circle"></i> Important Reminders</h4>
-                                <ul id="requirementsList">
-                                    <!-- Will be populated based on appointment type -->
-                                </ul>
-                            </div>
+                        <div class="form-group">
+                            <label for="newEmergencyPhone">Emergency Contact Phone</label>
+                            <input type="tel" id="newEmergencyPhone" name="emergency_contact_phone" placeholder="+63 912 345 6789">
                         </div>
                     </div>
-                    
-                    <div class="step-navigation">
-                        <button type="button" class="btn-secondary" onclick="previousStep()">
-                            <i class="fas fa-arrow-left"></i> Back
-                        </button>
-                        <button type="submit" class="btn-primary">
-                            <i class="fas fa-check"></i> Confirm Appointment
-                        </button>
+                    <div class="info-box">
+                        <i class="fas fa-user-shield"></i>
+                        <p>Emergency contact information is optional but highly recommended for your safety and convenience.</p>
                     </div>
+                </div>
+
+                 Step 4: Schedule Appointment 
+                <div id="step4" class="form-step" style="display: none;">
+                    <h3>Schedule Your Appointment</h3>
+                    <div class="form-group">
+                        <label>Appointment Type</label>
+                        <input type="text" value="New Application" readonly class="readonly-input">
+                        <input type="hidden" name="appointment_type" value="new_application">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newPreferredDate">Preferred Date *</label>
+                            <input type="date" id="newPreferredDate" name="preferred_date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newPreferredTime">Preferred Time *</label>
+                            <select id="newPreferredTime" name="preferred_time" required>
+                                <option value="">Select time</option>
+                                <option value="09:00:00">9:00 AM</option>
+                                <option value="10:00:00">10:00 AM</option>
+                                <option value="11:00:00">11:00 AM</option>
+                                <option value="14:00:00">2:00 PM</option>
+                                <option value="15:00:00">3:00 PM</option>
+                                <option value="16:00:00">4:00 PM</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="newNotes">Additional Notes (Optional)</label>
+                        <textarea id="newNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
+                    </div>
+                    <div class="info-box success">
+                        <i class="fas fa-check-circle"></i>
+                        <p><strong>Almost done!</strong> Review your information and click "Submit Application" to complete your booking. You will receive an SMS verification code to confirm your appointment.</p>
+                    </div>
+                </div>
+
+                 Form Navigation 
+                <div class="form-navigation">
+                    <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
+                        <i class="fas fa-arrow-left"></i> Previous
+                    </button>
+                    <button type="button" class="btn-primary" id="nextStepBtn" onclick="nextStep()">
+                        Next <i class="fas fa-arrow-right"></i>
+                    </button>
+                    <button type="submit" class="btn-primary" id="submitNewApplicationBtn" style="display: none;">
+                        <i class="fas fa-paper-plane"></i> Submit Application
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Program Details Modal -->
+     Program Details Modal 
     <div id="programModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -970,7 +918,7 @@ require_once 'config.php';
                 <span class="close" onclick="closeModal('programModal')">&times;</span>
             </div>
             <div id="programModalContent" class="program-modal-body">
-                <!-- Will be populated by JavaScript -->
+                 Will be populated by JavaScript 
             </div>
         </div>
     </div>

@@ -6,14 +6,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     switch ($action) {
-        case 'verify_pwd':
-            handleVerifyPWD();
-            break;
         case 'check_email':
             handleCheckEmail();
             break;
-        case 'book_appointment':
-            handleBookAppointment();
+        case 'check_email_detailed':
+            handleCheckEmailDetailed();
+            break;
+        case 'verify_existing_pwd':
+            handleVerifyExistingPWD();
+            break;
+        case 'book_renewal_update':
+            handleRenewalUpdate();
+            break;
+        case 'book_new_application':
+            handleNewApplication();
             break;
         case 'track_appointment':
             handleTrackAppointment();
@@ -23,62 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
         default:
             jsonResponse(['error' => 'Invalid action'], 400);
-    }
-}
-
-function handleVerifyPWD() {
-    global $pdo;
-    
-    $pwdId = $_POST['pwd_id_number'] ?? '';
-    $firstName = $_POST['first_name'] ?? '';
-    $lastName = $_POST['last_name'] ?? '';
-    $dob = $_POST['date_of_birth'] ?? '';
-    
-    if (empty($firstName) || empty($lastName) || empty($dob)) {
-        jsonResponse(['error' => 'Please provide all required information'], 400);
-    }
-    
-    try {
-        // Build query based on provided information
-        $query = "SELECT * FROM users WHERE first_name = ? AND last_name = ? AND date_of_birth = ?";
-        $params = [$firstName, $lastName, $dob];
-        
-        // If PWD ID provided, include it in search
-        if (!empty($pwdId)) {
-            $query .= " AND pwd_id_number = ?";
-            $params[] = $pwdId;
-        }
-        
-        $stmt = $pdo->prepare($query);
-        $stmt->execute($params);
-        $user = $stmt->fetch();
-        
-        if ($user) {
-            jsonResponse([
-                'success' => true,
-                'message' => 'PWD record verified successfully',
-                'pwd_data' => [
-                    'id' => $user['id'],
-                    'first_name' => $user['first_name'],
-                    'last_name' => $user['last_name'],
-                    'full_name' => $user['first_name'] . ' ' . $user['last_name'],
-                    'email' => $user['email'],
-                    'phone' => $user['phone'],
-                    'date_of_birth' => $user['date_of_birth'],
-                    'address' => $user['address'],
-                    'disability_type' => $user['disability_type'],
-                    'pwd_id_number' => $user['pwd_id_number']
-                ]
-            ]);
-        } else {
-            jsonResponse([
-                'success' => false,
-                'error' => 'No matching PWD record found. Please check your information or apply as a new applicant.'
-            ], 404);
-        }
-        
-    } catch (PDOException $e) {
-        jsonResponse(['error' => 'Verification failed: ' . $e->getMessage()], 500);
     }
 }
 
@@ -126,112 +76,161 @@ function handleCheckEmail() {
     }
 }
 
-function handleBookAppointment() {
+function handleCheckEmailDetailed() {
     global $pdo;
     
-    $pwdStatus = $_POST['pwd_status'] ?? '';
-    $required_fields = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'appointment_type', 'preferred_date', 'preferred_time'];
+    $email = $_POST['email'] ?? '';
     
-    // Validate required fields based on PWD status
-    if ($pwdStatus === 'new') {
-        $required_fields = array_merge($required_fields, ['address', 'disability_type']);
+    if (empty($email)) {
+        jsonResponse(['error' => 'Email is required'], 400);
     }
     
+    try {
+        // First, check if user exists in PWD records
+        $stmt = $pdo->prepare("SELECT id, first_name, last_name FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+        
+        if ($user) {
+            // User exists in PWD records - check for pending appointments
+            $stmt = $pdo->prepare("
+                SELECT id, reference_number, status, preferred_date 
+                FROM appointments 
+                WHERE user_id = ? AND status IN ('pending', 'confirmed')
+                ORDER BY created_at DESC
+                LIMIT 1
+            ");
+            $stmt->execute([$user['id']]);
+            $appointment = $stmt->fetch();
+            
+            if ($appointment) {
+                // Has pending appointment
+                jsonResponse([
+                    'available' => false,
+                    'reason' => 'pending_appointment',
+                    'message' => 'This email has a pending appointment.',
+                    'appointment' => [
+                        'reference_number' => $appointment['reference_number'],
+                        'status' => $appointment['status'],
+                        'date' => $appointment['preferred_date']
+                    ]
+                ]);
+            } else {
+                // PWD exists but no pending appointment - should use existing PWD flow
+                jsonResponse([
+                    'available' => false,
+                    'reason' => 'pwd_exists',
+                    'message' => 'This email is already registered. Please use the existing PWD option.',
+                    'user' => [
+                        'name' => $user['first_name'] . ' ' . $user['last_name']
+                    ]
+                ]);
+            }
+        } else {
+            // Email is completely new
+            jsonResponse([
+                'available' => true,
+                'message' => 'Email is available for new registration.'
+            ]);
+        }
+        
+    } catch (PDOException $e) {
+        jsonResponse(['error' => 'Failed to check email: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleVerifyExistingPWD() {
+    global $pdo;
+    
+    $email = $_POST['email'] ?? '';
+    
+    if (empty($email)) {
+        jsonResponse(['error' => 'Email is required'], 400);
+    }
+    
+    try {
+        // Check if user exists with this email
+        $stmt = $pdo->prepare("
+            SELECT id, first_name, last_name, email, phone, date_of_birth, 
+                   address, disability_type, emergency_contact_name, emergency_contact_phone
+            FROM users 
+            WHERE email = ?
+        ");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+        
+        if (!$user) {
+            jsonResponse(['error' => 'No PWD record found with this email. Please register as a new applicant.'], 404);
+        }
+        
+        // Check if user has pending appointment
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as count 
+            FROM appointments 
+            WHERE user_id = ? AND status IN ('pending', 'confirmed')
+        ");
+        $stmt->execute([$user['id']]);
+        $pendingCount = $stmt->fetchColumn();
+        
+        if ($pendingCount > 0) {
+            jsonResponse(['error' => 'You already have a pending appointment. Please complete or cancel it first.'], 400);
+        }
+        
+        jsonResponse([
+            'success' => true,
+            'message' => 'PWD record verified successfully',
+            'user' => $user
+        ]);
+        
+    } catch (PDOException $e) {
+        jsonResponse(['error' => 'Verification failed: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleRenewalUpdate() {
+    global $pdo;
+    
+    $required_fields = ['user_id', 'appointment_type', 'preferred_date', 'preferred_time'];
     foreach ($required_fields as $field) {
         if (empty($_POST[$field])) {
             jsonResponse(['error' => "Field {$field} is required"], 400);
         }
     }
     
-    // Validate terms acceptance
-    if (empty($_POST['terms_accepted']) || $_POST['terms_accepted'] !== 'true') {
-        jsonResponse(['error' => 'You must accept the terms and conditions to proceed'], 400);
+    $user_id = $_POST['user_id'];
+    $appointment_type = $_POST['appointment_type'];
+    
+    // Validate appointment type for existing PWDs
+    if (!in_array($appointment_type, ['renewal', 'update'])) {
+        jsonResponse(['error' => 'Invalid appointment type for existing PWD'], 400);
     }
     
-    // Validate date is not in the past
+    // Validate date is not in the past or today
     $preferred_date = $_POST['preferred_date'];
-    if (strtotime($preferred_date) < strtotime('today')) {
-        jsonResponse(['error' => 'Appointment date cannot be in the past'], 400);
+    $today = date('Y-m-d');
+    $tomorrow = date('Y-m-d', strtotime('+1 day'));
+    
+    if ($preferred_date <= $today) {
+        jsonResponse(['error' => 'Appointment date must be at least tomorrow'], 400);
+    }
+    
+    // Validate date is not more than 30 days from today
+    $maxDate = date('Y-m-d', strtotime('+30 days'));
+    if ($preferred_date > $maxDate) {
+        jsonResponse(['error' => 'Appointment date cannot be more than 30 days from today'], 400);
     }
     
     try {
         $pdo->beginTransaction();
         
-        // Check if it's an existing PWD with user_id
-        if (!empty($_POST['user_id'])) {
-            $user_id = $_POST['user_id'];
-            
-            // Check if user has pending appointment
-            $stmt = $pdo->prepare("
-                SELECT id FROM appointments 
-                WHERE user_id = ? AND status IN ('pending', 'confirmed')
-            ");
-            $stmt->execute([$user_id]);
-            if ($stmt->fetch()) {
-                $pdo->rollBack();
-                jsonResponse(['error' => 'You already have a pending appointment. Please complete or cancel it first.'], 400);
-            }
-        } else {
-            // Check if email already has pending appointment
-            $stmt = $pdo->prepare("
-                SELECT a.id FROM appointments a 
-                JOIN users u ON a.user_id = u.id 
-                WHERE u.email = ? AND a.status IN ('pending', 'confirmed')
-            ");
-            $stmt->execute([$_POST['email']]);
-            if ($stmt->fetch()) {
-                $pdo->rollBack();
-                jsonResponse(['error' => 'This email already has a pending appointment. Please complete or cancel it first.'], 400);
-            }
-            
-            // Create or find user
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-            $stmt->execute([$_POST['email']]);
-            $user = $stmt->fetch();
-            
-            if ($user) {
-                $user_id = $user['id'];
-                
-                // Update user information
-                $stmt = $pdo->prepare("
-                    UPDATE users 
-                    SET first_name = ?, last_name = ?, phone = ?, date_of_birth = ?, address = ?, 
-                        disability_type = ?, emergency_contact_name = ?, emergency_contact_phone = ?, 
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $_POST['first_name'],
-                    $_POST['last_name'],
-                    $_POST['phone'],
-                    $_POST['date_of_birth'],
-                    $_POST['address'] ?? '',
-                    $_POST['disability_type'] ?? '',
-                    $_POST['emergency_contact_name'] ?? null,
-                    $_POST['emergency_contact_phone'] ?? null,
-                    $user_id
-                ]);
-            } else {
-                // Create new user without authentication fields
-                $stmt = $pdo->prepare("
-                    INSERT INTO users (first_name, last_name, email, phone, date_of_birth, address, disability_type, emergency_contact_name, emergency_contact_phone, is_verified) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
-                ");
-                
-                $stmt->execute([
-                    $_POST['first_name'],
-                    $_POST['last_name'],
-                    $_POST['email'],
-                    $_POST['phone'],
-                    $_POST['date_of_birth'],
-                    $_POST['address'] ?? '',
-                    $_POST['disability_type'] ?? '',
-                    $_POST['emergency_contact_name'] ?? null,
-                    $_POST['emergency_contact_phone'] ?? null
-                ]);
-                
-                $user_id = $pdo->lastInsertId();
-            }
+        // Verify user exists
+        $stmt = $pdo->prepare("SELECT id, phone FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch();
+        
+        if (!$user) {
+            $pdo->rollBack();
+            jsonResponse(['error' => 'User not found'], 404);
         }
         
         // Generate reference number and SMS code
@@ -247,7 +246,7 @@ function handleBookAppointment() {
         $stmt->execute([
             $user_id,
             $reference_number,
-            $_POST['appointment_type'],
+            $appointment_type,
             $preferred_date,
             $_POST['preferred_time'],
             $_POST['notes'] ?? null,
@@ -257,7 +256,7 @@ function handleBookAppointment() {
         $appointment_id = $pdo->lastInsertId();
         
         // Send SMS verification
-        sendSMSVerification($_POST['phone'], $sms_code);
+        sendSMSVerification($user['phone'], $sms_code);
         
         // Update SMS sent status
         $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");
@@ -267,7 +266,7 @@ function handleBookAppointment() {
         
         jsonResponse([
             'success' => true,
-            'message' => 'Appointment booked successfully! SMS verification sent to ' . $_POST['phone'],
+            'message' => 'Appointment booked successfully! SMS verification sent to ' . $user['phone'],
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,
@@ -279,6 +278,154 @@ function handleBookAppointment() {
     } catch (PDOException $e) {
         $pdo->rollBack();
         jsonResponse(['error' => 'Failed to book appointment: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleNewApplication() {
+    global $pdo;
+    
+    $required_fields = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'address', 'disability_type', 'preferred_date', 'preferred_time'];
+    foreach ($required_fields as $field) {
+        if (empty($_POST[$field])) {
+            jsonResponse(['error' => "Field {$field} is required"], 400);
+        }
+    }
+    
+    // Validate terms acceptance
+    if (empty($_POST['terms_accepted']) || $_POST['terms_accepted'] !== 'true') {
+        jsonResponse(['error' => 'You must accept the terms and conditions to proceed'], 400);
+    }
+    
+    // Validate email format
+    if (!filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
+        jsonResponse(['error' => 'Please enter a valid email address'], 400);
+    }
+    
+    // Validate date of birth
+    $dob = $_POST['date_of_birth'];
+    $dobDate = strtotime($dob);
+    $today = strtotime(date('Y-m-d'));
+    $minDate = strtotime('-120 years');
+    
+    if ($dobDate > $today) {
+        jsonResponse(['error' => 'Date of birth cannot be in the future'], 400);
+    }
+    
+    if ($dobDate < $minDate) {
+        jsonResponse(['error' => 'Please enter a valid date of birth'], 400);
+    }
+    
+    // Validate appointment date
+    $preferred_date = $_POST['preferred_date'];
+    $preferredDateTime = strtotime($preferred_date);
+    $tomorrow = strtotime('+1 day', strtotime(date('Y-m-d')));
+    $maxDate = strtotime('+30 days', strtotime(date('Y-m-d')));
+    
+    if ($preferredDateTime < $tomorrow) {
+        jsonResponse(['error' => 'Appointment date must be at least tomorrow'], 400);
+    }
+    
+    if ($preferredDateTime > $maxDate) {
+        jsonResponse(['error' => 'Appointment date cannot be more than 30 days from today'], 400);
+    }
+    
+    // Validate phone number
+    $phone = preg_replace('/[^0-9]/', '', $_POST['phone']);
+    if (strlen($phone) < 10 || strlen($phone) > 11) {
+        jsonResponse(['error' => 'Please enter a valid 10-11 digit phone number'], 400);
+    }
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Check if email already exists in PWD records
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+        $stmt->execute([$_POST['email']]);
+        $existingUser = $stmt->fetch();
+        
+        if ($existingUser) {
+            $pdo->rollBack();
+            jsonResponse(['error' => 'This email is already registered in our PWD records. Please select "Yes, I have a PWD ID" to book a renewal or update appointment.'], 400);
+        }
+        
+        // Check if email already has pending appointment
+        $stmt = $pdo->prepare("
+            SELECT a.id, a.reference_number FROM appointments a 
+            JOIN users u ON a.user_id = u.id 
+            WHERE u.email = ? AND a.status IN ('pending', 'confirmed')
+        ");
+        $stmt->execute([$_POST['email']]);
+        $pendingAppointment = $stmt->fetch();
+        
+        if ($pendingAppointment) {
+            $pdo->rollBack();
+            jsonResponse(['error' => 'This email already has a pending appointment (Ref: ' . $pendingAppointment['reference_number'] . '). Please complete or cancel it first.'], 400);
+        }
+        
+        // Create new user
+        $stmt = $pdo->prepare("
+            INSERT INTO users (first_name, last_name, email, phone, date_of_birth, address, disability_type, emergency_contact_name, emergency_contact_phone, is_verified) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+        ");
+        
+        $stmt->execute([
+            $_POST['first_name'],
+            $_POST['last_name'],
+            $_POST['email'],
+            $phone,
+            $_POST['date_of_birth'],
+            $_POST['address'],
+            $_POST['disability_type'],
+            $_POST['emergency_contact_name'] ?? null,
+            $_POST['emergency_contact_phone'] ?? null
+        ]);
+        
+        $user_id = $pdo->lastInsertId();
+        
+        // Generate reference number and SMS code
+        $reference_number = generateReferenceNumber();
+        $sms_code = str_pad(rand(100000, 999999), 6, '0', STR_PAD_LEFT);
+        
+        // Create appointment with 'new_application' type
+        $stmt = $pdo->prepare("
+            INSERT INTO appointments (user_id, reference_number, appointment_type, preferred_date, preferred_time, notes, sms_verification_code) 
+            VALUES (?, ?, 'new_application', ?, ?, ?, ?)
+        ");
+        
+        $stmt->execute([
+            $user_id,
+            $reference_number,
+            $preferred_date,
+            $_POST['preferred_time'],
+            $_POST['notes'] ?? null,
+            $sms_code
+        ]);
+        
+        $appointment_id = $pdo->lastInsertId();
+        
+        // Send SMS verification
+        sendSMSVerification($phone, $sms_code);
+        
+        // Update SMS sent status
+        $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");
+        $stmt->execute([$appointment_id]);
+        
+        $pdo->commit();
+        
+        jsonResponse([
+            'success' => true,
+            'message' => 'Application submitted successfully! SMS verification sent to ' . $phone,
+            'appointment' => [
+                'id' => $appointment_id,
+                'reference_number' => $reference_number,
+                'preferred_date' => $preferred_date,
+                'preferred_time' => $_POST['preferred_time']
+            ]
+        ]);
+        
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        jsonResponse(['error' => 'Failed to submit application: ' . $e->getMessage()], 500);
     }
 }
 
