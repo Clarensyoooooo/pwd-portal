@@ -707,12 +707,12 @@ require_once 'config.php';
                     <h3>Your Information</h3>
                     <div class="form-group">
                         <label>Full Name</label>
-                        <input type="text" id="renewalName" readonly>
+                        <input type="text" id="renewalName"readonly>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Email</label>
-                            <input type="email" id="renewalEmail" readonly>
+                            <input type="email" id="renewalEmail" name="email" readonly>
                         </div>
                         <div class="form-group">
                             <label>Phone</label>
