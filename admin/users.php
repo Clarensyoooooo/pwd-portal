@@ -44,11 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error'] = 'You do not have permission to delete users.';
             }
             break;
-        case 'update_role': // This case was added in the updates
+        case 'create_role':
             if ($canManageRoles) {
-                updateRole($pdo); // This function was also added in the updates
+                createRole($pdo);
             } else {
-                $_SESSION['error'] = 'You do not have permission to manage roles.';
+                $_SESSION['error'] = 'You do not have permission to create roles.';
+            }
+            break;
+        case 'delete_role': // Changed from update_role to delete_role to match updates
+            if ($canManageRoles) {
+                deleteRole($pdo);
+            } else {
+                $_SESSION['error'] = 'You do not have permission to delete roles.';
             }
             break;
     }
@@ -224,8 +231,69 @@ function deleteUser($pdo) {
     }
 }
 
-// This function was added in the updates
-function updateRole($pdo) {
+function createRole($pdo) {
+    $name = trim($_POST['role_name']);
+    $display_name = trim($_POST['display_name']);
+    $description = trim($_POST['description']);
+    $permissions = $_POST['permissions'] ?? [];
+    
+    // Validate input
+    if (empty($name) || empty($display_name)) {
+        $_SESSION['error'] = 'Role name and display name are required.';
+        return;
+    }
+    
+    // Convert name to snake_case
+    $name = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+    
+    try {
+        // Check if role name already exists
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM admin_roles WHERE name = ?");
+        $stmt->execute([$name]);
+        if ($stmt->fetchColumn() > 0) {
+            $_SESSION['error'] = 'A role with this name already exists.';
+            return;
+        }
+        
+        $pdo->beginTransaction();
+        
+        // Insert new role
+        $stmt = $pdo->prepare("
+            INSERT INTO admin_roles (name, display_name, description)
+            VALUES (?, ?, ?)
+        ");
+        $stmt->execute([$name, $display_name, $description]);
+        $role_id = $pdo->lastInsertId();
+        
+        // Insert permissions
+        if (!empty($permissions)) {
+            $stmt = $pdo->prepare("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)");
+            foreach ($permissions as $permission_id) {
+                $permission_id = intval($permission_id);
+                if ($permission_id > 0) {
+                    $stmt->execute([$role_id, $permission_id]);
+                }
+            }
+        }
+        
+        logAdminActivity($pdo, 'create', 'roles', 'admin_role', $role_id, [
+            'name' => $name,
+            'display_name' => $display_name,
+            'permissions_count' => count($permissions)
+        ]);
+        
+        $pdo->commit();
+        $_SESSION['success'] = 'Role created successfully.';
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $_SESSION['error'] = 'Failed to create role: ' . $e->getMessage();
+        error_log("Role creation error: " . $e->getMessage());
+    }
+}
+
+function updateRole($pdo) { // This function was in the updates but not in the switch case, so it remains here.
     $role_id = intval($_POST['role_id']);
     $display_name = trim($_POST['display_name']);
     $description = trim($_POST['description']);
@@ -283,6 +351,47 @@ function updateRole($pdo) {
         error_log("Role update error: " . $e->getMessage());
     }
 }
+
+function deleteRole($pdo) {
+    $role_id = intval($_POST['role_id']);
+    
+    try {
+        // Check if it's a protected role
+        $stmt = $pdo->prepare("SELECT name FROM admin_roles WHERE id = ?");
+        $stmt->execute([$role_id]);
+        $role = $stmt->fetch();
+        
+        if (!$role) {
+            $_SESSION['error'] = 'Role not found.';
+            return;
+        }
+        
+        if ($role['name'] === 'super_admin') {
+            $_SESSION['error'] = 'Cannot delete super administrator role.';
+            return;
+        }
+        
+        // Check if any users have this role
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM admin_users WHERE role_id = ?");
+        $stmt->execute([$role_id]);
+        $user_count = $stmt->fetchColumn();
+        
+        if ($user_count > 0) {
+            $_SESSION['error'] = "Cannot delete role. {$user_count} user(s) are currently assigned to this role.";
+            return;
+        }
+        
+        // Delete role (permissions will be deleted automatically due to CASCADE)
+        $stmt = $pdo->prepare("DELETE FROM admin_roles WHERE id = ?");
+        $stmt->execute([$role_id]);
+        
+        logAdminActivity($pdo, 'delete', 'roles', 'admin_role', $role_id);
+        
+        $_SESSION['success'] = 'Role deleted successfully.';
+    } catch (PDOException $e) {
+        $_SESSION['error'] = 'Failed to delete role: ' . $e->getMessage();
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -323,7 +432,7 @@ function updateRole($pdo) {
             </div>
         <?php endif; ?>
         
-        <!-- Users Table -->
+         Users Table 
         <div class="card">
             <div class="card-header">
                 <h3><i class="fas fa-users"></i> Admin Users</h3>
@@ -403,12 +512,19 @@ function updateRole($pdo) {
             </div>
         </div>
         
-        <!-- Roles & Permissions -->
+         Roles & Permissions 
         <?php if ($canManageRoles && !empty($roles)): ?>
         <div class="card mt-4">
             <div class="card-header">
-                <h3><i class="fas fa-user-tag"></i> Roles & Permissions</h3>
-                <p class="card-subtitle">Configure role permissions to control access across the admin panel</p>
+                <div>
+                    <h3><i class="fas fa-user-tag"></i> Roles & Permissions</h3>
+                    <p class="card-subtitle">Configure role permissions to control access across the admin panel</p>
+                </div>
+                <div class="card-actions">
+                    <button onclick="showModal('createRoleModal')" class="btn btn-success">
+                        <i class="fas fa-plus"></i> Create Role
+                    </button>
+                </div>
             </div>
             <div class="card-content">
                 <div class="roles-grid">
@@ -424,7 +540,10 @@ function updateRole($pdo) {
                             <?php if ($role['name'] !== 'super_admin'): ?>
                             <div class="role-actions">
                                 <button onclick="loadAndEditRole(<?php echo $role['id']; ?>)" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-edit"></i> Edit
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteRole(<?php echo $role['id']; ?>, '<?php echo htmlspecialchars($role['display_name']); ?>')" class="btn btn-sm btn-danger">
+                                    <i class="fas fa-trash"></i>
                                 </button>
                             </div>
                             <?php endif; ?>
@@ -473,7 +592,7 @@ function updateRole($pdo) {
         <?php endif; ?>
     </main>
     
-    <!-- Create User Modal -->
+     Create User Modal 
     <div id="createUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -545,7 +664,7 @@ function updateRole($pdo) {
         </div>
     </div>
     
-    <!-- Edit User Modal -->
+     Edit User Modal 
     <div id="editUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -625,7 +744,100 @@ function updateRole($pdo) {
         </div>
     </div>
     
-    <!-- Edit Role Modal -->
+     Create Role Modal 
+    <div id="createRoleModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <div class="modal-header-content">
+                    <div class="modal-icon">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <div>
+                        <h3>Create New Role</h3>
+                        <p class="modal-subtitle">Define a custom role with specific permissions</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('createRoleModal')" class="modal-close">&times;</button>
+            </div>
+            <form method="POST" id="createRoleForm">
+                <input type="hidden" name="action" value="create_role">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="role_name">
+                            <i class="fas fa-tag"></i> Role Identifier *
+                        </label>
+                        <input type="text" name="role_name" id="role_name" class="form-control" required placeholder="e.g., data_entry_staff">
+                        <small class="form-text">This will be converted to lowercase and underscores (e.g., "Data Entry" becomes "data_entry")</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="display_name">
+                            <i class="fas fa-signature"></i> Display Name *
+                        </label>
+                        <input type="text" name="display_name" id="display_name" class="form-control" required placeholder="e.g., Data Entry Staff">
+                        <small class="form-text">This is the name shown in the interface</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="description">
+                            <i class="fas fa-align-left"></i> Description
+                        </label>
+                        <textarea name="description" id="description" class="form-control" rows="3" placeholder="Describe what this role is for..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <i class="fas fa-key"></i> Permissions 
+                            <span class="permission-counter">(<span id="createSelectedCount">0</span> selected)</span>
+                        </label>
+                        <div class="permissions-actions">
+                            <button type="button" class="btn btn-sm btn-outline" onclick="selectAllPermissionsCreate()">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline" onclick="deselectAllPermissionsCreate()">
+                                <i class="fas fa-times"></i> Deselect All
+                            </button>
+                        </div>
+                        <div class="permissions-grid" id="createPermissionsGrid">
+                            <?php foreach ($permissions_by_module as $module => $permissions): ?>
+                            <div class="permission-module">
+                                <h5 class="module-title">
+                                    <label class="module-label">
+                                        <input type="checkbox" class="module-checkbox-create" data-module="<?php echo $module; ?>" onchange="toggleModulePermissionsCreate(this, '<?php echo $module; ?>')">
+                                        <i class="fas fa-folder"></i> <?php echo ucfirst($module); ?>
+                                    </label>
+                                </h5>
+                                <div class="permission-list">
+                                    <?php foreach ($permissions as $perm): ?>
+                                    <label class="permission-checkbox">
+                                        <input type="checkbox" 
+                                               name="permissions[]" 
+                                               value="<?php echo $perm['id']; ?>" 
+                                               class="permission-input-create" 
+                                               data-module="<?php echo $module; ?>"
+                                               onchange="updatePermissionCountCreate()">
+                                        <span class="permission-label"><?php echo htmlspecialchars($perm['display_name']); ?></span>
+                                    </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" onclick="closeModal('createRoleModal')" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Create Role
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+     Edit Role Modal 
     <div id="editRoleModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -640,7 +852,7 @@ function updateRole($pdo) {
                 </div>
                 <button onclick="closeModal('editRoleModal')" class="modal-close">&times;</button>
             </div>
-            <form method="POST" id="editRoleForm" onsubmit="return saveRole(event)">
+            <form id="editRoleForm" onsubmit="return saveRole(event)">
                 <input type="hidden" name="action" value="update_role">
                 <input type="hidden" name="role_id" id="role_id">
                 <div class="modal-body" id="editRoleModalBody">
@@ -696,6 +908,20 @@ function updateRole($pdo) {
                 form.innerHTML = `
                     <input type="hidden" name="action" value="delete_user">
                     <input type="hidden" name="user_id" value="${userId}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+        
+        // Delete role function
+        function deleteRole(roleId, roleName) {
+            if (confirm(`Are you sure you want to delete the role "${roleName}"? This action cannot be undone.\n\nNote: Users with this role will have their role set to null.`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="action" value="delete_role">
+                    <input type="hidden" name="role_id" value="${roleId}">
                 `;
                 document.body.appendChild(form);
                 form.submit();
@@ -851,7 +1077,7 @@ function updateRole($pdo) {
             return false;
         }
         
-        // Update permission count
+        // Update permission count (for edit modal)
         function updatePermissionCount() {
             const checked = document.querySelectorAll('.permission-input:checked').length;
             const counter = document.getElementById('selectedCount');
@@ -859,6 +1085,16 @@ function updateRole($pdo) {
                 counter.textContent = checked;
             }
             updateModuleCheckboxes();
+        }
+        
+        // Update permission count (for create modal)
+        function updatePermissionCountCreate() {
+            const checked = document.querySelectorAll('.permission-input-create:checked').length;
+            const counter = document.getElementById('createSelectedCount');
+            if (counter) {
+                counter.textContent = checked;
+            }
+            updateModuleCheckboxesCreate();
         }
         
         // Update module checkboxes based on selected permissions
@@ -882,7 +1118,28 @@ function updateRole($pdo) {
             });
         }
         
-        // Toggle all permissions in a module
+        // Update module checkboxes for create modal
+        function updateModuleCheckboxesCreate() {
+            const modules = document.querySelectorAll('.module-checkbox-create');
+            modules.forEach(moduleCheckbox => {
+                const moduleName = moduleCheckbox.dataset.module;
+                const modulePermissions = document.querySelectorAll(`.permission-input-create[data-module="${moduleName}"]`);
+                const checkedPermissions = document.querySelectorAll(`.permission-input-create[data-module="${moduleName}"]:checked`);
+                
+                if (checkedPermissions.length === modulePermissions.length) {
+                    moduleCheckbox.checked = true;
+                    moduleCheckbox.indeterminate = false;
+                } else if (checkedPermissions.length > 0) {
+                    moduleCheckbox.checked = false;
+                    moduleCheckbox.indeterminate = true;
+                } else {
+                    moduleCheckbox.checked = false;
+                    moduleCheckbox.indeterminate = false;
+                }
+            });
+        }
+        
+        // Toggle all permissions in a module (edit modal)
         function toggleModulePermissions(checkbox, moduleName) {
             const modulePermissions = document.querySelectorAll(`.permission-input[data-module="${moduleName}"]`);
             modulePermissions.forEach(perm => {
@@ -891,7 +1148,16 @@ function updateRole($pdo) {
             updatePermissionCount();
         }
         
-        // Select all permissions
+        // Toggle all permissions in a module (create modal)
+        function toggleModulePermissionsCreate(checkbox, moduleName) {
+            const modulePermissions = document.querySelectorAll(`.permission-input-create[data-module="${moduleName}"]`);
+            modulePermissions.forEach(perm => {
+                perm.checked = checkbox.checked;
+            });
+            updatePermissionCountCreate();
+        }
+        
+        // Select all permissions (edit modal)
         function selectAllPermissions() {
             document.querySelectorAll('.permission-input').forEach(checkbox => {
                 checkbox.checked = true;
@@ -899,12 +1165,28 @@ function updateRole($pdo) {
             updatePermissionCount();
         }
         
-        // Deselect all permissions
+        // Deselect all permissions (edit modal)
         function deselectAllPermissions() {
             document.querySelectorAll('.permission-input').forEach(checkbox => {
                 checkbox.checked = false;
             });
             updatePermissionCount();
+        }
+        
+        // Select all permissions (create modal)
+        function selectAllPermissionsCreate() {
+            document.querySelectorAll('.permission-input-create').forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updatePermissionCountCreate();
+        }
+        
+        // Deselect all permissions (create modal)
+        function deselectAllPermissionsCreate() {
+            document.querySelectorAll('.permission-input-create').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updatePermissionCountCreate();
         }
     </script>
     
@@ -943,6 +1225,14 @@ function updateRole($pdo) {
             font-size: 0.9rem;
             margin: 4px 0 0 0;
             font-weight: normal;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 24px;
+            border-bottom: 1px solid #e5e7eb;
         }
         
         .form-control {
@@ -1041,6 +1331,11 @@ function updateRole($pdo) {
             margin: 0;
             color: #1f2937;
             font-size: 1.1rem;
+        }
+        
+        .role-actions {
+            display: flex;
+            gap: 6px;
         }
         
         .role-description {
@@ -1149,7 +1444,8 @@ function updateRole($pdo) {
             color: #2c5aa0;
         }
         
-        .module-checkbox {
+        .module-checkbox,
+        .module-checkbox-create {
             width: 18px;
             height: 18px;
             cursor: pointer;
@@ -1176,7 +1472,8 @@ function updateRole($pdo) {
             background: #f9fafb;
         }
         
-        .permission-input {
+        .permission-input,
+        .permission-input-create {
             width: 16px;
             height: 16px;
             cursor: pointer;

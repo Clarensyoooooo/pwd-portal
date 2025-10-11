@@ -4,6 +4,12 @@
 let currentAppointment = null
 let currentUserData = null
 
+// Helper function to check for weekends
+function isWeekend(date) {
+  const day = date.getDay();
+  return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+}
+
 // Mobile menu toggle and navigation
 document.addEventListener("DOMContentLoaded", () => {
   const mobileToggle = document.querySelector(".mobile-menu-toggle")
@@ -56,9 +62,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize modals
   initializeModals()
-
-  // Initialize date restrictions - this will be called when modals open
-  initializeDateRestrictions()
 
   // Initialize animations
   initializeAnimations()
@@ -215,10 +218,24 @@ function applyDateRestrictionsForRenewal() {
     dateInput.min = tomorrow.toISOString().split("T")[0]
 
     const maxDate = new Date()
-    maxDate.setDate(maxDate.getDate() + 30)
+    maxDate.setMonth(maxDate.getMonth() + 2) // Allow booking up to 2 months in advance
     dateInput.max = maxDate.toISOString().split("T")[0]
+
+    // Add real-time validation for weekends
+    dateInput.addEventListener('input', function() {
+        // Add T00:00:00 to handle timezone differences correctly
+        const selectedDate = new Date(this.value + 'T00:00:00'); 
+        if (isWeekend(selectedDate)) {
+            showNotification('Appointments are not available on weekends. Please select a weekday.', 'error');
+            this.style.borderColor = "#ef4444";
+            this.value = ''; // Clear invalid selection
+        } else {
+            this.style.borderColor = "";
+        }
+    });
   }
 }
+
 
 async function handleRenewalUpdate(event) {
   event.preventDefault()
@@ -276,26 +293,76 @@ function initializeProgressSteps() {
 
 function applyDateRestrictions() {
   // Apply restrictions to date of birth (Step 1)
-  const dobInput = document.getElementById("newApplicantDOB")
+  const dobInput = document.getElementById("newApplicantDOB");
   if (dobInput) {
-    const today = new Date()
-    dobInput.max = today.toISOString().split("T")[0]
+    const today = new Date();
+    dobInput.max = today.toISOString().split("T")[0];
 
-    const minDate = new Date()
-    minDate.setFullYear(minDate.getFullYear() - 120)
-    dobInput.min = minDate.toISOString().split("T")[0]
+    const minDate = new Date();
+    minDate.setFullYear(minDate.getFullYear() - 120);
+    dobInput.min = minDate.toISOString().split("T")[0];
+
+    // **FIX**: Validate date of birth on blur (when user leaves the input) to avoid premature validation.
+    dobInput.addEventListener('blur', function() {
+        // Do nothing if the input is empty
+        if (!this.value) {
+            this.style.borderColor = "";
+            return;
+        }
+
+        const dob = new Date(this.value);
+
+        // Check if the entered value is a valid date. Prevents errors on incomplete input.
+        if (isNaN(dob.getTime())) {
+            showNotification('Please enter a valid and complete date of birth.', 'error');
+            this.style.borderColor = "#ef4444";
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const minValidDate = new Date();
+        minValidDate.setFullYear(minValidDate.getFullYear() - 120);
+        minValidDate.setHours(0, 0, 0, 0);
+
+        if (dob > today) {
+            showNotification('Date of birth cannot be in the future.', 'error');
+            this.style.borderColor = "#ef4444";
+            this.value = ''; // Clear the invalid future date
+        } else if (dob < minValidDate) {
+            showNotification('Please enter a valid date of birth (not more than 120 years ago).', 'error');
+            this.style.borderColor = "#ef4444";
+            this.value = ''; // Clear the invalid past date
+        } else {
+            this.style.borderColor = ""; // Valid date
+        }
+    });
   }
 
   // Apply restrictions to appointment date (Step 4)
-  const dateInput = document.getElementById("newApplicantPreferredDate")
+  const dateInput = document.getElementById("newApplicantPreferredDate");
   if (dateInput) {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    dateInput.min = tomorrow.toISOString().split("T")[0]
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    dateInput.min = tomorrow.toISOString().split("T")[0];
 
-    const maxDate = new Date()
-    maxDate.setDate(maxDate.getDate() + 30)
-    dateInput.max = maxDate.toISOString().split("T")[0]
+    const maxDate = new Date();
+    maxDate.setMonth(maxDate.getMonth() + 2); // Allow booking up to 2 months in advance
+    dateInput.max = maxDate.toISOString().split("T")[0];
+    
+     // Add real-time validation for weekends
+    dateInput.addEventListener('input', function() {
+        // Add T00:00:00 to handle timezone differences correctly
+        const selectedDate = new Date(this.value + 'T00:00:00');
+        if (isWeekend(selectedDate)) {
+            showNotification('Appointments are not available on weekends. Please select a weekday.', 'error');
+            this.style.borderColor = "#ef4444";
+            this.value = ''; // Clear invalid selection
+        } else {
+            this.style.borderColor = "";
+        }
+    });
   }
 }
 
@@ -344,7 +411,9 @@ function showStep(step) {
   if (submitBtn) submitBtn.style.display = step === totalSteps ? "inline-block" : "none"
 
   // Reapply date restrictions whenever step changes (ensures calendar is properly restricted)
-  applyDateRestrictions()
+  if (step === 1 || step === 4) {
+    applyDateRestrictions();
+  }
 }
 
 async function nextStep() {
@@ -378,119 +447,122 @@ function prevStep() {
 }
 
 async function validateStep(step) {
-  const stepElement = document.getElementById(`step${step}`)
-  if (!stepElement) return false
+  const stepElement = document.getElementById(`step${step}`);
+  if (!stepElement) return false;
 
-  const requiredInputs = stepElement.querySelectorAll("[required]")
-  let isValid = true
+  // --- Start of new, prioritized validation logic ---
 
-  // Basic required field validation
-  for (const input of requiredInputs) {
-    if (!input.value.trim()) {
-      input.style.borderColor = "#ef4444"
-      isValid = false
-
-      setTimeout(() => {
-        input.style.borderColor = ""
-      }, 3000)
-    } else {
-      input.style.borderColor = ""
-    }
-  }
-
-  // Step 1 specific validation
+  // Step 1: Perform specific format/value validations first.
   if (step === 1) {
-    const emailInput = document.getElementById("newApplicantEmail")
-    const dobInput = document.getElementById("newApplicantDOB")
+    const emailInput = document.getElementById("newApplicantEmail");
+    const dobInput = document.getElementById("newApplicantDOB");
+    const phoneInput = document.getElementById("newApplicantPhone");
 
     // Validate email format
     if (emailInput && emailInput.value) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailInput.value)) {
-        showNotification("Please enter a valid email address", "error")
-        emailInput.style.borderColor = "#ef4444"
-        return false
+        showNotification("Please enter a valid email address", "error");
+        emailInput.style.borderColor = "#ef4444";
+        return false;
       }
-
       // Check email availability
-      const emailAvailable = await checkEmailAvailabilityForNewApplicant(emailInput.value, emailInput)
+      const emailAvailable = await checkEmailAvailabilityForNewApplicant(emailInput.value, emailInput);
       if (!emailAvailable) {
-        return false
+        return false;
       }
     }
 
     // Validate date of birth
     if (dobInput && dobInput.value) {
-      const dob = new Date(dobInput.value)
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const minDate = new Date()
-      minDate.setFullYear(minDate.getFullYear() - 120)
-      minDate.setHours(0, 0, 0, 0)
-
-      if (dob > today) {
-        showNotification("Date of birth cannot be in the future", "error")
-        dobInput.style.borderColor = "#ef4444"
-        return false
+      const dob = new Date(dobInput.value);
+      if (isNaN(dob.getTime())) {
+        showNotification("Please enter a valid and complete date of birth", "error");
+        dobInput.style.borderColor = "#ef4444";
+        return false;
       }
-
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const minDate = new Date();
+      minDate.setFullYear(minDate.getFullYear() - 120);
+      minDate.setHours(0, 0, 0, 0);
+      if (dob > today) {
+        showNotification("Date of birth cannot be in the future", "error");
+        dobInput.style.borderColor = "#ef4444";
+        return false;
+      }
       if (dob < minDate) {
-        showNotification("Please enter a valid date of birth", "error")
-        dobInput.style.borderColor = "#ef4444"
-        return false
+        showNotification("Please enter a valid date of birth", "error");
+        dobInput.style.borderColor = "#ef4444";
+        return false;
       }
     }
 
     // Validate phone number format
-    const phoneInput = document.getElementById("newApplicantPhone")
     if (phoneInput && phoneInput.value) {
-      const phoneRegex = /^[0-9]{10,11}$/
+      const phoneRegex = /^[0-9]{10,11}$/;
       if (!phoneRegex.test(phoneInput.value.replace(/[\s\-()]/g, ""))) {
-        showNotification("Please enter a valid 10-11 digit phone number", "error")
-        phoneInput.style.borderColor = "#ef4444"
-        return false
+        showNotification("Please enter a valid 10-11 digit phone number", "error");
+        phoneInput.style.borderColor = "#ef4444";
+        return false;
       }
     }
   }
 
-  // Step 4 specific validation
+  // Step 4: Specific validation for preferred date
   if (step === 4) {
-    const dateInput = document.getElementById("newApplicantPreferredDate")
-
+    const dateInput = document.getElementById("newApplicantPreferredDate");
     if (dateInput && dateInput.value) {
-      const selectedDate = new Date(dateInput.value)
-      selectedDate.setHours(0, 0, 0, 0)
-
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const tomorrow = new Date(today)
-      tomorrow.setDate(tomorrow.getDate() + 1)
+      const selectedDate = new Date(dateInput.value + 'T00:00:00');
+      selectedDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
       if (selectedDate <= today) {
-        showNotification("Appointment date must be at least tomorrow", "error")
-        dateInput.style.borderColor = "#ef4444"
-        return false
+        showNotification("Appointment date must be in the future", "error");
+        dateInput.style.borderColor = "#ef4444";
+        return false;
       }
-
-      const maxDate = new Date(today)
-      maxDate.setDate(maxDate.getDate() + 30)
-
+      if (isWeekend(selectedDate)) {
+        showNotification("Appointments are not available on weekends. Please select a weekday.", "error");
+        dateInput.style.borderColor = "#ef4444";
+        return false;
+      }
+      const maxDate = new Date(today);
+      maxDate.setMonth(maxDate.getMonth() + 2);
       if (selectedDate > maxDate) {
-        showNotification("Appointment date cannot be more than 30 days from today", "error")
-        dateInput.style.borderColor = "#ef4444"
-        return false
+        showNotification("Appointment date cannot be more than 2 months from today", "error");
+        dateInput.style.borderColor = "#ef4444";
+        return false;
       }
     }
   }
 
-  if (!isValid) {
-    showNotification("Please fill in all required fields", "error")
+  // Step 2: If all specific validations passed, now check for empty required fields.
+  const requiredInputs = stepElement.querySelectorAll("[required]");
+  let allFieldsFilled = true;
+  for (const input of requiredInputs) {
+    if (!input.value.trim()) {
+      input.style.borderColor = "#ef4444";
+      allFieldsFilled = false;
+      setTimeout(() => {
+        input.style.borderColor = "";
+      }, 3000);
+    } else {
+      // Clear border if it was previously marked as invalid but is now filled
+      input.style.borderColor = "";
+    }
   }
 
-  return isValid
+  if (!allFieldsFilled) {
+    showNotification("Please fill in all required fields", "error");
+    return false;
+  }
+
+  // --- End of new logic ---
+  return true; // If we reached here, the step is valid.
 }
+
 
 async function handleNewApplication(event) {
   event.preventDefault()
@@ -1122,11 +1194,6 @@ function closeModal(modalId) {
   document.getElementById(modalId).style.display = "none"
 }
 
-function initializeDateRestrictions() {
-  // This function is called on page load
-  // Date restrictions are now applied dynamically when modals open via applyDateRestrictions()
-}
-
 function initializeModals() {
   // Close modals when clicking outside
   window.onclick = (event) => {
@@ -1149,6 +1216,7 @@ function formatDate(dateString) {
 }
 
 function formatTime(timeString) {
+  if (!timeString) return '';
   const [hours, minutes] = timeString.split(":")
   const date = new Date()
   date.setHours(Number.parseInt(hours), Number.parseInt(minutes))

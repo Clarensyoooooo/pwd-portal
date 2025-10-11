@@ -9,9 +9,30 @@ require_once 'config.php';
     <title>PWD Portal - Empowering the PWD Community</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Styles for input validation feedback */
+        .form-group {
+            position: relative;
+            /* Adjust bottom margin to make space for the error message */
+            margin-bottom: 2rem; 
+        }
+        .input-error-message {
+            color: #ef4444; /* Red-500 */
+            font-size: 0.875rem; /* 14px */
+            font-weight: 500;
+            position: absolute;
+            bottom: -1.5rem; /* Position it below the input field */
+            left: 0;
+            width: 100%;
+        }
+        input.input-error, select.input-error, textarea.input-error {
+            border-color: #ef4444 !important; /* Make error border prominent */
+            box-shadow: 0 0 0 1px #ef4444;
+        }
+    </style>
 </head>
 <body>
-     Header 
+    <!-- Header -->
     <header class="header">
         <div class="top-bar">
             <div class="container">
@@ -45,7 +66,7 @@ require_once 'config.php';
         </nav>
     </header>
 
-     Hero Section 
+    <!-- Hero Section -->
     <section class="hero" id="home">
         <div class="container">
             <div class="hero-content">
@@ -66,7 +87,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     PWD ID Application Process 
+    <!-- PWD ID Application Process -->
     <section class="application-process" id="services">
         <div class="container">
             <h2>PWD ID Application Process</h2>
@@ -99,7 +120,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     Track Appointment 
+    <!-- Track Appointment -->
     <section class="track-appointment">
         <div class="container">
             <div class="track-header">
@@ -108,7 +129,7 @@ require_once 'config.php';
             </div>
             
             <div class="tracking-layout">
-                 Left Side - Requirements and Input 
+                <!-- Left Side - Requirements and Input -->
                 <div class="tracking-left">
                     <div class="tracking-input-section">
                         <h3>Appointment Reference Number</h3>
@@ -131,22 +152,22 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                 Right Side - Appointment Status 
+                <!-- Right Side - Appointment Status -->
                 <div class="tracking-right">
                     <div class="appointment-status-section" id="appointmentStatusSection" style="display: none;">
                         <h3>Appointment Status</h3>
                         
-                         Status Progress 
+                        <!-- Status Progress -->
                         <div class="status-progress" id="statusProgress">
-                             Will be populated by JavaScript 
+                            <!-- Will be populated by JavaScript -->
                         </div>
 
-                         Appointment Details 
+                        <!-- Appointment Details -->
                         <div class="appointment-details-card" id="appointmentDetailsCard">
-                             Will be populated by JavaScript 
+                            <!-- Will be populated by JavaScript -->
                         </div>
 
-                         SMS Verification Section 
+                        <!-- SMS Verification Section -->
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
                             <h4>SMS Verification Required</h4>
                             <p>Please enter the 6-digit code sent to your phone:</p>
@@ -156,18 +177,18 @@ require_once 'config.php';
                             </div>
                         </div>
 
-                         Final Confirmation Box 
+                        <!-- Final Confirmation Box -->
                         <div class="final-confirmation" id="finalConfirmation" style="display: none;">
-                             Will be populated by JavaScript 
+                            <!-- Will be populated by JavaScript -->
                         </div>
 
-                         Appointment Timeline 
+                        <!-- Appointment Timeline -->
                         <div class="appointment-timeline" id="appointmentTimeline">
-                             Will be populated by JavaScript 
+                            <!-- Will be populated by JavaScript -->
                         </div>
                     </div>
 
-                     Default message when no tracking 
+                    <!-- Default message when no tracking -->
                     <div class="no-tracking-message" id="noTrackingMessage">
                         <div class="no-tracking-content">
                             <i class="fas fa-search"></i>
@@ -180,7 +201,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     Programs and Initiatives 
+    <!-- Programs and Initiatives -->
     <section class="programs-section" id="programs">
         <div class="container">
             <h2>Programs and Initiatives</h2>
@@ -267,7 +288,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     Partner Organizations 
+    <!-- Partner Organizations -->
     <section class="partners-section" id="organizations">
         <div class="container">
             <h2>Partner Organizations</h2>
@@ -325,7 +346,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     FAQ Section 
+    <!-- FAQ Section -->
     <section class="faq-section">
         <div class="container">
             <h2>Frequently Asked Questions</h2>
@@ -388,7 +409,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     Feedback Section 
+    <!-- Feedback Section -->
     <section class="feedback-section" id="contact">
         <div class="container">
             <h2>Share Your Feedback</h2>
@@ -474,7 +495,7 @@ require_once 'config.php';
         </div>
     </section>
 
-     Footer 
+    <!-- Footer -->
     <footer class="footer" id="about">
         <div class="container">
             <div class="footer-content">
@@ -532,7 +553,7 @@ require_once 'config.php';
         </div>
     </footer>
 
-     Terms and Conditions Modal 
+    <!-- Terms and Conditions Modal -->
     <div id="termsModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -631,7 +652,7 @@ require_once 'config.php';
         </div>
     </div>
 
-     PWD Status Check Modal 
+    <!-- PWD Status Check Modal -->
     <div id="pwdStatusModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -656,7 +677,7 @@ require_once 'config.php';
         </div>
     </div>
 
-     Existing PWD Email Verification Modal 
+    <!-- Existing PWD Email Verification Modal -->
     <div id="existingPWDModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -674,7 +695,7 @@ require_once 'config.php';
         </div>
     </div>
 
-     Renewal/Update Appointment Modal 
+    <!-- Renewal/Update Appointment Modal -->
     <div id="renewalUpdateModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -716,8 +737,8 @@ require_once 'config.php';
                     <h3>Schedule</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="renewalDate">Preferred Date *</label>
-                            <input type="date" id="renewalDate" name="preferred_date" required>
+                            <label for="renewalPreferredDate">Preferred Date *</label>
+                            <input type="date" id="renewalPreferredDate" name="preferred_date" required>
                         </div>
                         <div class="form-group">
                             <label for="renewalTime">Preferred Time *</label>
@@ -742,7 +763,7 @@ require_once 'config.php';
         </div>
     </div>
 
-     New Applicant Progress Form Modal 
+    <!-- New Applicant Progress Form Modal -->
     <div id="newApplicantModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -750,7 +771,7 @@ require_once 'config.php';
                 <span class="close" onclick="closeModal('newApplicantModal')">&times;</span>
             </div>
             
-             Progress Bar 
+            <!-- Progress Bar -->
             <div class="progress-container">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressBar"></div>
@@ -777,17 +798,17 @@ require_once 'config.php';
             </div>
 
             <form id="newApplicantForm" onsubmit="handleNewApplication(event)">
-                 Step 1: Personal Information 
+                <!-- Step 1: Personal Information -->
                 <div id="step1" class="form-step">
                     <h3>Personal Information</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="newFirstName">First Name *</label>
-                            <input type="text" id="newFirstName" name="first_name" required>
+                            <label for="newApplicantFirstName">First Name *</label>
+                            <input type="text" id="newApplicantFirstName" name="first_name" required>
                         </div>
                         <div class="form-group">
-                            <label for="newLastName">Last Name *</label>
-                            <input type="text" id="newLastName" name="last_name" required>
+                            <label for="newApplicantLastName">Last Name *</label>
+                            <input type="text" id="newApplicantLastName" name="last_name" required>
                         </div>
                     </div>
                     <div class="form-row">
@@ -796,21 +817,21 @@ require_once 'config.php';
                             <input type="email" id="newApplicantEmail" name="email" required>
                         </div>
                         <div class="form-group">
-                            <label for="newPhone">Phone Number *</label>
-                            <input type="tel" id="newPhone" name="phone" required placeholder="+63 912 345 6789">
+                            <label for="newApplicantPhone">Phone Number *</label>
+                            <input type="tel" id="newApplicantPhone" name="phone" required placeholder="+63 912 345 6789">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="newDateOfBirth">Date of Birth *</label>
-                        <input type="date" id="newDateOfBirth" name="date_of_birth" required>
+                        <label for="newApplicantDOB">Date of Birth *</label>
+                        <input type="date" id="newApplicantDOB" name="date_of_birth" required>
                     </div>
                     <div class="form-group">
-                        <label for="newAddress">Complete Address *</label>
-                        <textarea id="newAddress" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
+                        <label for="newApplicantAddress">Complete Address *</label>
+                        <textarea id="newApplicantAddress" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
                     </div>
                 </div>
 
-                 Step 2: Disability Information 
+                <!-- Step 2: Disability Information -->
                 <div id="step2" class="form-step" style="display: none;">
                     <h3>Disability Information</h3>
                     <div class="form-group">
@@ -839,7 +860,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                 Step 3: Emergency Contact 
+                <!-- Step 3: Emergency Contact -->
                 <div id="step3" class="form-step" style="display: none;">
                     <h3>Emergency Contact Information</h3>
                     <div class="form-row">
@@ -858,7 +879,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                 Step 4: Schedule Appointment 
+                <!-- Step 4: Schedule Appointment -->
                 <div id="step4" class="form-step" style="display: none;">
                     <h3>Schedule Your Appointment</h3>
                     <div class="form-group">
@@ -868,12 +889,12 @@ require_once 'config.php';
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="newPreferredDate">Preferred Date *</label>
-                            <input type="date" id="newPreferredDate" name="preferred_date" required>
+                            <label for="newApplicantPreferredDate">Preferred Date *</label>
+                            <input type="date" id="newApplicantPreferredDate" name="preferred_date" required>
                         </div>
                         <div class="form-group">
-                            <label for="newPreferredTime">Preferred Time *</label>
-                            <select id="newPreferredTime" name="preferred_time" required>
+                            <label for="newApplicantPreferredTime">Preferred Time *</label>
+                            <select id="newApplicantPreferredTime" name="preferred_time" required>
                                 <option value="">Select time</option>
                                 <option value="09:00:00">9:00 AM</option>
                                 <option value="10:00:00">10:00 AM</option>
@@ -885,8 +906,8 @@ require_once 'config.php';
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="newNotes">Additional Notes (Optional)</label>
-                        <textarea id="newNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
+                        <label for="newApplicantNotes">Additional Notes (Optional)</label>
+                        <textarea id="newApplicantNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
                     </div>
                     <div class="info-box success">
                         <i class="fas fa-check-circle"></i>
@@ -894,7 +915,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                 Form Navigation 
+                <!-- Form Navigation -->
                 <div class="form-navigation">
                     <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
                         <i class="fas fa-arrow-left"></i> Previous
@@ -910,7 +931,7 @@ require_once 'config.php';
         </div>
     </div>
 
-     Program Details Modal 
+    <!-- Program Details Modal -->
     <div id="programModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -918,7 +939,7 @@ require_once 'config.php';
                 <span class="close" onclick="closeModal('programModal')">&times;</span>
             </div>
             <div id="programModalContent" class="program-modal-body">
-                 Will be populated by JavaScript 
+                <!-- Will be populated by JavaScript -->
             </div>
         </div>
     </div>

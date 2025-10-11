@@ -178,6 +178,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'start_interview':
             handleStartInterview();
             break;
+        case 'mark_completed':
+            handleMarkCompleted();
+            break;
         case 'update_appointment':
             handleUpdateAppointment();
             break;
@@ -205,7 +208,15 @@ function canStartInterview($appointment) {
     
     return $appointment['status'] === 'confirmed' 
         && $appointment_date === $today 
-        && !$appointment['interview_id'];
+        && !$appointment['interview_id']
+        && $appointment['appointment_type'] === 'new_application';
+}
+
+// Helper function to check if renewal/update can be completed
+function canMarkCompleted($appointment) {
+    return in_array($appointment['appointment_type'], ['renewal', 'update_information'])
+        && $appointment['status'] === 'confirmed'
+        && !$appointment['pwd_id_number'];
 }
 
 // Get appointments with enhanced filters
@@ -282,11 +293,11 @@ $total_pages = ceil($total_appointments / $per_page);
 $stmt = $pdo->prepare("
     SELECT a.*, u.first_name, u.last_name, u.phone, u.email, u.address, u.disability_type,
            ir.id as interview_id, ir.status as interview_status,
-           pr.pwd_id_number, pr.status as record_status
+           pr.pwd_id_number, pr.status as record_status, pr.id as record_id
     FROM appointments a 
     JOIN users u ON a.user_id = u.id 
     LEFT JOIN interview_records ir ON a.id = ir.appointment_id
-    LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+    LEFT JOIN pwd_records pr ON a.user_id = pr.user_id
     {$where_clause}
     ORDER BY a.created_at DESC
     LIMIT {$per_page} OFFSET {$offset}
@@ -340,6 +351,68 @@ function handleStartInterview() {
         
     } catch (PDOException $e) {
         adminJsonResponse(['error' => 'Failed to start interview: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleMarkCompleted() {
+    global $pdo;
+    requirePermission($pdo, 'appointments.edit');
+    
+    $appointment_id = $_POST['appointment_id'] ?? '';
+    
+    if (empty($appointment_id)) {
+        adminJsonResponse(['error' => 'Appointment ID is required'], 400);
+    }
+    
+    try {
+        // Get appointment details
+        $stmt = $pdo->prepare("
+            SELECT a.*, u.id as user_id, pr.id as record_id
+            FROM appointments a
+            JOIN users u ON a.user_id = u.id
+            LEFT JOIN pwd_records pr ON u.id = pr.user_id
+            WHERE a.id = ?
+        ");
+        $stmt->execute([$appointment_id]);
+        $appointment = $stmt->fetch();
+        
+        if (!$appointment) {
+            adminJsonResponse(['error' => 'Appointment not found'], 404);
+        }
+        
+        // Verify it's a renewal or update
+        if (!in_array($appointment['appointment_type'], ['renewal', 'update_information'])) {
+            adminJsonResponse(['error' => 'This action is only available for renewal/update appointments'], 400);
+        }
+        
+        // Check if PWD record exists
+        if (!$appointment['record_id']) {
+            adminJsonResponse(['error' => 'No PWD record found for this user'], 400);
+        }
+        
+        // Mark appointment as completed
+        $stmt = $pdo->prepare("
+            UPDATE appointments 
+            SET status = 'completed', 
+                notes = CONCAT(COALESCE(notes, ''), '\n', 'Marked as completed by admin on ', NOW()),
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([$appointment_id]);
+        
+        logAdminActivity($pdo, 'complete', 'appointments', 'appointment', $appointment_id, [
+            'appointment_type' => $appointment['appointment_type'],
+            'record_id' => $appointment['record_id']
+        ]);
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => 'Appointment marked as completed',
+            'redirect_url' => "records.php?highlight={$appointment['record_id']}"
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to mark as completed: ' . $e->getMessage()], 500);
     }
 }
 
@@ -470,7 +543,6 @@ function handleDeleteAppointment() {
         
         // Delete related records first (if any)
         $pdo->prepare("DELETE FROM interview_records WHERE appointment_id = ?")->execute([$appointment_id]);
-        $pdo->prepare("DELETE FROM pwd_records WHERE appointment_id = ?")->execute([$appointment_id]);
         
         // Delete the appointment
         $stmt = $pdo->prepare("DELETE FROM appointments WHERE id = ?");
@@ -507,7 +579,7 @@ function handleGetAppointmentDetails() {
             FROM appointments a 
             JOIN users u ON a.user_id = u.id 
             LEFT JOIN interview_records ir ON a.id = ir.appointment_id
-            LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+            LEFT JOIN pwd_records pr ON a.user_id = pr.user_id
             LEFT JOIN admin_users au ON ir.interviewer_id = au.id
             WHERE a.id = ?
         ");
@@ -557,7 +629,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Today's and Tomorrow's Appointments Cards -->
+         Today's and Tomorrow's Appointments Cards 
         <div class="quick-access-cards">
             <?php
             // Get today's appointments
@@ -568,7 +640,7 @@ function handleGetAppointmentDetails() {
                 FROM appointments a 
                 JOIN users u ON a.user_id = u.id 
                 LEFT JOIN interview_records ir ON a.id = ir.appointment_id
-                LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+                LEFT JOIN pwd_records pr ON a.user_id = pr.user_id
                 WHERE DATE(a.preferred_date) = CURDATE() 
                 AND a.status NOT IN ('cancelled')
                 ORDER BY a.preferred_time ASC
@@ -584,7 +656,7 @@ function handleGetAppointmentDetails() {
                 FROM appointments a 
                 JOIN users u ON a.user_id = u.id 
                 LEFT JOIN interview_records ir ON a.id = ir.appointment_id
-                LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+                LEFT JOIN pwd_records pr ON a.user_id = pr.user_id
                 WHERE DATE(a.preferred_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
                 AND a.status NOT IN ('cancelled')
                 ORDER BY a.preferred_time ASC
@@ -641,7 +713,11 @@ function handleGetAppointmentDetails() {
                                 </div>
                                 <div class="appointment-actions">
                                     <?php if ($apt['status'] !== 'cancelled'): ?>
-                                        <?php if ($apt['interview_id'] && $apt['record_status'] !== 'issued'): ?>
+                                        <?php if (in_array($apt['appointment_type'], ['renewal', 'update_information']) && !$apt['pwd_id_number']): ?>
+                                            <button class="btn btn-xs btn-success" onclick="markCompleted(<?php echo $apt['id']; ?>)" title="Mark as Completed">
+                                                <i class="fas fa-check-double"></i>
+                                            </button>
+                                        <?php elseif ($apt['interview_id'] && $apt['record_status'] !== 'issued'): ?>
                                             <a href="interview.php?id=<?php echo $apt['interview_id']; ?>" class="btn btn-xs btn-primary" title="Continue">
                                                 <i class="fas fa-arrow-right"></i>
                                             </a>
@@ -710,7 +786,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Statistics Cards -->
+         Statistics Cards 
         <div class="stats-grid">
             <?php
             $stats_query = "
@@ -767,7 +843,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Enhanced Filters -->
+         Enhanced Filters 
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -828,7 +904,7 @@ function handleGetAppointmentDetails() {
             </form>
         </div>
         
-        <!-- Appointments Table -->
+         Appointments Table 
         <div class="data-card">
             <div class="card-header">
                 <h3>Appointment List</h3>
@@ -906,55 +982,62 @@ function handleGetAppointmentDetails() {
                                             </span>
                                         <?php else: ?>
                                             <span class="progress-badge awaiting">
-                                                <i class="fas fa-calendar-clock"></i> Awaiting Interview
+                                                <i class="fas fa-calendar-clock"></i> Awaiting Processing
                                             </span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <!-- View Details - Always available -->
+                                         View Details - Always available 
                                         <button class="btn btn-sm btn-primary" onclick="viewAppointment(<?php echo $appointment['id']; ?>)" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         
                                         <?php if ($appointment['status'] !== 'cancelled'): ?>
-                                            <!-- Edit - Only if not cancelled and not completed -->
+                                             Edit - Only if not cancelled and not completed 
                                             <?php if (hasPermission($pdo, 'appointments.edit') && $appointment['record_status'] !== 'issued'): ?>
                                                 <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)" title="Edit">
                                                     <i class="fas fa-edit"></i>
                                                 </button>
                                             <?php endif; ?>
                                             
-                                            <!-- Reschedule - Only if not cancelled, not completed, and record not issued -->
+                                             Reschedule - Only if not cancelled, not completed, and record not issued 
                                             <?php if (hasPermission($pdo, 'appointments.edit') && !in_array($appointment['status'], ['completed', 'cancelled']) && $appointment['record_status'] !== 'issued'): ?>
                                                 <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
                                                     <i class="fas fa-calendar-alt"></i>
                                                 </button>
                                             <?php endif; ?>
                                             
-                                            <!-- Start Interview - Only if confirmed, today's date matches, and no interview started -->
+                                             Mark as Completed - Only for renewal/update appointments 
+                                            <?php if (hasPermission($pdo, 'appointments.edit') && canMarkCompleted($appointment)): ?>
+                                                <button class="btn btn-sm btn-success" onclick="markCompleted(<?php echo $appointment['id']; ?>)" title="Mark as Completed">
+                                                    <i class="fas fa-check-double"></i>
+                                                </button>
+                                            <?php endif; ?>
+                                            
+                                             Start Interview - Only for new applications 
                                             <?php if (hasPermission($pdo, 'appointments.interview') && canStartInterview($appointment)): ?>
                                                 <button class="btn btn-sm btn-success" onclick="startInterview(<?php echo $appointment['id']; ?>)" title="Start Interview">
                                                     <i class="fas fa-play"></i>
                                                 </button>
                                             <?php endif; ?>
                                             
-                                            <!-- Continue Interview - Only if interview exists and record not completed -->
+                                             Continue Interview - Only if interview exists and record not completed 
                                             <?php if ($appointment['interview_id'] && $appointment['record_status'] !== 'issued'): ?>
-                                                <a href="interview.php?id=<?php echo $apt['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
+                                                <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
                                                     <i class="fas fa-arrow-right"></i>
                                                 </a>
                                             <?php endif; ?>
                                             
-                                            <!-- Cancel - Only if not cancelled and record not issued -->
+                                             Cancel - Only if not cancelled and record not issued 
                                             <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['record_status'] !== 'issued'): ?>
                                                 <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)" title="Cancel">
                                                     <i class="fas fa-times"></i>
                                                 </button>
                                             <?php endif; ?>
                                         <?php else: ?>
-                                            <!-- For cancelled appointments, only show delete option if permitted -->
+                                             For cancelled appointments, only show delete option if permitted 
                                             <?php if (hasPermission($pdo, 'appointments.delete')): ?>
                                                 <button class="btn btn-sm btn-danger" onclick="deleteAppointment(<?php echo $appointment['id']; ?>)" title="Delete">
                                                     <i class="fas fa-trash"></i>
@@ -978,7 +1061,7 @@ function handleGetAppointmentDetails() {
                 </table>
             </div>
             
-            <!-- Pagination -->
+             Pagination 
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
@@ -1002,7 +1085,7 @@ function handleGetAppointmentDetails() {
         </div>
     </main>
     
-    <!-- View Appointment Modal -->
+     View Appointment Modal 
     <div id="appointmentModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
@@ -1010,12 +1093,12 @@ function handleGetAppointmentDetails() {
                 <button class="modal-close" onclick="closeModal('appointmentModal')">&times;</button>
             </div>
             <div class="modal-body" id="appointmentModalBody">
-                <!-- Content will be loaded dynamically -->
+                 Content will be loaded dynamically 
             </div>
         </div>
     </div>
     
-    <!-- Edit Appointment Modal -->
+     Edit Appointment Modal 
     <div id="editModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1051,7 +1134,7 @@ function handleGetAppointmentDetails() {
         </div>
     </div>
     
-    <!-- Reschedule Modal -->
+     Reschedule Modal 
     <div id="rescheduleModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1113,6 +1196,35 @@ function handleGetAppointmentDetails() {
                 })
                 .catch(error => {
                     showNotification('Failed to start interview', 'error');
+                });
+            }
+        }
+        
+        // Mark as completed (for renewal/update)
+        function markCompleted(appointmentId) {
+            if (confirm('Mark this renewal/update appointment as completed? This will redirect to the PWD records page.')) {
+                fetch('appointments.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=mark_completed&appointment_id=${appointmentId}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(data.message, 'success');
+                        if (data.redirect_url) {
+                            setTimeout(() => window.location.href = data.redirect_url, 1000);
+                        } else {
+                            setTimeout(() => location.reload(), 1000);
+                        }
+                    } else {
+                        showNotification(data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Failed to mark as completed', 'error');
                 });
             }
         }
@@ -1302,6 +1414,8 @@ function handleGetAppointmentDetails() {
         
         // Edit appointment
         function editAppointment(appointmentId) {
+            // First get appointment details
+            fetch('appointments.  {
             // First get appointment details
             fetch('appointments.php', {
                 method: 'POST',

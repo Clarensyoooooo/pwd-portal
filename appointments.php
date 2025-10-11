@@ -205,21 +205,26 @@ function handleRenewalUpdate() {
         jsonResponse(['error' => 'Invalid appointment type for existing PWD'], 400);
     }
     
-    // Validate date is not in the past or today
     $preferred_date = $_POST['preferred_date'];
     $today = date('Y-m-d');
-    $tomorrow = date('Y-m-d', strtotime('+1 day'));
     
+    // Validate date is in the future
     if ($preferred_date <= $today) {
-        jsonResponse(['error' => 'Appointment date must be at least tomorrow'], 400);
+        jsonResponse(['error' => 'Appointment date must be in the future'], 400);
     }
     
-    // Validate date is not more than 30 days from today
-    $maxDate = date('Y-m-d', strtotime('+30 days'));
+    // Validate date is not more than 2 months from today
+    $maxDate = date('Y-m-d', strtotime('+2 months'));
     if ($preferred_date > $maxDate) {
-        jsonResponse(['error' => 'Appointment date cannot be more than 30 days from today'], 400);
+        jsonResponse(['error' => 'Appointment date cannot be more than 2 months from today'], 400);
     }
-    
+
+    // Validate date is not a weekend
+    $preferred_date_day = date('N', strtotime($preferred_date));
+    if ($preferred_date_day >= 6) { // 6 is Saturday, 7 is Sunday
+        jsonResponse(['error' => 'Appointments are not available on weekends. Please select a weekday.'], 400);
+    }
+
     try {
         $pdo->beginTransaction();
         
@@ -301,32 +306,47 @@ function handleNewApplication() {
         jsonResponse(['error' => 'Please enter a valid email address'], 400);
     }
     
-    // Validate date of birth
-    $dob = $_POST['date_of_birth'];
-    $dobDate = strtotime($dob);
-    $today = strtotime(date('Y-m-d'));
-    $minDate = strtotime('-120 years');
-    
-    if ($dobDate > $today) {
-        jsonResponse(['error' => 'Date of birth cannot be in the future'], 400);
+    // Validate date of birth using DateTime for robustness
+    try {
+        $dob = $_POST['date_of_birth'];
+        $dobDate = new DateTime($dob);
+        $today = new DateTime();
+        $minDate = (new DateTime())->sub(new DateInterval('P120Y'));
+        
+        if ($dobDate > $today) {
+            jsonResponse(['error' => 'Date of birth cannot be in the future'], 400);
+        }
+        
+        if ($dobDate < $minDate) {
+            jsonResponse(['error' => 'Please enter a valid date of birth (not more than 120 years ago)'], 400);
+        }
+    } catch (Exception $e) {
+         jsonResponse(['error' => 'Invalid date of birth format'], 400);
     }
+
     
-    if ($dobDate < $minDate) {
-        jsonResponse(['error' => 'Please enter a valid date of birth'], 400);
-    }
-    
-    // Validate appointment date
-    $preferred_date = $_POST['preferred_date'];
-    $preferredDateTime = strtotime($preferred_date);
-    $tomorrow = strtotime('+1 day', strtotime(date('Y-m-d')));
-    $maxDate = strtotime('+30 days', strtotime(date('Y-m-d')));
-    
-    if ($preferredDateTime < $tomorrow) {
-        jsonResponse(['error' => 'Appointment date must be at least tomorrow'], 400);
-    }
-    
-    if ($preferredDateTime > $maxDate) {
-        jsonResponse(['error' => 'Appointment date cannot be more than 30 days from today'], 400);
+    // Validate appointment date using DateTime
+    try {
+        $preferred_date = $_POST['preferred_date'];
+        $preferredDateTime = new DateTime($preferred_date);
+        $tomorrow = (new DateTime('today'))->add(new DateInterval('P1D'));
+        $maxDate = (new DateTime('today'))->add(new DateInterval('P2M'));
+        
+        if ($preferredDateTime < $tomorrow) {
+            jsonResponse(['error' => 'Appointment date must be in the future'], 400);
+        }
+        
+        if ($preferredDateTime > $maxDate) {
+            jsonResponse(['error' => 'Appointment date cannot be more than 2 months from today'], 400);
+        }
+
+        // Validate date is not a weekend
+        $preferred_date_day = $preferredDateTime->format('N'); // 1 (for Monday) through 7 (for Sunday)
+        if ($preferred_date_day >= 6) { // 6 is Saturday, 7 is Sunday
+            jsonResponse(['error' => 'Appointments are not available on weekends. Please select a weekday.'], 400);
+        }
+    } catch (Exception $e) {
+        jsonResponse(['error' => 'Invalid appointment date format'], 400);
     }
     
     // Validate phone number
