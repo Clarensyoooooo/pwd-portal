@@ -58,36 +58,31 @@ function getRoleData($pdo) {
         return;
     }
     
-    try {
-        $stmt = $pdo->prepare("
-            SELECT id, name, display_name, description
-            FROM admin_roles
-            WHERE id = ?
-        ");
-        $stmt->execute([$role_id]);
-        $role = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$role) {
-            echo json_encode(['success' => false, 'message' => 'Role not found']);
-            return;
-        }
-        
-        // Get permissions for this role
-        $stmt = $pdo->prepare("
-            SELECT permission_id
-            FROM role_permissions
-            WHERE role_id = ?
-        ");
-        $stmt->execute([$role_id]);
-        $permissions = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'permission_id');
-        
-        $role['permissions'] = array_map('intval', $permissions);
-        
-        echo json_encode(['success' => true, 'role' => $role]);
-    } catch (PDOException $e) {
-        error_log("Get role error: " . $e->getMessage());
-        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+    $stmt = $pdo->prepare("
+        SELECT id, name, display_name, description
+        FROM admin_roles
+        WHERE id = ?
+    ");
+    $stmt->execute([$role_id]);
+    $role = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$role) {
+        echo json_encode(['success' => false, 'message' => 'Role not found']);
+        return;
     }
+    
+    // Get permissions for this role
+    $stmt = $pdo->prepare("
+        SELECT permission_id
+        FROM role_permissions
+        WHERE role_id = ?
+    ");
+    $stmt->execute([$role_id]);
+    $permissions = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'permission_id');
+    
+    $role['permissions'] = array_map('intval', $permissions);
+    
+    echo json_encode(['success' => true, 'role' => $role]);
 }
 
 function updateRole($pdo) {

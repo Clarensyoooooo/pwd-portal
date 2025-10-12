@@ -408,40 +408,6 @@ function handleGetBarangayRecords() {
     }
 }
 
-// Get PWD records with location data
-$stmt = $pdo->prepare("
-    SELECT id, pwd_id_number, first_name, last_name, disability_type, 
-           address_line1, city_municipality, province, latitude, longitude,
-           status, created_at
-    FROM pwd_records 
-    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-    ORDER BY created_at DESC
-");
-$stmt->execute();
-$pwd_locations = $stmt->fetchAll();
-
-// Get statistics
-$stats_query = "
-    SELECT 
-        COUNT(*) as total_records,
-        SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) as with_location,
-        COUNT(DISTINCT city_municipality) as cities,
-        COUNT(DISTINCT province) as provinces
-    FROM pwd_records
-";
-$stats = $pdo->query($stats_query)->fetch();
-
-// Get location distribution by city
-$city_stats = $pdo->query("
-    SELECT city_municipality, province, COUNT(*) as count,
-           AVG(latitude) as avg_lat, AVG(longitude) as avg_lng
-    FROM pwd_records 
-    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-    GROUP BY city_municipality, province
-    ORDER BY count DESC
-    LIMIT 20
-")->fetchAll();
-
 function handleExportGeoJSON() {
     global $pdo;
     requirePermission($pdo, 'gis.export');
@@ -555,6 +521,40 @@ function handleUpdateLocation() {
         adminJsonResponse(['error' => 'Failed to update location: ' . $e->getMessage()], 500);
     }
 }
+
+// Get PWD records with location data
+$stmt = $pdo->prepare("
+    SELECT id, pwd_id_number, first_name, last_name, disability_type, 
+           address_line1, city_municipality, province, latitude, longitude,
+           status, created_at, barangay_id
+    FROM pwd_records 
+    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    ORDER BY created_at DESC
+");
+$stmt->execute();
+$pwd_locations = $stmt->fetchAll();
+
+// Get statistics
+$stats_query = "
+    SELECT 
+        COUNT(*) as total_records,
+        SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) as with_location,
+        COUNT(DISTINCT city_municipality) as cities,
+        COUNT(DISTINCT province) as provinces
+    FROM pwd_records
+";
+$stats = $pdo->query($stats_query)->fetch();
+
+// Get location distribution by city
+$city_stats = $pdo->query("
+    SELECT city_municipality, province, COUNT(*) as count,
+           AVG(latitude) as avg_lat, AVG(longitude) as avg_lng
+    FROM pwd_records 
+    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    GROUP BY city_municipality, province
+    ORDER BY count DESC
+    LIMIT 20
+")->fetchAll();
 
 // Get barangay boundaries with proper GeoJSON conversion
 function getBarangayBoundaries() {
@@ -864,6 +864,20 @@ $last_import = $pdo->query("
         
         .checkbox-label input[type="checkbox"] {
             margin: 0;
+        }
+        
+        /* Barangay highlight styles */
+        .barangay-highlight {
+            animation: highlightPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes highlightPulse {
+            0%, 100% {
+                fill-opacity: 0.7;
+            }
+            50% {
+                fill-opacity: 0.9;
+            }
         }
         
         /* Map Legend */
@@ -1359,7 +1373,25 @@ $last_import = $pdo->query("
                 </div>
                 <div class="sidebar-content">
                     <div class="filter-section">
-                        <h4><i class="fas fa-search"></i> Filters</h4>
+                        <h4><i class="fas fa-map-marker-alt"></i> Location Filter</h4>
+                        <div class="filter-group">
+                            <label>Select Barangay</label>
+                            <select id="barangayFilter" onchange="filterByBarangay()">
+                                <option value="">All Barangays</option>
+                                <?php foreach ($barangay_boundaries as $barangay): ?>
+                                    <option value="<?php echo $barangay['id']; ?>">
+                                        <?php echo htmlspecialchars($barangay['barangay_name']); ?>
+                                        <?php if ($barangay['pwd_count']): ?>
+                                            (<?php echo $barangay['pwd_count']; ?> PWDs)
+                                        <?php endif; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h4><i class="fas fa-search"></i> Record Filters</h4>
                         <div class="filter-group">
                             <label>Disability Type</label>
                             <select id="disabilityFilter" onchange="filterMarkers()">
@@ -1409,6 +1441,9 @@ $last_import = $pdo->query("
                             </button>
                             <button class="btn btn-outline btn-sm" onclick="fitAllBoundaries()">
                                 <i class="fas fa-expand-arrows-alt"></i> Fit All
+                            </button>
+                            <button class="btn btn-outline btn-sm" onclick="clearBarangaySelection()" id="clearBarangayBtn" style="display: none; grid-column: 1 / -1;">
+                                <i class="fas fa-times-circle"></i> Clear Selection
                             </button>
                         </div>
                     </div>
@@ -1603,6 +1638,8 @@ $last_import = $pdo->query("
         let currentTab = 'overview';
         let detailedStats = null;
         let chartInstances = {}; // Store chart instances for proper cleanup
+        let selectedBarangayId = null;
+        let highlightedBarangayLayer = null;
 
         // Initialize the map
         document.addEventListener('DOMContentLoaded', function() {
@@ -1645,129 +1682,151 @@ $last_import = $pdo->query("
             console.log('Enhanced map initialized successfully');
         }
 
-        function loadBarangayBoundaries() {
-            console.log('Loading barangay boundaries...', barangayBoundaries.length);
-            
-            barangayLayers.forEach(layer => {
-                if (map.hasLayer(layer)) {
-                    map.removeLayer(layer);
-                }
-            });
-            barangayLayers = [];
-            
-            if (!showBoundaries) {
+        // Replace the loadBarangayBoundaries function with this corrected version:
+
+function loadBarangayBoundaries() {
+    console.log('Loading barangay boundaries...', barangayBoundaries.length);
+    
+    // Clear existing layers
+    barangayLayers.forEach(layer => {
+        if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+        }
+    });
+    barangayLayers = [];
+    
+    if (!showBoundaries) {
+        return;
+    }
+    
+    let loadedCount = 0;
+    
+    barangayBoundaries.forEach(function(barangay) {
+        try {
+            if (!barangay.geometry || !barangay.geometry.coordinates) {
                 return;
             }
             
-            let loadedCount = 0;
+            const feature = {
+                type: 'Feature',
+                geometry: barangay.geometry,
+                properties: {
+                    id: barangay.id,
+                    name: barangay.barangay_name,
+                    city: barangay.city_municipality,
+                    province: barangay.province,
+                    area: barangay.area_sqkm,
+                    population: barangay.population,
+                    pwd_count: barangay.pwd_count || 0
+                }
+            };
             
-            barangayBoundaries.forEach(function(barangay) {
-                try {
-                    if (!barangay.geometry || !barangay.geometry.coordinates) {
-                        return;
-                    }
-                    
-                    const feature = {
-                        type: 'Feature',
-                        geometry: barangay.geometry,
-                        properties: {
-                            id: barangay.id,
-                            name: barangay.barangay_name,
-                            city: barangay.city_municipality,
-                            province: barangay.province,
-                            area: barangay.area_sqkm,
-                            population: barangay.population,
-                            pwd_count: barangay.pwd_count || 0
-                        }
-                    };
-                    
-                    const layer = L.geoJSON(feature, {
-                        style: function(feature) {
-                            return getBarangayStyle(barangay);
-                        },
-                        onEachFeature: function(feature, layer) {
-                            const popupContent = `
-                                <div class="barangay-popup">
-                                    <h4>${barangay.barangay_name}</h4>
-                                    <p><strong>${barangay.city_municipality || 'Santo Tomas City'}</strong></p>
-                                    <p><i class="fas fa-map-marker-alt"></i> ${barangay.province || 'Batangas'}</p>
-                                    <div class="barangay-stats">
-                                        <div class="stat-item">
-                                            <span class="stat-label">PWD Records:</span>
-                                            <span class="stat-value">${barangay.pwd_count || 0}</span>
-                                        </div>
-                                        ${barangay.population ? `
-                                        <div class="stat-item">
-                                            <span class="stat-label">Population:</span>
-                                            <span class="stat-value">${parseInt(barangay.population).toLocaleString()}</span>
-                                        </div>
-                                        ` : ''}
-                                        ${barangay.area_sqkm ? `
-                                        <div class="stat-item">
-                                            <span class="stat-label">Area:</span>
-                                            <span class="stat-value">${parseFloat(barangay.area_sqkm).toFixed(2)} km²</span>
-                                        </div>
-                                        ` : ''}
-                                    </div>
-                                    <div class="popup-actions">
-                                        <button class="btn btn-sm btn-primary" onclick="viewBarangayRecords(${barangay.id}, '${barangay.barangay_name}')">
-                                            <i class="fas fa-users"></i> View PWDs (${barangay.pwd_count || 0})
-                                        </button>
-                                    </div>
+            const geoJsonLayer = L.geoJSON(feature, {
+                style: function(feature) {
+                    return getBarangayStyle(barangay);
+                },
+                onEachFeature: function(feature, layer) {
+                    const popupContent = `
+                        <div class="barangay-popup">
+                            <h4>${barangay.barangay_name}</h4>
+                            <p><strong>${barangay.city_municipality || 'Santo Tomas City'}</strong></p>
+                            <p><i class="fas fa-map-marker-alt"></i> ${barangay.province || 'Batangas'}</p>
+                            <div class="barangay-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">PWD Records:</span>
+                                    <span class="stat-value">${barangay.pwd_count || 0}</span>
                                 </div>
-                            `;
-                            
-                            layer.bindPopup(popupContent);
-                            
-                            layer.on('mouseover', function(e) {
-                                this.setStyle({
-                                    weight: 4,
-                                    fillOpacity: 0.8,
-                                    color: '#2c5aa0'
-                                });
-                                
-                                if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
-                                    layer.bringToFront();
-                                }
+                                ${barangay.population ? `
+                                <div class="stat-item">
+                                    <span class="stat-label">Population:</span>
+                                    <span class="stat-value">${parseInt(barangay.population).toLocaleString()}</span>
+                                </div>
+                                ` : ''}
+                                ${barangay.area_sqkm ? `
+                                <div class="stat-item">
+                                    <span class="stat-label">Area:</span>
+                                    <span class="stat-value">${parseFloat(barangay.area_sqkm).toFixed(2)} km²</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                            <div class="popup-actions">
+                                <button class="btn btn-sm btn-primary" onclick="viewBarangayRecords(${barangay.id}, '${barangay.barangay_name}')">
+                                    <i class="fas fa-users"></i> View PWDs (${barangay.pwd_count || 0})
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    layer.bindPopup(popupContent);
+                    
+                    layer.on('mouseover', function(e) {
+                        if (selectedBarangayId !== barangay.id) {
+                            this.setStyle({
+                                weight: 4,
+                                fillOpacity: 0.8,
+                                color: '#2c5aa0'
                             });
-                            
-                            layer.on('mouseout', function(e) {
-                                this.setStyle(getBarangayStyle(barangay));
-                            });
-                            
-                            layer.on('click', function(e) {
-                                layer.openPopup();
-                            });
+                        }
+                        
+                        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+                            layer.bringToFront();
                         }
                     });
                     
-                    barangayLayers.push(layer);
-                    layer.addTo(map);
-                    loadedCount++;
+                    layer.on('mouseout', function(e) {
+                        if (selectedBarangayId !== barangay.id) {
+                            this.setStyle(getBarangayStyle(barangay));
+                        }
+                    });
                     
-                } catch (error) {
-                    console.error('Error loading barangay boundary for', barangay.barangay_name, ':', error);
+                    layer.on('click', function(e) {
+                        layer.openPopup();
+                    });
                 }
             });
             
-            console.log(`Successfully loaded ${loadedCount} barangay boundaries`);
+            // IMPORTANT: Store the barangay ID on the geoJsonLayer object, not the feature layer
+            geoJsonLayer.barangayId = barangay.id;
             
-            const legend = document.getElementById('choroplethLegend');
-            if (legend) {
-                if (choroplethMode && showBoundaries) {
-                    legend.classList.add('show');
-                } else {
-                    legend.classList.remove('show');
-                }
-            }
+            barangayLayers.push(geoJsonLayer);
+            geoJsonLayer.addTo(map);
+            loadedCount++;
             
-            if (loadedCount > 0) {
-                showToast(`Successfully loaded ${loadedCount} barangay boundaries!`, 'success', 3000);
-            }
+        } catch (error) {
+            console.error('Error loading barangay boundary for', barangay.barangay_name, ':', error);
         }
+    });
+    
+    console.log(`Successfully loaded ${loadedCount} barangay boundaries`);
+    
+    const legend = document.getElementById('choroplethLegend');
+    if (legend) {
+        if (choroplethMode && showBoundaries) {
+            legend.classList.add('show');
+        } else {
+            legend.classList.remove('show');
+        }
+    }
+    
+    if (loadedCount > 0) {
+        showToast(`Successfully loaded ${loadedCount} barangay boundaries!`, 'success', 3000);
+    }
+}
 
         function getBarangayStyle(barangay) {
             const pwdCount = barangay.pwd_count || 0;
+            const isSelected = selectedBarangayId === barangay.id;
+            
+            if (isSelected) {
+                return {
+                    fillColor: '#fbbf24',
+                    weight: 4,
+                    opacity: 1,
+                    color: '#f59e0b',
+                    fillOpacity: 0.7,
+                    className: 'barangay-highlight'
+                };
+            }
             
             if (choroplethMode) {
                 const maxCount = Math.max(...barangayBoundaries.map(b => b.pwd_count || 0));
@@ -1799,6 +1858,147 @@ $last_import = $pdo->query("
             const index = Math.floor(intensity * (colors.length - 1));
             return colors[index] || colors[0];
         }
+
+        function filterByBarangay() {
+            const barangayId = document.getElementById('barangayFilter').value;
+            
+            if (!barangayId) {
+                clearBarangaySelection();
+                return;
+            }
+            
+            selectedBarangayId = parseInt(barangayId);
+            
+            // Find the selected barangay
+            const selectedBarangay = barangayBoundaries.find(b => b.id === selectedBarangayId);
+            
+            if (!selectedBarangay) {
+                showToast('Barangay not found', 'error');
+                return;
+            }
+            
+            // Highlight the selected barangay
+            highlightBarangay(selectedBarangayId);
+            
+            // Filter PWD locations to only show those in this barangay
+    filteredLocations = allPWDLocations.filter(location => {
+        // Filter locations that have a matching barangay_id
+        return location.barangay_id === selectedBarangayId;
+    });
+            
+            // Reload markers
+            loadMarkers();
+            
+            // Zoom to the barangay bounds
+            zoomToBarangay(selectedBarangayId);
+            
+            // Show clear button
+            document.getElementById('clearBarangayBtn').style.display = 'block';
+            
+            showToast(`Viewing ${selectedBarangay.barangay_name}`, 'info', 3000);
+        }
+
+        function highlightBarangay(barangayId) {
+    console.log('Highlighting barangay:', barangayId);
+    
+    // Reset all barangay styles first
+    barangayLayers.forEach(geoJsonLayer => {
+        const barangay = barangayBoundaries.find(b => b.id === geoJsonLayer.barangayId);
+        if (barangay) {
+            // Apply style to all feature layers within the GeoJSON layer
+            geoJsonLayer.eachLayer(function(layer) {
+                if (layer.setStyle) {
+                    layer.setStyle(getBarangayStyle(barangay));
+                }
+            });
+        }
+    });
+    
+    // Highlight the selected barangay
+    const selectedLayer = barangayLayers.find(layer => layer.barangayId === barangayId);
+    
+    if (selectedLayer) {
+        const barangay = barangayBoundaries.find(b => b.id === barangayId);
+        if (barangay) {
+            // Apply highlight style to all feature layers within the GeoJSON layer
+            selectedLayer.eachLayer(function(layer) {
+                if (layer.setStyle) {
+                    layer.setStyle(getBarangayStyle(barangay));
+                    layer.bringToFront();
+                }
+            });
+            highlightedBarangayLayer = selectedLayer;
+            console.log('Barangay highlighted successfully');
+        }
+    } else {
+        console.warn('No layer found to highlight for barangay ID:', barangayId);
+    }
+}
+       // Also update the zoomToBarangay function to work with GeoJSON layers properly:
+
+function zoomToBarangay(barangayId) {
+    const selectedLayer = barangayLayers.find(layer => layer.barangayId === barangayId);
+    
+    if (selectedLayer) {
+        try {
+            const bounds = selectedLayer.getBounds();
+            map.fitBounds(bounds, { 
+                padding: [50, 50],
+                maxZoom: 15
+            });
+            console.log('Zoomed to barangay:', barangayId);
+        } catch (error) {
+            console.error('Error zooming to barangay:', error);
+            // Fallback: try to get bounds from the first layer in the GeoJSON
+            selectedLayer.eachLayer(function(layer) {
+                if (layer.getBounds) {
+                    const bounds = layer.getBounds();
+                    map.fitBounds(bounds, { 
+                        padding: [50, 50],
+                        maxZoom: 15
+                    });
+                    return false; // Stop after first layer
+                }
+            });
+        }
+    } else {
+        console.warn('No layer found for barangay ID:', barangayId);
+    }
+}
+
+        function clearBarangaySelection() {
+    console.log('Clearing barangay selection');
+    
+    selectedBarangayId = null;
+    highlightedBarangayLayer = null;
+    
+    // Reset the dropdown
+    document.getElementById('barangayFilter').value = '';
+    
+    // Reset all barangay styles
+    barangayLayers.forEach(geoJsonLayer => {
+        const barangay = barangayBoundaries.find(b => b.id === geoJsonLayer.barangayId);
+        if (barangay) {
+            geoJsonLayer.eachLayer(function(layer) {
+                if (layer.setStyle) {
+                    layer.setStyle(getBarangayStyle(barangay));
+                }
+            });
+        }
+    });
+    
+    // Reset filters and reload all markers
+    filteredLocations = [...allPWDLocations];
+    loadMarkers();
+    
+    // Reset map view
+    centerMap();
+    
+    // Hide clear button
+    document.getElementById('clearBarangayBtn').style.display = 'none';
+    
+    showToast('Selection cleared', 'info', 2000);
+}
 
         function loadMarkers() {
             clearMarkers();

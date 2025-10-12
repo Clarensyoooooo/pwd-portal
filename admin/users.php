@@ -51,7 +51,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error'] = 'You do not have permission to create roles.';
             }
             break;
-        case 'delete_role': // Changed from update_role to delete_role to match updates
+        case 'update_role':
+            if ($canManageRoles) {
+                updateRole($pdo);
+            } else {
+                $_SESSION['error'] = 'You do not have permission to manage roles.';
+            }
+            break;
+        case 'delete_role':
             if ($canManageRoles) {
                 deleteRole($pdo);
             } else {
@@ -293,7 +300,7 @@ function createRole($pdo) {
     }
 }
 
-function updateRole($pdo) { // This function was in the updates but not in the switch case, so it remains here.
+function updateRole($pdo) {
     $role_id = intval($_POST['role_id']);
     $display_name = trim($_POST['display_name']);
     $description = trim($_POST['description']);
@@ -640,10 +647,10 @@ function deleteRole($pdo) {
                     </div>
                     
                     <div class="form-group">
-                        <label for="role_id">
+                        <label for="create_user_role_id">
                             <i class="fas fa-user-tag"></i> Role
                         </label>
-                        <select name="role_id" id="role_id" class="form-control">
+                        <select name="role_id" id="create_user_role_id" class="form-control">
                             <option value="">Select Role (Optional)</option>
                             <?php foreach ($roles as $role): ?>
                                 <option value="<?php echo $role['id']; ?>"><?php echo htmlspecialchars($role['display_name']); ?></option>
@@ -713,10 +720,10 @@ function deleteRole($pdo) {
                     </div>
                     
                     <div class="form-group">
-                        <label for="edit_role_id">
+                        <label for="edit_user_role_id">
                             <i class="fas fa-user-tag"></i> Role
                         </label>
-                        <select name="role_id" id="edit_role_id" class="form-control">
+                        <select name="role_id" id="edit_user_role_id" class="form-control">
                             <option value="">No Role</option>
                             <?php foreach ($roles as $role): ?>
                                 <option value="<?php echo $role['id']; ?>"><?php echo htmlspecialchars($role['display_name']); ?></option>
@@ -852,9 +859,9 @@ function deleteRole($pdo) {
                 </div>
                 <button onclick="closeModal('editRoleModal')" class="modal-close">&times;</button>
             </div>
-            <form id="editRoleForm" onsubmit="return saveRole(event)">
+            <form method="POST" id="editRoleForm" onsubmit="return saveRole(event)">
                 <input type="hidden" name="action" value="update_role">
-                <input type="hidden" name="role_id" id="role_id">
+                <input type="hidden" name="role_id" id="edit_role_form_id">
                 <div class="modal-body" id="editRoleModalBody">
                     <div style="text-align: center; padding: 40px;">
                         <i class="fas fa-spinner fa-spin fa-2x"></i>
@@ -893,7 +900,7 @@ function deleteRole($pdo) {
             document.getElementById('edit_username').value = userData.username;
             document.getElementById('edit_email').value = userData.email;
             document.getElementById('edit_full_name').value = userData.full_name;
-            document.getElementById('edit_role_id').value = userData.role_id || '';
+            document.getElementById('edit_user_role_id').value = userData.role_id || '';
             document.getElementById('edit_is_active').checked = userData.is_active == 1;
             document.getElementById('edit_password').value = '';
             
@@ -934,7 +941,12 @@ function deleteRole($pdo) {
             
             // Fetch role data
             fetch(`api/users.php?action=get_role&id=${roleId}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         populateRoleForm(data.role);
@@ -987,7 +999,7 @@ function deleteRole($pdo) {
                 </div>
             `;
             
-            document.getElementById('role_id').value = roleData.id;
+            document.getElementById('edit_role_form_id').value = roleData.id;
             updatePermissionCount();
         }
         
@@ -1054,7 +1066,12 @@ function deleteRole($pdo) {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
                     showNotification(data.message, 'success');

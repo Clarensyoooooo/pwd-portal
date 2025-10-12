@@ -519,54 +519,44 @@ function handleCancelAppointment() {
 
 function handleDeleteAppointment() {
     global $pdo;
-    // Ensure the admin has permission to delete appointments
-    requirePermission($pdo, 'appointments.edit'); // Changed to a more general edit/delete permission if needed
+    requirePermission($pdo, 'appointments.delete');
     
     $appointment_id = $_POST['appointment_id'] ?? '';
     
     if (empty($appointment_id)) {
-        adminJsonResponse(['error' => 'Appointment ID is required.'], 400);
-        return;
+        adminJsonResponse(['error' => 'Appointment ID is required'], 400);
     }
     
     try {
-        // Start a transaction to ensure all or no deletions happen
-        $pdo->beginTransaction();
-
-        // Find the user_id associated with the appointment
-        $stmt_get_user = $pdo->prepare("SELECT user_id FROM appointments WHERE id = ?");
-        $stmt_get_user->execute([$appointment_id]);
-        $appointment = $stmt_get_user->fetch();
+        // Verify the appointment is cancelled before allowing deletion
+        $stmt = $pdo->prepare("SELECT status FROM appointments WHERE id = ?");
+        $stmt->execute([$appointment_id]);
+        $appointment = $stmt->fetch();
         
-        if (!$appointment || !$appointment['user_id']) {
-            adminJsonResponse(['error' => 'Appointment or associated user not found.'], 404);
-            $pdo->rollBack();
-            return;
+        if (!$appointment) {
+            adminJsonResponse(['error' => 'Appointment not found'], 404);
         }
         
-        $user_id = $appointment['user_id'];
+        if ($appointment['status'] !== 'cancelled') {
+            adminJsonResponse(['error' => 'Only cancelled appointments can be deleted'], 400);
+        }
         
-        // Log details before deleting
-        logAdminActivity($pdo, 'delete', 'appointments', 'appointment', $appointment_id, ['user_id' => $user_id]);
-
-        // Delete the user from the `users` table.
-        // The ON DELETE CASCADE constraint will automatically delete associated records
-        // in `appointments`, `interview_records`, and `feedback`.
-        $stmt_delete_user = $pdo->prepare("DELETE FROM users WHERE id = ?");
-        $stmt_delete_user->execute([$user_id]);
-
-        // Commit the transaction
-        $pdo->commit();
+        // Delete related records first (if any)
+        $pdo->prepare("DELETE FROM interview_records WHERE appointment_id = ?")->execute([$appointment_id]);
+        
+        // Delete the appointment
+        $stmt = $pdo->prepare("DELETE FROM appointments WHERE id = ?");
+        $stmt->execute([$appointment_id]);
+        
+        logAdminActivity($pdo, 'delete', 'appointments', 'appointment', $appointment_id);
         
         adminJsonResponse([
             'success' => true,
-            'message' => 'Appointment and associated user have been permanently deleted.'
+            'message' => 'Appointment deleted successfully'
         ]);
         
     } catch (PDOException $e) {
-        // If an error occurs, roll back the transaction
-        $pdo->rollBack();
-        adminJsonResponse(['error' => 'Failed to delete appointment and user: ' . $e->getMessage()], 500);
+        adminJsonResponse(['error' => 'Failed to delete appointment: ' . $e->getMessage()], 500);
     }
 }
 
@@ -1488,31 +1478,30 @@ function handleGetAppointmentDetails() {
             }
         }
 
-     function deleteAppointment(appointmentId) {
-    // Updated confirmation message for clarity
-    if (confirm('Are you sure you want to permanently delete this appointment and its associated user? This action cannot be undone.')) {
-        fetch('appointments.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `action=delete_appointment&appointment_id=${appointmentId}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showNotification(data.message, 'success');
-                setTimeout(() => location.reload(), 1500); // Reload to show the updated table
-            } else {
-                showNotification(data.error, 'error');
+        // Delete appointment (for cancelled appointments only)
+        function deleteAppointment(appointmentId) {
+            if (confirm('Are you sure you want to permanently delete this cancelled appointment? This action cannot be undone.')) {
+                fetch('appointments.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=delete_appointment&appointment_id=${appointmentId}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(data.message, 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        showNotification(data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Failed to delete appointment', 'error');
+                });
             }
-        })
-        .catch(error => {
-            showNotification('An error occurred while trying to delete the appointment.', 'error');
-            console.error('Delete error:', error);
-        });
-    }
-}
+        }
         
         // Export appointments
         function exportAppointments() {
