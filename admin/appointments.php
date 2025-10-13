@@ -201,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Helper function to check if appointment can be started
+// Helper function to check if appointment can be started (new applications only)
 function canStartInterview($appointment) {
     $today = date('Y-m-d');
     $appointment_date = date('Y-m-d', strtotime($appointment['preferred_date']));
@@ -212,11 +212,10 @@ function canStartInterview($appointment) {
         && $appointment['appointment_type'] === 'new_application';
 }
 
-// Helper function to check if renewal/update can be completed
+// Helper function to check if renewal/update can be marked as completed
 function canMarkCompleted($appointment) {
     return in_array($appointment['appointment_type'], ['renewal', 'update_information'])
-        && $appointment['status'] === 'confirmed'
-        && $appointment['pwd_id_number'];
+        && $appointment['status'] === 'confirmed';
 }
 
 // Get appointments with enhanced filters
@@ -320,6 +319,15 @@ function handleStartInterview() {
     }
     
     try {
+        // Verify appointment is for new application
+        $check_stmt = $pdo->prepare("SELECT appointment_type FROM appointments WHERE id = ?");
+        $check_stmt->execute([$appointment_id]);
+        $appointment = $check_stmt->fetch();
+        
+        if (!$appointment || $appointment['appointment_type'] !== 'new_application') {
+            adminJsonResponse(['error' => 'Interview can only be started for new applications'], 400);
+        }
+        
         // Check if interview already exists
         $stmt = $pdo->prepare("SELECT id FROM interview_records WHERE appointment_id = ?");
         $stmt->execute([$appointment_id]);
@@ -365,50 +373,28 @@ function handleMarkCompleted() {
     }
     
     try {
-        // Get appointment details
-        $stmt = $pdo->prepare("
-            SELECT a.*, u.id as user_id, pr.id as record_id
-            FROM appointments a
-            JOIN users u ON a.user_id = u.id
-            LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
-            WHERE a.id = ?
-        ");
-        $stmt->execute([$appointment_id]);
-        $appointment = $stmt->fetch();
-        
-        if (!$appointment) {
-            adminJsonResponse(['error' => 'Appointment not found'], 404);
-        }
-        
-        // Verify it's a renewal or update
-        if (!in_array($appointment['appointment_type'], ['renewal', 'update_information'])) {
-            adminJsonResponse(['error' => 'This action is only available for renewal/update appointments'], 400);
-        }
-        
-        // Check if PWD record exists
-        if (!$appointment['record_id']) {
-            adminJsonResponse(['error' => 'No PWD record found for this appointment'], 400);
-        }
-        
-        // Mark appointment as completed
+        // Directly update the appointment status to 'completed'
         $stmt = $pdo->prepare("
             UPDATE appointments 
             SET status = 'completed', 
-                notes = CONCAT(COALESCE(notes, ''), '\n', 'Marked as completed by admin on ', NOW()),
-                updated_at = NOW()
+                completed_at = NOW(),
+                notes = CONCAT(COALESCE(notes, ''), '\n', 'Marked as completed by admin on ', NOW())
             WHERE id = ?
         ");
         $stmt->execute([$appointment_id]);
-        
+
+        // Get appointment type for logging
+        $appt_stmt = $pdo->prepare("SELECT appointment_type FROM appointments WHERE id = ?");
+        $appt_stmt->execute([$appointment_id]);
+        $appointment = $appt_stmt->fetch();
+
         logAdminActivity($pdo, 'complete', 'appointments', 'appointment', $appointment_id, [
-            'appointment_type' => $appointment['appointment_type'],
-            'record_id' => $appointment['record_id']
+            'appointment_type' => $appointment['appointment_type'] ?? 'unknown'
         ]);
         
         adminJsonResponse([
             'success' => true,
-            'message' => 'Appointment marked as completed',
-            'redirect_url' => "records.php?highlight={$appointment['record_id']}"
+            'message' => 'Appointment marked as completed.'
         ]);
         
     } catch (PDOException $e) {
@@ -617,7 +603,7 @@ function handleGetAppointmentDetails() {
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-calendar-check"></i> Appointments</h1>
-                <p>Manage appointment scheduling and interviews</p>
+                <p>Manage appointment scheduling and processing</p>
             </div>
             <div class="page-actions">
                 <button class="btn btn-outline" onclick="exportAppointments()">
@@ -629,7 +615,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Today's and Tomorrow's Appointments Cards -->
+         Today's and Tomorrow's Appointments Cards 
         <div class="quick-access-cards">
             <?php
             // Get today's appointments
@@ -692,42 +678,40 @@ function handleGetAppointmentDetails() {
                                         <?php echo htmlspecialchars($apt['first_name'] . ' ' . $apt['last_name']); ?>
                                     </div>
                                     <div class="appointment-type">
-                                        <?php echo ucwords(str_replace('_', ' ', $apt['appointment_type'])); ?>
+                                        <?php 
+                                        $type_display = ucwords(str_replace('_', ' ', $apt['appointment_type']));
+                                        $type_class = $apt['appointment_type'] === 'new_application' ? 'new-app' : 'renewal-update';
+                                        ?>
+                                        <span class="type-indicator <?php echo $type_class; ?>">
+                                            <?php echo $type_display; ?>
+                                        </span>
                                     </div>
                                 </div>
                                 <div class="appointment-status">
                                     <?php
                                     // Determine actual progress status
-                                    if ($apt['record_status'] === 'issued') {
+                                    if ($apt['status'] === 'completed') {
                                         echo '<span class="progress-badge completed"><i class="fas fa-check-circle"></i> Completed</span>';
-                                    } elseif ($apt['record_status'] === 'validated') {
-                                        echo '<span class="progress-badge validated"><i class="fas fa-id-card"></i> Validated</span>';
-                                    } elseif ($apt['interview_status'] === 'completed') {
-                                        echo '<span class="progress-badge interview-done"><i class="fas fa-comments"></i> Interview Done</span>';
-                                    } elseif ($apt['interview_id']) {
-                                        echo '<span class="progress-badge in-progress"><i class="fas fa-clock"></i> In Progress</span>';
+                                    } elseif ($apt['appointment_type'] === 'new_application') {
+                                        if ($apt['record_status'] === 'issued') {
+                                            echo '<span class="progress-badge completed"><i class="fas fa-id-badge"></i> ID Issued</span>';
+                                        } elseif ($apt['record_status'] === 'validated') {
+                                            echo '<span class="progress-badge validated"><i class="fas fa-id-card"></i> Validated</span>';
+                                        } elseif ($apt['interview_status'] === 'completed') {
+                                            echo '<span class="progress-badge interview-done"><i class="fas fa-comments"></i> Interview Done</span>';
+                                        } elseif ($apt['interview_id']) {
+                                            echo '<span class="progress-badge in-progress"><i class="fas fa-clock"></i> In Progress</span>';
+                                        } else {
+                                            echo '<span class="progress-badge pending"><i class="fas fa-calendar-clock"></i> Scheduled</span>';
+                                        }
                                     } else {
-                                        echo '<span class="progress-badge pending"><i class="fas fa-calendar-clock"></i> Scheduled</span>';
+                                        // Renewal/Update
+                                        echo '<span class="progress-badge renewal-pending"><i class="fas fa-sync-alt"></i> Awaiting Processing</span>';
                                     }
                                     ?>
                                 </div>
                                 <div class="appointment-actions">
-                                    <?php if ($apt['status'] !== 'cancelled'): ?>
-                                        <?php if (in_array($apt['appointment_type'], ['renewal', 'update_information']) && $apt['pwd_id_number']): ?>
-                                            <button class="btn btn-xs btn-success" onclick="markCompleted(<?php echo $apt['id']; ?>)" title="Mark as Completed">
-                                                <i class="fas fa-check-double"></i>
-                                            </button>
-                                        <?php elseif ($apt['interview_id'] && $apt['record_status'] !== 'issued'): ?>
-                                            <a href="interview.php?id=<?php echo $apt['interview_id']; ?>" class="btn btn-xs btn-primary" title="Continue">
-                                                <i class="fas fa-arrow-right"></i>
-                                            </a>
-                                        <?php elseif (canStartInterview($apt)): ?>
-                                            <button class="btn btn-xs btn-success" onclick="startInterview(<?php echo $apt['id']; ?>)" title="Start">
-                                                <i class="fas fa-play"></i>
-                                            </button>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </div>
+    </div>
                             </div>
                         <?php endforeach; ?>
                         <?php if (count($today_appointments) >= 5): ?>
@@ -766,7 +750,13 @@ function handleGetAppointmentDetails() {
                                         <?php echo htmlspecialchars($apt['first_name'] . ' ' . $apt['last_name']); ?>
                                     </div>
                                     <div class="appointment-type">
-                                        <?php echo ucwords(str_replace('_', ' ', $apt['appointment_type'])); ?>
+                                        <?php 
+                                        $type_display = ucwords(str_replace('_', ' ', $apt['appointment_type']));
+                                        $type_class = $apt['appointment_type'] === 'new_application' ? 'new-app' : 'renewal-update';
+                                        ?>
+                                        <span class="type-indicator <?php echo $type_class; ?>">
+                                            <?php echo $type_display; ?>
+                                        </span>
                                     </div>
                                 </div>
                                 <div class="appointment-status">
@@ -786,7 +776,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Statistics Cards -->
+         Statistics Cards 
         <div class="stats-grid">
             <?php
             $stats_query = "
@@ -796,7 +786,9 @@ function handleGetAppointmentDetails() {
                     SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
                     SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
-                    SUM(CASE WHEN DATE(preferred_date) = CURDATE() THEN 1 ELSE 0 END) as today
+                    SUM(CASE WHEN DATE(preferred_date) = CURDATE() THEN 1 ELSE 0 END) as today,
+                    SUM(CASE WHEN appointment_type = 'new_application' THEN 1 ELSE 0 END) as new_applications,
+                    SUM(CASE WHEN appointment_type IN ('renewal', 'update_information') THEN 1 ELSE 0 END) as renewals_updates
                 FROM appointments
             ";
             $stats_result = $pdo->query($stats_query)->fetch();
@@ -813,22 +805,22 @@ function handleGetAppointmentDetails() {
             </div>
             
             <div class="stat-card">
-                <div class="stat-icon pending">
-                    <i class="fas fa-clock"></i>
+                <div class="stat-icon new-applications">
+                    <i class="fas fa-user-plus"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['pending']); ?></h3>
-                    <p>Pending</p>
+                    <h3><?php echo number_format($stats_result['new_applications']); ?></h3>
+                    <p>New Applications</p>
                 </div>
             </div>
             
             <div class="stat-card">
-                <div class="stat-icon validated">
-                    <i class="fas fa-check-circle"></i>
+                <div class="stat-icon renewals">
+                    <i class="fas fa-sync-alt"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['confirmed']); ?></h3>
-                    <p>Confirmed</p>
+                    <h3><?php echo number_format($stats_result['renewals_updates']); ?></h3>
+                    <p>Renewals & Updates</p>
                 </div>
             </div>
             
@@ -843,7 +835,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-        <!-- Enhanced Filters -->
+         Enhanced Filters 
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -904,7 +896,7 @@ function handleGetAppointmentDetails() {
             </form>
         </div>
         
-        <!-- Appointments Table -->
+         Appointments Table 
         <div class="data-card">
             <div class="card-header">
                 <h3>Appointment List</h3>
@@ -927,7 +919,7 @@ function handleGetAppointmentDetails() {
                     </thead>
                     <tbody>
                         <?php foreach ($appointments as $appointment): ?>
-                            <tr>
+                            <tr class="appointment-row <?php echo $appointment['appointment_type'] === 'new_application' ? 'new-app-row' : 'renewal-row'; ?>">
                                 <td>
                                     <strong><?php echo htmlspecialchars($appointment['reference_number']); ?></strong>
                                     <br>
@@ -942,7 +934,12 @@ function handleGetAppointmentDetails() {
                                 </td>
                                 <td><?php echo htmlspecialchars($appointment['phone']); ?></td>
                                 <td>
-                                    <span class="type-badge type-<?php echo $appointment['appointment_type']; ?>">
+                                    <?php 
+                                    $type_class = $appointment['appointment_type'] === 'new_application' ? 'new-application' : 'renewal-update';
+                                    $icon = $appointment['appointment_type'] === 'new_application' ? 'user-plus' : 'sync-alt';
+                                    ?>
+                                    <span class="type-badge type-<?php echo $type_class; ?>">
+                                        <i class="fas fa-<?php echo $icon; ?>"></i>
                                         <?php echo ucwords(str_replace('_', ' ', $appointment['appointment_type'])); ?>
                                     </span>
                                 </td>
@@ -959,93 +956,96 @@ function handleGetAppointmentDetails() {
                                 <td>
                                     <div class="progress-indicators">
                                         <?php 
-                                        // Determine the actual progress status
-                                        if ($appointment['record_status'] === 'issued'): ?>
-                                            <span class="progress-badge completed">
-                                                <i class="fas fa-check-circle"></i> Completed
-                                            </span>
-                                        <?php elseif ($appointment['record_status'] === 'validated'): ?>
-                                            <span class="progress-badge validated">
-                                                <i class="fas fa-id-card"></i> Record Validated
-                                            </span>
-                                        <?php elseif ($appointment['record_status'] === 'draft'): ?>
-                                            <span class="progress-badge record-created">
-                                                <i class="fas fa-file-alt"></i> Record Created
-                                            </span>
-                                        <?php elseif ($appointment['interview_status'] === 'completed'): ?>
-                                            <span class="progress-badge interview-completed">
-                                                <i class="fas fa-comments"></i> Interview Completed
-                                            </span>
-                                        <?php elseif ($appointment['interview_id']): ?>
-                                            <span class="progress-badge interview-progress">
-                                                <i class="fas fa-clock"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="progress-badge awaiting">
-                                                <i class="fas fa-calendar-clock"></i> Awaiting Processing
-                                            </span>
-                                        <?php endif; ?>
+                                        // Different progress display for new applications vs renewals/updates
+                                        if ($appointment['appointment_type'] === 'new_application'):
+                                            // New Application Progress
+                                            if ($appointment['record_status'] === 'issued'): ?>
+                                                <span class="progress-badge completed">
+                                                    <i class="fas fa-check-circle"></i> ID Issued
+                                                </span>
+                                            <?php elseif ($appointment['record_status'] === 'validated'): ?>
+                                                <span class="progress-badge validated">
+                                                    <i class="fas fa-id-card"></i> Record Validated
+                                                </span>
+                                            <?php elseif ($appointment['record_status'] === 'draft'): ?>
+                                                <span class="progress-badge record-created">
+                                                    <i class="fas fa-file-alt"></i> Record Created
+                                                </span>
+                                            <?php elseif ($appointment['interview_status'] === 'completed'): ?>
+                                                <span class="progress-badge interview-completed">
+                                                    <i class="fas fa-comments"></i> Interview Completed
+                                                </span>
+                                            <?php elseif ($appointment['interview_id']): ?>
+                                                <span class="progress-badge interview-progress">
+                                                    <i class="fas fa-clock"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="progress-badge awaiting">
+                                                    <i class="fas fa-calendar-clock"></i> Awaiting Interview
+                                                </span>
+                                            <?php endif;
+                                        else:
+                                            // Renewal/Update Progress
+    if ($appointment['status'] === 'completed'): ?>
+        <span class="progress-badge completed">
+            <i class="fas fa-check-circle"></i> Completed
+        </span>
+    <?php else: ?>
+        <span class="progress-badge renewal-pending">
+            <i class="fas fa-sync-alt"></i> Awaiting Processing
+        </span>
+    <?php endif;
+endif; ?>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="action-buttons">
-                                        <!-- View Details - Always available -->
-                                        <button class="btn btn-sm btn-primary" onclick="viewAppointment(<?php echo $appointment['id']; ?>)" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        
-                                        <?php if ($appointment['status'] !== 'cancelled'): ?>
-                                            <!-- Edit - Only if not cancelled and not completed -->
-                                            <?php if (hasPermission($pdo, 'appointments.edit') && $appointment['record_status'] !== 'issued'): ?>
-                                                <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)" title="Edit">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            
-                                            <!-- Reschedule - Only if not cancelled, not completed, and record not issued -->
-                                            <?php if (hasPermission($pdo, 'appointments.edit') && !in_array($appointment['status'], ['completed', 'cancelled']) && $appointment['record_status'] !== 'issued'): ?>
-                                                <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
-                                                    <i class="fas fa-calendar-alt"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            
-                                            <!-- Mark as Completed - Only for renewal/update appointments with existing PWD records -->
-                                            <?php if (hasPermission($pdo, 'appointments.edit') && canMarkCompleted($appointment)): ?>
-                                                <button class="btn btn-sm btn-success" onclick="markCompleted(<?php echo $appointment['id']; ?>)" title="Mark as Completed">
-                                                    <i class="fas fa-check-double"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            
-                                            <!-- Start Interview - Only for new applications -->
-                                            <?php if (hasPermission($pdo, 'appointments.interview') && canStartInterview($appointment)): ?>
-                                                <button class="btn btn-sm btn-success" onclick="startInterview(<?php echo $appointment['id']; ?>)" title="Start Interview">
-                                                    <i class="fas fa-play"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            
-                                            <!-- Continue Interview - Only if interview exists and record not completed -->
-                                            <?php if ($appointment['interview_id'] && $appointment['record_status'] !== 'issued'): ?>
-                                                <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
-                                                    <i class="fas fa-arrow-right"></i>
-                                                </a>
-                                            <?php endif; ?>
-                                            
-                                            <!-- Cancel - Only if not cancelled and record not issued -->
-                                            <?php if (hasPermission($pdo, 'appointments.cancel') && $appointment['record_status'] !== 'issued'): ?>
-                                                <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)" title="Cancel">
-                                                    <i class="fas fa-times"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <!-- For cancelled appointments, only show delete option if permitted -->
-                                            <?php if (hasPermission($pdo, 'appointments.delete')): ?>
-                                                <button class="btn btn-sm btn-danger" onclick="deleteAppointment(<?php echo $appointment['id']; ?>)" title="Delete">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
+    <div class="action-buttons">
+        <button class="btn btn-sm btn-primary" onclick="viewAppointment(<?php echo $appointment['id']; ?>)" title="View Details">
+            <i class="fas fa-eye"></i>
+        </button>
+        
+        <?php if ($appointment['status'] !== 'cancelled' && $appointment['status'] !== 'completed'): ?>
+            <?php if (hasPermission($pdo, 'appointments.edit')): ?>
+                <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-info" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)" title="Reschedule">
+                    <i class="fas fa-calendar-alt"></i>
+                </button>
+            <?php endif; ?>
+            
+            <?php if ($appointment['appointment_type'] === 'new_application'): ?>
+                <?php if (hasPermission($pdo, 'appointments.interview') && canStartInterview($appointment)): ?>
+                    <button class="btn btn-sm btn-success" onclick="startInterview(<?php echo $appointment['id']; ?>)" title="Start Interview">
+                        <i class="fas fa-play"></i> 
+                    </button>
+                <?php elseif ($appointment['interview_id'] && $appointment['record_status'] !== 'issued'): ?>
+                    <a href="interview.php?id=<?php echo $appointment['interview_id']; ?>" class="btn btn-sm btn-secondary" title="Continue Interview">
+                        <i class="fas fa-arrow-right"></i> Continue
+                    </a>
+                <?php endif; ?>
+            <?php else: // Renewal or Update ?>
+                <?php if (hasPermission($pdo, 'appointments.edit') && canMarkCompleted($appointment)): ?>
+                    <button class="btn btn-sm btn-success" onclick="markCompleted(<?php echo $appointment['id']; ?>)" title="Mark as Done">
+                        <i class="fas fa-check-double"></i> 
+                    </button>
+                <?php endif; ?>
+            <?php endif; ?>
+            
+            <?php if (hasPermission($pdo, 'appointments.cancel')): ?>
+                <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)" title="Cancel">
+                    <i class="fas fa-times"></i>
+                </button>
+            <?php endif; ?>
+        <?php elseif ($appointment['status'] === 'cancelled'): ?>
+            <?php if (hasPermission($pdo, 'appointments.delete')): ?>
+                <button class="btn btn-sm btn-danger" onclick="deleteAppointment(<?php echo $appointment['id']; ?>)" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+</td>
                             </tr>
                         <?php endforeach; ?>
                         
@@ -1061,7 +1061,7 @@ function handleGetAppointmentDetails() {
                 </table>
             </div>
             
-            <!-- Pagination -->
+             Pagination 
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
@@ -1085,7 +1085,7 @@ function handleGetAppointmentDetails() {
         </div>
     </main>
     
-    <!-- View Appointment Modal -->
+     View Appointment Modal 
     <div id="appointmentModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
@@ -1093,12 +1093,12 @@ function handleGetAppointmentDetails() {
                 <button class="modal-close" onclick="closeModal('appointmentModal')">&times;</button>
             </div>
             <div class="modal-body" id="appointmentModalBody">
-                <!-- Content will be loaded dynamically -->
+                 Content will be loaded dynamically 
             </div>
         </div>
     </div>
     
-    <!-- Edit Appointment Modal -->
+     Edit Appointment Modal 
     <div id="editModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1134,7 +1134,7 @@ function handleGetAppointmentDetails() {
         </div>
     </div>
     
-    <!-- Reschedule Modal -->
+     Reschedule Modal 
     <div id="rescheduleModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1171,9 +1171,9 @@ function handleGetAppointmentDetails() {
     
     <script src="assets/admin.js"></script>
     <script>
-        // Start interview
+        // Start interview (NEW APPLICATIONS ONLY)
         function startInterview(appointmentId) {
-            if (confirm('Start interview for this appointment?')) {
+            if (confirm('Start interview for this new application?')) {
                 fetch('appointments.php', {
                     method: 'POST',
                     headers: {
@@ -1200,9 +1200,9 @@ function handleGetAppointmentDetails() {
             }
         }
         
-        // Mark as completed (for renewal/update)
+        // Mark as completed (RENEWAL/UPDATE ONLY)
         function markCompleted(appointmentId) {
-            if (confirm('Mark this renewal/update appointment as completed? This will redirect to the PWD records page.')) {
+            if (confirm('Mark this renewal/update appointment as completed? The PWD record will be updated and the appointment will be closed.')) {
                 fetch('appointments.php', {
                     method: 'POST',
                     headers: {
@@ -1215,9 +1215,9 @@ function handleGetAppointmentDetails() {
                     if (data.success) {
                         showNotification(data.message, 'success');
                         if (data.redirect_url) {
-                            setTimeout(() => window.location.href = data.redirect_url, 1000);
+                            setTimeout(() => window.location.href = data.redirect_url, 1500);
                         } else {
-                            setTimeout(() => location.reload(), 1000);
+                            setTimeout(() => location.reload(), 1500);
                         }
                     } else {
                         showNotification(data.error, 'error');
@@ -1276,6 +1276,8 @@ function handleGetAppointmentDetails() {
                 'income_certificate': 'Certificate of Indigency'
             };
             
+            const isRenewalOrUpdate = ['renewal', 'update_information'].includes(appointment.appointment_type);
+            
             modalBody.innerHTML = `
                 <div class="appointment-details">
                     <div class="details-grid">
@@ -1314,7 +1316,12 @@ function handleGetAppointmentDetails() {
                                 </div>
                                 <div class="detail-row">
                                     <span class="label">Type:</span>
-                                    <span class="value">${appointment.appointment_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                                    <span class="value">
+                                        <span class="type-badge type-${appointment.appointment_type === 'new_application' ? 'new-application' : 'renewal-update'}">
+                                            <i class="fas fa-${appointment.appointment_type === 'new_application' ? 'user-plus' : 'sync-alt'}"></i>
+                                            ${appointment.appointment_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                        </span>
+                                    </span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="label">Date:</span>
@@ -1335,7 +1342,7 @@ function handleGetAppointmentDetails() {
                             </div>
                         </div>
                         
-                        ${appointment.interview_id ? `
+                        ${appointment.interview_id && !isRenewalOrUpdate ? `
                         <div class="detail-section">
                             <h4><i class="fas fa-comments"></i> Interview Information</h4>
                             <div class="detail-rows">
@@ -1369,7 +1376,7 @@ function handleGetAppointmentDetails() {
                         </div>
                         ` : ''}
                         
-                        ${documentsVerified.length > 0 ? `
+                        ${documentsVerified.length > 0 && !isRenewalOrUpdate ? `
                         <div class="detail-section">
                             <h4><i class="fas fa-clipboard-check"></i> Documents Verified</h4>
                             <div class="documents-list">
@@ -1395,6 +1402,12 @@ function handleGetAppointmentDetails() {
                                     <span class="label">Status:</span>
                                     <span class="value"><span class="status-badge status-${appointment.record_status}">${appointment.record_status.charAt(0).toUpperCase() + appointment.record_status.slice(1)}</span></span>
                                 </div>
+                                ${isRenewalOrUpdate ? `
+                                <div class="detail-row">
+                                    <span class="label">Process Type:</span>
+                                    <span class="value"><span class="type-badge type-renewal-update">${appointment.appointment_type === 'renewal' ? 'PWD ID Renewal' : 'Information Update'}</span></span>
+                                </div>
+                                ` : ''}
                             </div>
                         </div>
                         ` : ''}
@@ -1596,6 +1609,68 @@ function handleGetAppointmentDetails() {
     </script>
     
     <style>
+        /* Appointment Type Indicators */
+        .type-indicator {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .type-indicator.new-app {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .type-indicator.renewal-update {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .type-badge.type-new-application {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        
+        .type-badge.type-renewal-update,
+        .type-badge.type-renewal,
+        .type-badge.type-update_information {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+        
+        /* Appointment Row Styling */
+        .appointment-row.new-app-row {
+            border-left: 3px solid #3b82f6;
+        }
+        
+        .appointment-row.renewal-row {
+            border-left: 3px solid #f59e0b;
+        }
+        
+        /* Progress Badges */
+        .progress-badge.renewal-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .progress-badge.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        /* Stats Card Icons */
+        .stat-icon.new-applications {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+        
+        .stat-icon.renewals {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+        
         .quick-access-cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1713,12 +1788,11 @@ function handleGetAppointmentDetails() {
             font-weight: 500;
             color: #1e293b;
             font-size: 0.9rem;
-            margin-bottom: 2px;
+            margin-bottom: 4px;
         }
         
         .appointment-type {
             font-size: 0.8rem;
-            color: #64748b;
         }
         
         .appointment-status {

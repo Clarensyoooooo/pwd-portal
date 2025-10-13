@@ -284,11 +284,11 @@ function handleCreatePWDRecord() {
         $pdo->beginTransaction();
         
         // Generate PWD ID
-        $year = date('Y');
-        $stmt = $pdo->prepare("SELECT COUNT(*) + 1 as next_id FROM pwd_records WHERE YEAR(created_at) = ?");
-        $stmt->execute([$year]);
-        $next_id = $stmt->fetch()['next_id'];
-        $pwd_id = "PWD-{$year}-" . str_pad($next_id, 4, '0', STR_PAD_LEFT);
+        // Generate a more robust unique PWD ID
+$year = date('Y');
+// This creates a short, random, and highly unique identifier
+$unique_part = substr(strtoupper(bin2hex(random_bytes(4))), 0, 6); 
+$pwd_id = "PWD-{$year}-" . $unique_part;
         
         // Get barangay details
         $selected_barangay_id = $_POST['barangay_id'] ?? '';

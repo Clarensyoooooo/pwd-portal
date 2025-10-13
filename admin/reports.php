@@ -816,6 +816,52 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                 grid-template-columns: 1fr;
             }
         }
+
+
+        /* --- Pagination Styles --- */
+.pagination-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 2rem;
+}
+.pagination {
+    display: flex;
+    list-style: none;
+    padding: 0;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+.page-item {
+    margin: 0;
+}
+.page-link {
+    display: block;
+    padding: 0.75rem 1rem;
+    color: #2c5aa0;
+    background-color: white;
+    border-left: 1px solid #e5e7eb;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+}
+.page-item:first-child .page-link {
+    border-left: none;
+}
+.page-link:hover {
+    background-color: #f8fafc;
+}
+.page-item.active .page-link {
+    background-color: #2c5aa0;
+    color: white;
+    font-weight: 600;
+    pointer-events: none;
+}
+.page-item.disabled .page-link {
+    color: #9ca3af;
+    background-color: #f8fafc;
+    pointer-events: none;
+}
+
     </style>
 </head>
 <body>
@@ -954,14 +1000,45 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         </div>
         
         <div id="reportContent">
-            <?php if ($report_type == 'analytics'): ?>
-                <?php include 'reports/analytics.php'; ?>
-            <?php elseif ($report_type == 'demographics'): ?>
-                <?php include 'reports/demographics.php'; ?>
-            <?php elseif ($report_type == 'resources'): ?>
-                <?php include 'reports/resources.php'; ?>
-            <?php endif; ?>
-        </div>
+    <?php if ($report_type == 'analytics'): ?>
+        <?php include 'reports/analytics.php'; ?>
+    <?php elseif ($report_type == 'demographics'): ?>
+        <?php include 'reports/demographics.php'; ?>
+    <?php elseif ($report_type == 'resources'): ?>
+        <?php 
+        // START: ADD PAGINATION LOGIC HERE
+        if (!empty($report_data['barangay_recommendations'])) {
+            $all_barangays = $report_data['barangay_recommendations'];
+            $total_items = count($all_barangays);
+            $items_per_page = 5; // You can change this number
+            $total_pages = ceil($total_items / $items_per_page);
+            
+            // Get current page from URL, default to 1
+            $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            if ($current_page < 1) {
+                $current_page = 1;
+            } elseif ($current_page > $total_pages && $total_pages > 0) {
+                $current_page = $total_pages;
+            }
+            
+            // Calculate the offset for the slice
+            $offset = ($current_page - 1) * $items_per_page;
+            
+            // Slice the array to get only the items for the current page
+            $report_data['barangay_recommendations'] = array_slice($all_barangays, $offset, $items_per_page, true);
+            
+            // Pass pagination data to the view
+            $report_data['pagination'] = [
+                'current_page' => $current_page,
+                'total_pages' => $total_pages,
+                'items_per_page' => $items_per_page
+            ];
+        }
+        // END: PAGINATION LOGIC
+        ?>
+        <?php include 'reports/resources.php'; ?>
+    <?php endif; ?>
+</div>
     </main>
     
     <script src="assets/admin.js"></script>

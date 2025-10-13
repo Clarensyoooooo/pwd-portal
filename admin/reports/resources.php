@@ -203,3 +203,48 @@ function initializeAnalyticsCharts() {
     console.log('Resource planning report loaded successfully');
 }
 </script>
+
+<?php 
+// START: ADD PAGINATION CONTROLS
+// Check if pagination data exists and if there is more than one page
+if (isset($report_data['pagination']) && $report_data['pagination']['total_pages'] > 1): 
+    $pagination = $report_data['pagination'];
+    $current_page = $pagination['current_page'];
+    $total_pages = $pagination['total_pages'];
+
+    // Preserve existing filters in the URL
+    $query_params = $_GET;
+?>
+<div class="pagination-container">
+    <nav aria-label="Page navigation">
+        <ul class="pagination">
+            
+            <li class="page-item <?php echo ($current_page <= 1) ? 'disabled' : ''; ?>">
+                <?php 
+                    $query_params['page'] = $current_page - 1;
+                ?>
+                <a class="page-link" href="?<?php echo http_build_query($query_params); ?>">Previous</a>
+            </li>
+            
+            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                <li class="page-item <?php echo ($i == $current_page) ? 'active' : ''; ?>">
+                    <?php 
+                        $query_params['page'] = $i;
+                    ?>
+                    <a class="page-link" href="?<?php echo http_build_query($query_params); ?>"><?php echo $i; ?></a>
+                </li>
+            <?php endfor; ?>
+            
+            <li class="page-item <?php echo ($current_page >= $total_pages) ? 'disabled' : ''; ?>">
+                <?php 
+                    $query_params['page'] = $current_page + 1;
+                ?>
+                <a class="page-link" href="?<?php echo http_build_query($query_params); ?>">Next</a>
+            </li>
+
+        </ul>
+    </nav>
+</div>
+<?php endif; 
+// END: PAGINATION CONTROLS
+?>
