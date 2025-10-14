@@ -9,30 +9,9 @@ require_once 'config.php';
     <title>PWD Portal - Empowering the PWD Community</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        /* Styles for input validation feedback */
-        .form-group {
-            position: relative;
-            /* Adjust bottom margin to make space for the error message */
-            margin-bottom: 2rem; 
-        }
-        .input-error-message {
-            color: #ef4444; /* Red-500 */
-            font-size: 0.875rem; /* 14px */
-            font-weight: 500;
-            position: absolute;
-            bottom: -1.5rem; /* Position it below the input field */
-            left: 0;
-            width: 100%;
-        }
-        input.input-error, select.input-error, textarea.input-error {
-            border-color: #ef4444 !important; /* Make error border prominent */
-            box-shadow: 0 0 0 1px #ef4444;
-        }
-    </style>
 </head>
 <body>
-    <!-- Header -->
+     Header 
     <header class="header">
         <div class="top-bar">
             <div class="container">
@@ -45,7 +24,7 @@ require_once 'config.php';
         <nav class="navbar">
             <div class="container">
                 <div class="nav-brand">
-                    <img src="assets/logo.png" alt="PWD Logo" class="logo">
+                    <img src="/placeholder.svg?height=40&width=40&text=PWD" alt="PWD Logo" class="logo">
                     <span class="brand-text">PWD Portal</span>
                 </div>
                 <ul class="nav-menu">
@@ -66,8 +45,10 @@ require_once 'config.php';
         </nav>
     </header>
 
-    <!-- Hero Section -->
+     Hero Section 
     <section class="hero" id="home">
+    <img src="/placeholder.svg?height=800&width=1600&text=PWD+Community+Support" alt="Hero Background" class="hero-bg-image">
+    <div class="hero-overlay"></div>
         <div class="container">
             <div class="hero-content">
                 <div class="hero-text">
@@ -87,7 +68,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- PWD ID Application Process -->
+     PWD ID Application Process 
     <section class="application-process" id="services">
         <div class="container">
             <h2>PWD ID Application Process</h2>
@@ -120,7 +101,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Track Appointment -->
+     Track Appointment 
     <section class="track-appointment">
         <div class="container">
             <div class="track-header">
@@ -129,7 +110,7 @@ require_once 'config.php';
             </div>
             
             <div class="tracking-layout">
-                <!-- Left Side - Requirements and Input -->
+                 Left Side - Requirements and Input 
                 <div class="tracking-left">
                     <div class="tracking-input-section">
                         <h3>Appointment Reference Number</h3>
@@ -152,22 +133,22 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                <!-- Right Side - Appointment Status -->
+                 Right Side - Appointment Status 
                 <div class="tracking-right">
                     <div class="appointment-status-section" id="appointmentStatusSection" style="display: none;">
                         <h3>Appointment Status</h3>
                         
-                        <!-- Status Progress -->
+                         Status Progress 
                         <div class="status-progress" id="statusProgress">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- Appointment Details -->
+                         Appointment Details 
                         <div class="appointment-details-card" id="appointmentDetailsCard">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- SMS Verification Section -->
+                         SMS Verification Section 
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
                             <h4>SMS Verification Required</h4>
                             <p>Please enter the 6-digit code sent to your phone:</p>
@@ -177,18 +158,18 @@ require_once 'config.php';
                             </div>
                         </div>
 
-                        <!-- Final Confirmation Box -->
+                         Final Confirmation Box 
                         <div class="final-confirmation" id="finalConfirmation" style="display: none;">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
 
-                        <!-- Appointment Timeline -->
+                         Appointment Timeline 
                         <div class="appointment-timeline" id="appointmentTimeline">
-                            <!-- Will be populated by JavaScript -->
+                             Will be populated by JavaScript 
                         </div>
                     </div>
 
-                    <!-- Default message when no tracking -->
+                     Default message when no tracking 
                     <div class="no-tracking-message" id="noTrackingMessage">
                         <div class="no-tracking-content">
                             <i class="fas fa-search"></i>
@@ -201,152 +182,231 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Programs and Initiatives -->
-    <section class="programs-section" id="programs">
+     Key Service Areas and Partnerships 
+    <section class="services-partnerships-section" id="programs">
         <div class="container">
-            <h2>Programs and Initiatives</h2>
-            <div class="programs-grid">
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-wheelchair"></i>
+             Section Header 
+            <div class="section-header">
+                <h2>Key Service Areas and Partnerships</h2>
+                <p class="section-subtitle">Mga Pangunahing Serbisyo at Pakikipagtulungan</p>
+                <p class="section-description">
+                    Comprehensive support and services delivered through strategic partnerships with government agencies and organizations
+                </p>
+            </div>
+
+             Part 1: Key Service Areas Grid with Images 
+            <div class="service-areas-wrapper">
+                <h3 class="subsection-title">Our Service Areas <span class="subtitle-tag">Aming Mga Serbisyo</span></h3>
+                
+                <div class="service-areas-grid">
+                     Health & Wellness 
+                    <div class="service-card" data-service="health" onclick="showServiceDetails('health')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Healthcare+Services" alt="Health & Wellness" class="service-bg-image">
+                        <div class="service-overlay health-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-heartbeat"></i>
+                            </div>
+                            <h4>Kalusugan at Kaayusan</h4>
+                            <p class="service-subtitle">Health & Wellness</p>
+                            <p class="service-description">Comprehensive healthcare access, medical assistance, and wellness programs for PWDs</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
                     </div>
-                    <h3>Mobility Assistance Program</h3>
-                    <ul>
-                        <li>Wheelchair provision</li>
-                        <li>Mobility aids</li>
-                        <li>Transportation assistance</li>
-                        <li>Home accessibility modifications</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('mobility')">Learn More</button>
+
+                     Education & Training 
+                    <div class="service-card" data-service="education" onclick="showServiceDetails('education')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Education+Programs" alt="Education & Training" class="service-bg-image">
+                        <div class="service-overlay education-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-graduation-cap"></i>
+                            </div>
+                            <h4>Edukasyon at Pagsasanay</h4>
+                            <p class="service-subtitle">Education & Training</p>
+                            <p class="service-description">Educational support, scholarships, and skills development programs</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                     Livelihood & Employment 
+                    <div class="service-card" data-service="livelihood" onclick="showServiceDetails('livelihood')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Employment+Support" alt="Livelihood & Employment" class="service-bg-image">
+                        <div class="service-overlay livelihood-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-briefcase"></i>
+                            </div>
+                            <h4>Kabuhayan at Trabaho</h4>
+                            <p class="service-subtitle">Livelihood & Employment</p>
+                            <p class="service-description">Job placement, business opportunities, and entrepreneurship support</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                     Accessibility & Mobility 
+                    <div class="service-card" data-service="mobility" onclick="showServiceDetails('mobility')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Mobility+Assistance" alt="Accessibility & Mobility" class="service-bg-image">
+                        <div class="service-overlay mobility-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-wheelchair"></i>
+                            </div>
+                            <h4>Accessibility at Mobilidad</h4>
+                            <p class="service-subtitle">Accessibility & Mobility</p>
+                            <p class="service-description">Mobility aids, assistive devices, and accessibility modifications</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                     Social Protection 
+                    <div class="service-card" data-service="protection" onclick="showServiceDetails('protection')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Social+Protection" alt="Social Protection" class="service-bg-image">
+                        <div class="service-overlay protection-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <h4>Social Protection</h4>
+                            <p class="service-subtitle">Proteksyon at Benepisyo</p>
+                            <p class="service-description">Government benefits, insurance programs, and social security support</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                     Community Participation 
+                    <div class="service-card" data-service="community" onclick="showServiceDetails('community')">
+                        <img src="/placeholder.svg?height=400&width=600&text=Community+Programs" alt="Community Participation" class="service-bg-image">
+                        <div class="service-overlay community-overlay"></div>
+                        <div class="service-card-content">
+                            <div class="service-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <h4>Pakikilahok sa Komunidad</h4>
+                            <p class="service-subtitle">Community Participation</p>
+                            <p class="service-description">Social integration, advocacy programs, and community engagement</p>
+                            <button class="btn-learn-more">
+                                <span>Learn More</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-graduation-cap"></i>
-                    </div>
-                    <h3>Educational Support</h3>
-                    <ul>
-                        <li>Scholarships and grants</li>
-                        <li>Learning materials</li>
-                        <li>Special education programs</li>
-                        <li>Inclusive education advocacy</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('education')">Learn More</button>
-                </div>
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-briefcase"></i>
-                    </div>
-                    <h3>Livelihood Training</h3>
-                    <ul>
-                        <li>Skills development workshops</li>
-                        <li>Job placement assistance</li>
-                        <li>Business startup support</li>
-                        <li>Entrepreneurship training</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('livelihood')">Learn More</button>
-                </div>
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-heartbeat"></i>
-                    </div>
-                    <h3>Healthcare Access</h3>
-                    <ul>
-                        <li>Medical assistance programs</li>
-                        <li>Therapy services</li>
-                        <li>Health insurance support</li>
-                        <li>Specialized medical care</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('healthcare')">Learn More</button>
-                </div>
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-laptop"></i>
-                    </div>
-                    <h3>Assistive Technology</h3>
-                    <ul>
-                        <li>Hearing aids and devices</li>
-                        <li>Communication tools</li>
-                        <li>Computer access software</li>
-                        <li>Smart home technology</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('technology')">Learn More</button>
-                </div>
-                <div class="program-card">
-                    <div class="program-icon">
-                        <i class="fas fa-users"></i>
-                    </div>
-                    <h3>Community Integration</h3>
-                    <ul>
-                        <li>Social activities and events</li>
-                        <li>Support groups</li>
-                        <li>Advocacy programs</li>
-                        <li>Awareness campaigns</li>
-                    </ul>
-                    <button class="btn-secondary" onclick="showProgramDetails('community')">Learn More</button>
+            </div>
+
+             Part 2: Partner Organizations Showcase with Logo Images 
+            <div class="partner-showcase-wrapper" id="organizations">
+                <h3 class="subsection-title">Our Partner Organizations <span class="subtitle-tag">Aming Mga Kasosyo</span></h3>
+                <p class="partner-intro">
+                    Katuwang namin ang mga sumusunod na ahensya upang maghatid ng komprehensibong serbisyo para sa PWD community. 
+                    I-click ang logo para sa karagdagang impormasyon.
+                </p>
+                
+                <div class="partner-logos-grid">
+                    <a href="https://doh.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit Department of Health website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DOH" alt="Department of Health Logo" class="partner-logo-img">
+                            <span class="partner-name">Department of Health</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.deped.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DepEd website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DepEd" alt="DepEd Logo" class="partner-logo-img">
+                            <span class="partner-name">Department of Education</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.dswd.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DSWD website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DSWD" alt="DSWD Logo" class="partner-logo-img">
+                            <span class="partner-name">DSWD</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.ncda.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit NCDA website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=NCDA" alt="NCDA Logo" class="partner-logo-img">
+                            <span class="partner-name">NCDA</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.philhealth.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit PhilHealth website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=PhilHealth" alt="PhilHealth Logo" class="partner-logo-img">
+                            <span class="partner-name">PhilHealth</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.sss.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit SSS website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=SSS" alt="SSS Logo" class="partner-logo-img">
+                            <span class="partner-name">SSS</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.gsis.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit GSIS website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=GSIS" alt="GSIS Logo" class="partner-logo-img">
+                            <span class="partner-name">GSIS</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.dole.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DOLE website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DOLE" alt="DOLE Logo" class="partner-logo-img">
+                            <span class="partner-name">DOLE</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.tesda.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit TESDA website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=TESDA" alt="TESDA Logo" class="partner-logo-img">
+                            <span class="partner-name">TESDA</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.tourism.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DOT website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DOT" alt="Department of Tourism Logo" class="partner-logo-img">
+                            <span class="partner-name">Department of Tourism</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.dti.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DTI website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DTI" alt="DTI Logo" class="partner-logo-img">
+                            <span class="partner-name">DTI</span>
+                        </div>
+                    </a>
+
+                    <a href="https://www.da.gov.ph" target="_blank" rel="noopener noreferrer" class="partner-logo-link" aria-label="Visit DA website">
+                        <div class="partner-logo-card">
+                            <img src="/placeholder.svg?height=120&width=120&text=DA" alt="Department of Agriculture Logo" class="partner-logo-img">
+                            <span class="partner-name">Department of Agriculture</span>
+                        </div>
+                    </a>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Partner Organizations -->
-    <section class="partners-section" id="organizations">
-        <div class="container">
-            <h2>Partner Organizations</h2>
-            <p class="partners-intro">We collaborate with various government agencies and organizations to provide comprehensive support for the PWD community.</p>
-            <div class="partners-grid">
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-hospital"></i>
-                        <span>Department of Health</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-school"></i>
-                        <span>Department of Education</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-hands-helping"></i>
-                        <span>DSWD</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-plane"></i>
-                        <span>Department of Tourism</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-universal-access"></i>
-                        <span>NCDA</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-medkit"></i>
-                        <span>PhilHealth</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-shield-alt"></i>
-                        <span>SSS</span>
-                    </div>
-                </div>
-                <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-building"></i>
-                        <span>GSIS</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- FAQ Section -->
+     FAQ Section 
     <section class="faq-section">
         <div class="container">
             <h2>Frequently Asked Questions</h2>
@@ -409,7 +469,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Feedback Section -->
+     Feedback Section 
     <section class="feedback-section" id="contact">
         <div class="container">
             <h2>Share Your Feedback</h2>
@@ -418,6 +478,8 @@ require_once 'config.php';
             <div class="feedback-layout">
                 <div class="feedback-form-container">
                     <form class="feedback-form" id="feedbackForm" onsubmit="handleFeedback(event)">
+    <input type="hidden" name="action" value="submit_feedback">
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="feedbackName">Name</label>
@@ -495,7 +557,7 @@ require_once 'config.php';
         </div>
     </section>
 
-    <!-- Footer -->
+     Footer 
     <footer class="footer" id="about">
         <div class="container">
             <div class="footer-content">
@@ -553,7 +615,8 @@ require_once 'config.php';
         </div>
     </footer>
 
-    <!-- Terms and Conditions Modal -->
+     Modals (Terms, PWD Status, Forms, etc.) 
+     Terms and Conditions Modal 
     <div id="termsModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -652,7 +715,7 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- PWD Status Check Modal -->
+     PWD Status Check Modal 
     <div id="pwdStatusModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -677,7 +740,7 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- Existing PWD Email Verification Modal -->
+     Existing PWD Email Verification Modal 
     <div id="existingPWDModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -695,7 +758,7 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- Renewal/Update Appointment Modal -->
+     Renewal/Update Appointment Modal 
     <div id="renewalUpdateModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -707,12 +770,12 @@ require_once 'config.php';
                     <h3>Your Information</h3>
                     <div class="form-group">
                         <label>Full Name</label>
-                        <input type="text" id="renewalName"readonly>
+                        <input type="text" id="renewalName" readonly>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Email</label>
-                            <input type="email" id="renewalEmail" name="email" readonly>
+                            <input type="email" id="renewalEmail" readonly>
                         </div>
                         <div class="form-group">
                             <label>Phone</label>
@@ -737,8 +800,8 @@ require_once 'config.php';
                     <h3>Schedule</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="renewalPreferredDate">Preferred Date *</label>
-                            <input type="date" id="renewalPreferredDate" name="preferred_date" required>
+                            <label for="renewalDate">Preferred Date *</label>
+                            <input type="date" id="renewalDate" name="preferred_date" required>
                         </div>
                         <div class="form-group">
                             <label for="renewalTime">Preferred Time *</label>
@@ -763,7 +826,7 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- New Applicant Progress Form Modal -->
+     New Applicant Progress Form Modal 
     <div id="newApplicantModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -771,7 +834,7 @@ require_once 'config.php';
                 <span class="close" onclick="closeModal('newApplicantModal')">&times;</span>
             </div>
             
-            <!-- Progress Bar -->
+             Progress Bar 
             <div class="progress-container">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressBar"></div>
@@ -798,17 +861,17 @@ require_once 'config.php';
             </div>
 
             <form id="newApplicantForm" onsubmit="handleNewApplication(event)">
-                <!-- Step 1: Personal Information -->
+                 Step 1: Personal Information 
                 <div id="step1" class="form-step">
                     <h3>Personal Information</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="newApplicantFirstName">First Name *</label>
-                            <input type="text" id="newApplicantFirstName" name="first_name" required>
+                            <label for="newFirstName">First Name *</label>
+                            <input type="text" id="newFirstName" name="first_name" required>
                         </div>
                         <div class="form-group">
-                            <label for="newApplicantLastName">Last Name *</label>
-                            <input type="text" id="newApplicantLastName" name="last_name" required>
+                            <label for="newLastName">Last Name *</label>
+                            <input type="text" id="newLastName" name="last_name" required>
                         </div>
                     </div>
                     <div class="form-row">
@@ -817,21 +880,21 @@ require_once 'config.php';
                             <input type="email" id="newApplicantEmail" name="email" required>
                         </div>
                         <div class="form-group">
-                            <label for="newApplicantPhone">Phone Number *</label>
-                            <input type="tel" id="newApplicantPhone" name="phone" required placeholder="+63 912 345 6789">
+                            <label for="newPhone">Phone Number *</label>
+                            <input type="tel" id="newPhone" name="phone" required placeholder="+63 912 345 6789">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="newApplicantDOB">Date of Birth *</label>
-                        <input type="date" id="newApplicantDOB" name="date_of_birth" required>
+                        <label for="newDateOfBirth">Date of Birth *</label>
+                        <input type="date" id="newDateOfBirth" name="date_of_birth" required>
                     </div>
                     <div class="form-group">
-                        <label for="newApplicantAddress">Complete Address *</label>
-                        <textarea id="newApplicantAddress" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
+                        <label for="newAddress">Complete Address *</label>
+                        <textarea id="newAddress" name="address" rows="2" required placeholder="Street, Barangay, City/Municipality, Province"></textarea>
                     </div>
                 </div>
 
-                <!-- Step 2: Disability Information -->
+                 Step 2: Disability Information 
                 <div id="step2" class="form-step" style="display: none;">
                     <h3>Disability Information</h3>
                     <div class="form-group">
@@ -860,7 +923,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                <!-- Step 3: Emergency Contact -->
+                 Step 3: Emergency Contact 
                 <div id="step3" class="form-step" style="display: none;">
                     <h3>Emergency Contact Information</h3>
                     <div class="form-row">
@@ -879,7 +942,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                <!-- Step 4: Schedule Appointment -->
+                 Step 4: Schedule Appointment 
                 <div id="step4" class="form-step" style="display: none;">
                     <h3>Schedule Your Appointment</h3>
                     <div class="form-group">
@@ -889,12 +952,12 @@ require_once 'config.php';
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="newApplicantPreferredDate">Preferred Date *</label>
-                            <input type="date" id="newApplicantPreferredDate" name="preferred_date" required>
+                            <label for="newPreferredDate">Preferred Date *</label>
+                            <input type="date" id="newPreferredDate" name="preferred_date" required>
                         </div>
                         <div class="form-group">
-                            <label for="newApplicantPreferredTime">Preferred Time *</label>
-                            <select id="newApplicantPreferredTime" name="preferred_time" required>
+                            <label for="newPreferredTime">Preferred Time *</label>
+                            <select id="newPreferredTime" name="preferred_time" required>
                                 <option value="">Select time</option>
                                 <option value="09:00:00">9:00 AM</option>
                                 <option value="10:00:00">10:00 AM</option>
@@ -906,8 +969,8 @@ require_once 'config.php';
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="newApplicantNotes">Additional Notes (Optional)</label>
-                        <textarea id="newApplicantNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
+                        <label for="newNotes">Additional Notes (Optional)</label>
+                        <textarea id="newNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
                     </div>
                     <div class="info-box success">
                         <i class="fas fa-check-circle"></i>
@@ -915,7 +978,7 @@ require_once 'config.php';
                     </div>
                 </div>
 
-                <!-- Form Navigation -->
+                 Form Navigation 
                 <div class="form-navigation">
                     <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
                         <i class="fas fa-arrow-left"></i> Previous
@@ -931,7 +994,7 @@ require_once 'config.php';
         </div>
     </div>
 
-    <!-- Program Details Modal -->
+     Program Details Modal 
     <div id="programModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -939,7 +1002,7 @@ require_once 'config.php';
                 <span class="close" onclick="closeModal('programModal')">&times;</span>
             </div>
             <div id="programModalContent" class="program-modal-body">
-                <!-- Will be populated by JavaScript -->
+                 Will be populated by JavaScript 
             </div>
         </div>
     </div>

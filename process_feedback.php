@@ -1,6 +1,8 @@
 <?php
 require_once 'config.php';
 
+header('Content-Type: application/json');
+
 // Handle AJAX feedback submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -8,24 +10,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'submit_feedback') {
         handleFeedbackSubmission();
     } else {
-        // Handle regular form submission (fallback)
-        handleRegularFeedback();
+        jsonResponse(['error' => 'Invalid action'], 400);
     }
+} else {
+    jsonResponse(['error' => 'Invalid request method'], 405);
 }
 
 function handleFeedbackSubmission() {
     global $pdo;
     
+    // Validate required fields
     $required_fields = ['name', 'email', 'subject', 'message'];
     foreach ($required_fields as $field) {
         if (empty($_POST[$field])) {
-            jsonResponse(['error' => "Field {$field} is required"], 400);
+            jsonResponse(['error' => "Field '{$field}' is required"], 400);
+            return;
         }
     }
     
     // Validate email
     if (!filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
         jsonResponse(['error' => 'Invalid email address'], 400);
+        return;
     }
     
     // Validate rating if provided
@@ -34,22 +40,18 @@ function handleFeedbackSubmission() {
         $rating = (int)$_POST['rating'];
         if ($rating < 1 || $rating > 5) {
             jsonResponse(['error' => 'Rating must be between 1 and 5'], 400);
+            return;
         }
     }
     
     try {
-        $user_id = null;
-        if (isLoggedIn()) {
-            $user_id = $_SESSION['user_id'];
-        }
-        
+        // No user_id since we removed authentication
         $stmt = $pdo->prepare("
-            INSERT INTO feedback (user_id, name, email, subject, message, rating) 
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO feedback (name, email, subject, message, rating, created_at) 
+            VALUES (?, ?, ?, ?, ?, NOW())
         ");
         
-        $stmt->execute([
-            $user_id,
+        $result = $stmt->execute([
             $_POST['name'],
             $_POST['email'],
             $_POST['subject'],
@@ -57,53 +59,20 @@ function handleFeedbackSubmission() {
             $rating
         ]);
         
-        jsonResponse([
-            'success' => true,
-            'message' => 'Thank you for your feedback! We appreciate your input and will review it shortly.'
-        ]);
+        if ($result) {
+            jsonResponse([
+                'success' => true,
+                'message' => 'Thank you for your feedback! We appreciate your input and will review it shortly.'
+            ]);
+        } else {
+            jsonResponse(['error' => 'Failed to submit feedback'], 500);
+        }
         
     } catch (PDOException $e) {
-        jsonResponse(['error' => 'Failed to submit feedback: ' . $e->getMessage()], 500);
+        error_log("Feedback submission error: " . $e->getMessage());
+        jsonResponse(['error' => 'Failed to submit feedback. Please try again later.'], 500);
     }
 }
 
-function handleRegularFeedback() {
-    global $pdo;
-    
-    // Fallback for regular form submission
-    if (empty($_POST['name']) || empty($_POST['email']) || empty($_POST['subject']) || empty($_POST['message'])) {
-        header('Location: index.php#contact?error=missing_fields');
-        exit();
-    }
-    
-    try {
-        $user_id = null;
-        if (isLoggedIn()) {
-            $user_id = $_SESSION['user_id'];
-        }
-        
-        $rating = !empty($_POST['rating']) ? (int)$_POST['rating'] : null;
-        
-        $stmt = $pdo->prepare("
-            INSERT INTO feedback (user_id, name, email, subject, message, rating) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        ");
-        
-        $stmt->execute([
-            $user_id,
-            $_POST['name'],
-            $_POST['email'],
-            $_POST['subject'],
-            $_POST['message'],
-            $rating
-        ]);
-        
-        header('Location: index.php#contact?success=feedback_submitted');
-        exit();
-        
-    } catch (PDOException $e) {
-        header('Location: index.php#contact?error=submission_failed');
-        exit();
-    }
-}
+
 ?>
