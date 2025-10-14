@@ -418,6 +418,7 @@ require_once 'config.php';
             <div class="feedback-layout">
                 <div class="feedback-form-container">
                     <form class="feedback-form" id="feedbackForm" onsubmit="handleFeedback(event)">
+    <input type="hidden" name="action" value="submit_feedback">
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="feedbackName">Name</label>
