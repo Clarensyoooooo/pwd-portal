@@ -51,13 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error'] = 'You do not have permission to create roles.';
             }
             break;
-        case 'update_role':
-            if ($canManageRoles) {
-                updateRole($pdo);
-            } else {
-                $_SESSION['error'] = 'You do not have permission to manage roles.';
-            }
-            break;
+       
         case 'delete_role':
             if ($canManageRoles) {
                 deleteRole($pdo);
@@ -1560,6 +1554,17 @@ function deleteRole($pdo) {
         .mt-4 {
             margin-top: 2rem;
         }
+        .modal-footer {
+    display: flex;
+    justify-content: flex-end; /* Aligns buttons to the right */
+    gap: 8px;                  /* Adds a nice space between the buttons */
+    padding: 16px 24px;
+    border-top: 1px solid #e5e7eb;
+    background-color: #f9fafb;
+    /* These next two lines ensure the footer's corners are rounded like the modal */
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
     </style>
 </body>
 </html>

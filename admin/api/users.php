@@ -1,5 +1,13 @@
 <?php
-require_once '../config.php';
+
+// Add these two lines for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+// Use __DIR__ for a reliable path to the project root config for the $pdo connection
+require_once __DIR__ . '/../../config.php'; 
+
+// Now include the admin config for admin-specific functions
+require_once __DIR__ . '/../config.php';
 requireAdminLogin();
 
 header('Content-Type: application/json');

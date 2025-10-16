@@ -19,6 +19,7 @@ try {
     <title><?php echo isset($page_title) ? $page_title . ' - ' : ''; ?>PWD Portal Admin</title>
     <link rel="stylesheet" href="assets/admin.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
 </head>
 <body>
     <!-- Admin Header -->

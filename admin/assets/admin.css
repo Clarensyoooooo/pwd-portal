@@ -194,6 +194,8 @@ body {
   color: var(--primary-color);
 }
 
+
+
 .header-brand {
   display: flex;
   align-items: center;
@@ -907,12 +909,12 @@ body {
   gap: 8px;
 }
 
-/* Data Tables */
+/* In admin.css, find this class and change the overflow property */
 .data-card {
   background: var(--bg-secondary);
   border-radius: var(--border-radius);
   box-shadow: var(--box-shadow);
-  overflow: hidden;
+  overflow-x: auto; /* Change from overflow: hidden */
 }
 
 .record-count {

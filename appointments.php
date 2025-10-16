@@ -309,7 +309,7 @@ function handleRenewalUpdate() {
                 <p>– PWD Portal Team, Tanauan City</p>
             ";
             // Ensure you have a function called sendResendEmail or change this to your email function name
-            // sendResendEmail($user_data['email'], $emailSubject, $emailBody);
+             sendResendEmail($user_data['email'], $emailSubject, $emailBody);
         } catch (Exception $email_error) {
             // Email failed, but we will still show success to the user.
         }
