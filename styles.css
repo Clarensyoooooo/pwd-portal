@@ -1,5 +1,35 @@
 /* Enhanced styles for complete PWD Portal */
 
+/* Add this to your styles.css file */
+
+.hero-content-grid {
+    display: flex;
+    gap: 2rem; /* Adds space between the columns */
+    align-items: center;
+}
+
+.hero-main-content {
+    flex: 2; /* Takes up 2/3 of the space */
+}
+
+.hero-sidebar {
+    flex: 1; /* Takes up 1/3 of the space */
+    min-width: 340px; /* Ensures it doesn't get too small */
+}
+
+/* Optional: For smaller screens, stack the columns */
+@media (max-width: 992px) {
+    .hero-content-grid {
+        flex-direction: column;
+    }
+    .hero-sidebar {
+        margin-top: 2rem;
+        width: 100%;
+    }
+}
+
+
+
 /* Modal Styles */
 .modal {
   display: none;
@@ -1984,4 +2014,63 @@ body {
   width: 100%;
   padding: 15px;
   font-size: 1.1rem;
+}
+
+/* Styling for the new Facebook Feeds Section */
+.facebook-feeds-container {
+    display: flex;
+    flex-wrap: wrap; /* Allows columns to stack on mobile */
+    align-items: flex-start; /* Aligns columns to the top */
+    gap: 2rem;
+}
+
+.main-page-feature {
+    flex: 1 1 450px; /* Adjusts width, but has a base of 450px */
+    min-width: 400px;
+    text-align: center;
+}
+
+.other-pages-grid-container {
+    flex: 1 1 60%; /* Takes up remaining space */
+    min-width: 340px;
+    text-align: center;
+}
+
+.main-page-feature h3,
+.other-pages-grid-container h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: #333;
+}
+
+/* --- THIS IS THE KEY CHANGE --- */
+/* --- THIS IS THE KEY CHANGE --- */
+.other-pages-grid {
+    display: grid;
+    /* Create two columns that fit their content */
+    grid-template-columns: repeat(2, max-content); 
+    /* Center the columns within the container */
+    justify-content: center; 
+    gap: 1.5rem;
+}
+
+.partner-page-embed iframe {
+    width: 100%; /* Makes iframes responsive within the grid */
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 1200px) {
+    .facebook-feeds-container {
+        /* Stacks everything into a single column */
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .main-page-feature,
+    .other-pages-grid-container {
+        flex: 1 1 100%; /* Each takes full width */
+        width: 100%;
+    }
 }

@@ -30,10 +30,10 @@ try {
             </button>
             <div class="header-brand">
                 <i class="fas fa-wheelchair"></i>
-                <span>PWD Portal Admin</span>
+                <span>PDAO Helps</span>
             </div>
         </div>
-        
+        <!--
         <div class="header-right">
             <div class="header-notifications">
                 <button class="notification-btn" id="notificationBtn">
@@ -58,7 +58,9 @@ try {
                         </div>
                     </div>
                 </div>
-            </div>
+            </div> -->
+
+            
             
             <div class="header-user">
                 <div class="user-avatar">
@@ -78,9 +80,9 @@ try {
                         <a href="profile.php">
                             <i class="fas fa-user"></i> Profile
                         </a>
-                        <a href="settings.php">
+                        <!--<a href="settings.php">
                             <i class="fas fa-cog"></i> Settings
-                        </a>
+                        </a> -->
                         <div class="dropdown-divider"></div>
                         <a href="logout.php" class="text-danger">
                             <i class="fas fa-sign-out-alt"></i> Logout

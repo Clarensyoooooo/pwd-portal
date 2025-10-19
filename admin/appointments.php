@@ -615,7 +615,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-         Today's and Tomorrow's Appointments Cards 
+          
         <div class="quick-access-cards">
             <?php
             // Get today's appointments
@@ -776,7 +776,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-         Statistics Cards 
+         
         <div class="stats-grid">
             <?php
             $stats_query = "
@@ -835,7 +835,7 @@ function handleGetAppointmentDetails() {
             </div>
         </div>
         
-         Enhanced Filters 
+         
         <div class="filters-card">
             <form method="GET" class="filters-form">
                 <div class="filter-group">
@@ -896,7 +896,7 @@ function handleGetAppointmentDetails() {
             </form>
         </div>
         
-         Appointments Table 
+         
         <div class="data-card">
             <div class="card-header">
                 <h3>Appointment List</h3>
@@ -1061,7 +1061,7 @@ endif; ?>
                 </table>
             </div>
             
-             Pagination 
+             
             <?php if ($total_pages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
@@ -1085,7 +1085,7 @@ endif; ?>
         </div>
     </main>
     
-     View Appointment Modal 
+      
     <div id="appointmentModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">
@@ -1098,7 +1098,7 @@ endif; ?>
         </div>
     </div>
     
-     Edit Appointment Modal 
+      
     <div id="editModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1134,7 +1134,7 @@ endif; ?>
         </div>
     </div>
     
-     Reschedule Modal 
+     
     <div id="rescheduleModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">

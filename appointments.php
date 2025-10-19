@@ -304,9 +304,9 @@ function handleRenewalUpdate() {
                 <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
                 <p>Reference Number: <strong>{$reference_number}</strong></p>
                 <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-                <p>This is a copy of the verification code sent to your mobile number.</p>
+                <p>This is a copy of the verification code sent to your email address.</p>
                 <br>
-                <p>– PWD Portal Team, Tanauan City</p>
+                <p>– PWD Portal Team, City of Sto. Tomas</p>
             ";
             // Ensure you have a function called sendResendEmail or change this to your email function name
              sendResendEmail($user_data['email'], $emailSubject, $emailBody);
@@ -499,7 +499,7 @@ sendResendEmail($_POST['email'], $emailSubject, $emailBody);
         
         jsonResponse([
             'success' => true,
-            'message' => 'Application submitted successfully! SMS verification sent to ' . $phone,
+            'message' => 'Application submitted successfully! email verification sent to ' . $email,
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,
@@ -596,7 +596,7 @@ function handleSMSVerification() {
         }
         
         if ($appointment['sms_verified_at']) {
-            jsonResponse(['error' => 'SMS already verified'], 400);
+            jsonResponse(['error' => 'email already verified'], 400);
         }
         
         // Update verification status and confirm appointment
@@ -609,11 +609,11 @@ function handleSMSVerification() {
         
         jsonResponse([
             'success' => true,
-            'message' => 'SMS verified successfully! Your appointment is now confirmed.'
+            'message' => 'Email verified successfully! Your appointment is now confirmed.'
         ]);
         
     } catch (PDOException $e) {
-        jsonResponse(['error' => 'SMS verification failed: ' . $e->getMessage()], 500);
+        jsonResponse(['error' => 'Email verification failed: ' . $e->getMessage()], 500);
     }
 }
 ?>

@@ -748,16 +748,16 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 <div class="form-grid">
                                     <div class="form-group">
                                         <label for="first_name">First Name *</label>
-                                        <input type="text" id="first_name" name="first_name" class="form-input" required 
-                                               value="<?php echo htmlspecialchars($interview['first_name']); ?>">
+                                        <input type="text" id="first_name" name="first_name" class="form-input" required maxlength="100"
+       value="<?php echo htmlspecialchars($interview['first_name']); ?>">
                                     </div>
                                     <div class="form-group">
                                         <label for="middle_name">Middle Name</label>
-                                        <input type="text" id="middle_name" name="middle_name" class="form-input">
+                                        <input type="text" id="middle_name" name="middle_name" class="form-input" maxlength="100">
                                     </div>
                                     <div class="form-group">
                                         <label for="last_name">Last Name *</label>
-                                        <input type="text" id="last_name" name="last_name" class="form-input" required 
+                                        <input type="text" id="last_name" name="last_name" class="form-input" required maxlength="100"
                                                value="<?php echo htmlspecialchars($interview['last_name']); ?>">
                                     </div>
                                     <div class="form-group">
@@ -784,7 +784,6 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     <div class="form-group">
                                         <label for="gender">Gender *</label>
                                         <select id="gender" name="gender" class="form-select" required>
-                                            <option value="">Select Gender</option>
                                             <option value="Male">Male</option>
                                             <option value="Female">Female</option>
                                             <option value="Other">Other</option>
@@ -793,7 +792,6 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     <div class="form-group">
                                         <label for="civil_status">Civil Status *</label>
                                         <select id="civil_status" name="civil_status" class="form-select" required>
-                                            <option value="">Select Status</option>
                                             <option value="Single">Single</option>
                                             <option value="Married">Married</option>
                                             <option value="Widowed">Widowed</option>
@@ -804,7 +802,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                             </div>
                             
-                             Address Information 
+                           
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
@@ -818,14 +816,13 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group full-width">
                                         <label for="address_line2">Address Line 2</label>
-                                        <input type="text" id="address_line2" name="address_line2" class="form-input" 
+                                        <input type="text" id="address_line2" name="address_line2" class="form-input" maxlength="255"
                                                placeholder="Building, Subdivision, etc.">
                                     </div>
                                     
                                     <div class="form-group">
                                         <label for="barangay_id">Barangay *</label>
                                         <select id="barangay_id" name="barangay_id" class="form-select" required onchange="updateCityProvince()">
-                                            <option value="">Select Barangay</option>
                                             <?php foreach ($barangays as $barangay): ?>
                                                 <option value="<?php echo $barangay['id']; ?>" 
                                                         data-city="<?php echo htmlspecialchars($barangay['city_municipality'] ?: 'Santo Tomas City'); ?>"
@@ -854,8 +851,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group">
                                         <label for="postal_code">Postal Code</label>
-                                        <input type="text" id="postal_code" name="postal_code" class="form-input" 
-                                               pattern="[0-9]{4}" placeholder="4234" value="4234">
+                                        <input type="number" id="postal_code" name="postal_code" class="form-input" 
+       maxlength="10" placeholder="4234" value="4234">
                                     </div>
                                 </div>
                                 
@@ -870,7 +867,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                             </div>
                             
-                             Geographic Location 
+                            
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
@@ -909,7 +906,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                             </div>
                             
-                             Contact Information 
+                            
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-phone"></i> Contact Information</h4>
@@ -917,18 +914,19 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 <div class="form-grid">
                                     <div class="form-group">
                                         <label for="phone_number">Phone Number *</label>
-                                        <input type="tel" id="phone_number" name="phone_number" class="form-input" required 
-                                               value="<?php echo htmlspecialchars($interview['phone']); ?>">
+                                        <input type="tel" id="phone_number" name="phone_number" class="form-input" required maxlength="20" 
+       pattern="[0-9\+\-\(\) ]{7,}" title="Please enter a valid phone number"
+       value="<?php echo htmlspecialchars($interview['phone']); ?>">
                                     </div>
                                     <div class="form-group">
                                         <label for="email_address">Email Address</label>
-                                        <input type="email" id="email_address" name="email_address" class="form-input" 
-                                               value="<?php echo htmlspecialchars($interview['email']); ?>">
+                                        <input type="email" id="email_address" name="email_address" class="form-input" maxlength="100"
+       value="<?php echo htmlspecialchars($interview['email']); ?>">
                                     </div>
                                 </div>
                             </div>
                             
-                             Disability Information 
+                             
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
@@ -937,7 +935,6 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     <div class="form-group">
                                         <label for="disability_type">Type of Disability *</label>
                                         <select id="disability_type" name="disability_type" class="form-select" required>
-                                            <option value="">Select Disability Type</option>
                                             <option value="Physical Disability">Physical Disability</option>
                                             <option value="Visual Impairment">Visual Impairment</option>
                                             <option value="Hearing Impairment">Hearing Impairment</option>
@@ -950,7 +947,6 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     <div class="form-group">
                                         <label for="disability_cause">Cause of Disability</label>
                                         <select id="disability_cause" name="disability_cause" class="form-select">
-                                            <option value="">Select Cause</option>
                                             <option value="Congenital">Congenital</option>
                                             <option value="Accident">Accident</option>
                                             <option value="Illness">Illness</option>
@@ -960,18 +956,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group full-width">
                                         <label for="disability_description">Disability Description</label>
-                                        <textarea id="disability_description" name="disability_description" rows="3" class="form-textarea" 
-                                                  placeholder="Detailed description of the disability..."></textarea>
+                                        <textarea id="disability_description" name="disability_description" rows="3" class="form-textarea" maxlength="1000"
+          placeholder="Detailed description of the disability..."></textarea>
                                     </div>
                                     <div class="form-group full-width">
                                         <label for="assistive_device">Assistive Devices Used</label>
-                                        <input type="text" id="assistive_device" name="assistive_device" class="form-input" 
-                                               placeholder="Wheelchair, hearing aid, white cane, etc.">
+                                        <input type="text" id="assistive_device" name="assistive_device" class="form-input" maxlength="255"
+       placeholder="Wheelchair, hearing aid, white cane, etc.">
                                     </div>
                                 </div>
                             </div>
                             
-                             Medical Information 
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa- stethoscope"></i> Medical Information</h4>
@@ -984,18 +979,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group full-width">
                                         <label for="medication">Current Medications</label>
-                                        <textarea id="medication" name="medication" rows="2" class="form-textarea" 
-                                                  placeholder="List current medications and dosages..."></textarea>
+                                        <textarea id="medication" name="medication" rows="2" class="form-textarea" maxlength="1000" placeholder="List current medications and dosages..."></textarea></textarea>
                                     </div>
                                     <div class="form-group">
                                         <label for="attending_physician">Attending Physician</label>
-                                        <input type="text" id="attending_physician" name="attending_physician" class="form-input" 
+                                        <input type="text" id="attending_physician" name="attending_physician" class="form-input" maxlength="255"
                                                placeholder="Dr. Juan Dela Cruz">
                                     </div>
                                 </div>
                             </div>
                             
-                             Emergency Contact 
+                             
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
@@ -1003,13 +997,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 <div class="form-grid">
                                     <div class="form-group">
                                         <label for="emergency_contact_name">Contact Name</label>
-                                        <input type="text" id="emergency_contact_name" name="emergency_contact_name" class="form-input" 
+                                        <input type="text" id="emergency_contact_name" name="emergency_contact_name" class="form-input" maxlength="255"
                                                placeholder="Full name of emergency contact">
                                     </div>
                                     <div class="form-group">
                                         <label for="emergency_contact_relationship">Relationship</label>
                                         <select id="emergency_contact_relationship" name="emergency_contact_relationship" class="form-select">
-                                            <option value="">Select Relationship</option>
                                             <option value="Spouse">Spouse</option>
                                             <option value="Parent">Parent</option>
                                             <option value="Child">Child</option>
@@ -1022,18 +1015,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group">
                                         <label for="emergency_contact_phone">Contact Phone</label>
-                                        <input type="tel" id="emergency_contact_phone" name="emergency_contact_phone" class="form-input" 
-                                               placeholder="+63 912 345 6789">
+                                        <input type="tel" id="emergency_contact_phone" name="emergency_contact_phone" class="form-input" maxlength="20"
+       pattern="[0-9\+\-\(\) ]{7,}" title="Please enter a valid phone number" ...>
                                     </div>
                                     <div class="form-group full-width">
                                         <label for="emergency_contact_address">Contact Address</label>
-                                        <textarea id="emergency_contact_address" name="emergency_contact_address" rows="2" class="form-textarea" 
-                                                  placeholder="Complete address of emergency contact..."></textarea>
+                                        <textarea id="emergency_contact_address" name="emergency_contact_address" rows="2" class="form-textarea" maxlength="255" placeholder="Full address of emergency contact..."></textarea>
                                     </div>
                                 </div>
                             </div>
                             
-                             Employment Information 
+                            
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
@@ -1051,12 +1043,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                     <div class="form-group">
                                         <label for="occupation">Occupation</label>
-                                        <input type="text" id="occupation" name="occupation" class="form-input" 
+                                        <input type="text" id="occupation" name="occupation" class="form-input" maxlength="100"
                                                placeholder="Job title or profession">
                                     </div>
                                     <div class="form-group">
                                         <label for="employer_name">Employer Name</label>
-                                        <input type="text" id="employer_name" name="employer_name" class="form-input" 
+                                        <input type="text" id="employer_name" name="employer_name" class="form-input" maxlength="255"
                                                placeholder="Company or organization name">
                                     </div>
                                     <div class="form-group">
@@ -1067,7 +1059,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                             </div>
                             
-                             Government IDs 
+                             
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-id-card-alt"></i> Government IDs</h4>
@@ -1075,18 +1067,21 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 <div class="form-grid">
                                     <div class="form-group">
                                         <label for="sss_number">SSS Number</label>
-                                        <input type="text" id="sss_number" name="sss_number" class="form-input" 
-                                               placeholder="XX-XXXXXXX-X">
+                                        <input type="text" id="sss_number" name="sss_number" class="form-input" maxlength="50"
+       pattern="[0-9\-]{10,}" title="e.g., 01-2345678-9"
+       placeholder="XX-XXXXXXX-X">
                                     </div>
                                     <div class="form-group">
                                         <label for="philhealth_number">PhilHealth Number</label>
-                                        <input type="text" id="philhealth_number" name="philhealth_number" class="form-input" 
-                                               placeholder="XX-XXXXXXXXX-X">
+                                        <input type="text" id="philhealth_number" name="philhealth_number" class="form-input" maxlength="50"
+       pattern="[0-9\-]{12,}" title="e.g., 01-023456789-0"
+       placeholder="XX-XXXXXXXXX-X">
                                     </div>
                                     <div class="form-group">
                                         <label for="tin_number">TIN Number</label>
-                                        <input type="text" id="tin_number" name="tin_number" class="form-input" 
-                                               placeholder="XXX-XXX-XXX-XXX">
+                                        <input type="text" id="tin_number" name="tin_number" class="form-input" maxlength="50"
+       pattern="[0-9\-]{11,}" title="e.g., 123-456-789-000"
+       placeholder="XXX-XXX-XXX-XXX">
                                     </div>
                                 </div>
                             </div>
@@ -1103,7 +1098,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                     </div>
                 </div>
             <?php else: ?>
-                 Record Summary Tab 
+                 
                 <div id="record-summary" class="tab-content">
                     <div class="record-summary-container">
                         <div class="summary-card">
