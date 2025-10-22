@@ -246,7 +246,7 @@ function getBrowserName($userAgent) {
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
-    <?php include 'includes/sidebar.php'; ?>
+   
     
     <main class="main-content">
         <div class="page-header">
@@ -364,9 +364,16 @@ function getBrowserName($userAgent) {
                                             <strong><?php echo htmlspecialchars($log['admin_name']); ?></strong>
                                             <span class="log-username">@<?php echo htmlspecialchars($log['username']); ?></span>
                                         </div>
-                                        <div class="log-time">
-                                            <?php echo date('M j, Y g:i A', strtotime($log['created_at'])); ?>
-                                        </div>
+                                       <div class="log-time">
+    <?php 
+        // Create a DateTime object, telling it the time is in UTC
+        $utc_time = new DateTime($log['created_at'], new DateTimeZone('UTC'));
+        // Set the object's timezone to your local one
+        $utc_time->setTimezone(new DateTimeZone('Asia/Manila'));
+        // Format and display the converted time
+        echo $utc_time->format('M j, Y g:i A');
+    ?>
+</div>
                                     </div>
                                     
                                     <div class="log-action">

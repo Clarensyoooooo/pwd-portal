@@ -405,7 +405,7 @@ function deleteRole($pdo) {
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
-    <?php include 'includes/sidebar.php'; ?>
+    
     
     <main class="main-content">
         <div class="page-header">

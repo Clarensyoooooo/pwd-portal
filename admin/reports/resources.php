@@ -1,8 +1,7 @@
 <!-- Resource Planning Report -->
 <div class="analytics-grid">
-    <!-- Summary Cards -->
     <div class="metric-card">
-        <div class="metric-value"><?php echo count($report_data['barangay_recommendations'] ?? []); ?></div>
+        <div class="metric-value"><?php echo number_format($report_data['grand_totals']['total_barangays'] ?? 0); ?></div>
         <div class="metric-label">Barangays Analyzed</div>
         <div class="metric-change">
             <i class="fas fa-map"></i> Resource planning areas
@@ -10,7 +9,7 @@
     </div>
     
     <div class="metric-card">
-        <div class="metric-value"><?php echo array_sum(array_column($report_data['barangay_recommendations'] ?? [], 'total_pwd')); ?></div>
+        <div class="metric-value"><?php echo number_format($report_data['grand_totals']['total_pwd'] ?? 0); ?></div>
         <div class="metric-label">Total PWDs</div>
         <div class="metric-change">
             <i class="fas fa-users"></i> Requiring services
@@ -18,7 +17,7 @@
     </div>
     
     <div class="metric-card">
-        <div class="metric-value"><?php echo array_sum(array_column($report_data['barangay_recommendations'] ?? [], 'total_unemployed')); ?></div>
+        <div class="metric-value"><?php echo number_format($report_data['grand_totals']['total_unemployed'] ?? 0); ?></div>
         <div class="metric-label">Unemployed</div>
         <div class="metric-change">
             <i class="fas fa-briefcase"></i> Need livelihood programs
@@ -26,7 +25,7 @@
     </div>
     
     <div class="metric-card">
-        <div class="metric-value"><?php echo array_sum(array_column($report_data['barangay_recommendations'] ?? [], 'total_children')); ?></div>
+        <div class="metric-value"><?php echo number_format($report_data['grand_totals']['total_children'] ?? 0); ?></div>
         <div class="metric-label">Children</div>
         <div class="metric-change">
             <i class="fas fa-child"></i> Need special education
@@ -56,7 +55,7 @@
         
         <!-- Barangay Summary -->
         <div style="margin-bottom: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px;">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
                 <div>
                     <span style="color: #6b7280; font-size: 0.85rem;">Total PWDs:</span>
                     <strong style="display: block; color: #1f2937; font-size: 1.25rem;"><?php echo number_format($data['total_pwd']); ?></strong>
@@ -69,6 +68,12 @@
                     <span style="color: #6b7280; font-size: 0.85rem;">Adults:</span>
                     <strong style="display: block; color: #059669; font-size: 1.25rem;"><?php echo number_format($data['total_adults']); ?></strong>
                 </div>
+                
+                <div>
+                    <span style="color: #6b7280; font-size: 0.85rem;">Seniors:</span>
+                    <strong style="display: block; color: #d97706; font-size: 1.25rem;"><?php echo number_format($data['total_seniors']); ?></strong>
+                </div>
+                
                 <div>
                     <span style="color: #6b7280; font-size: 0.85rem;">Unemployed:</span>
                     <strong style="display: block; color: #dc2626; font-size: 1.25rem;"><?php echo number_format($data['total_unemployed']); ?></strong>
@@ -198,12 +203,6 @@
 </div>
 <?php endif; ?>
 
-<script>
-function initializeAnalyticsCharts() {
-    console.log('Resource planning report loaded successfully');
-}
-</script>
-
 <?php 
 // START: ADD PAGINATION CONTROLS
 // Check if pagination data exists and if there is more than one page
@@ -248,3 +247,9 @@ if (isset($report_data['pagination']) && $report_data['pagination']['total_pages
 <?php endif; 
 // END: PAGINATION CONTROLS
 ?>
+
+<script>
+function initializeAnalyticsCharts() {
+    console.log('Resource planning report loaded successfully');
+}
+</script>

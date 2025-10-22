@@ -37,16 +37,16 @@ require_once 'config.php';
         <div class="top-bar">
             <div class="container">
                 <div class="contact-info">
-                    <span><i class="fas fa-phone"></i> Hotline: 8888-1000</span>
-                    <span><i class="fas fa-envelope"></i> info@pwd.gov.ph</span>
+                    <span><i class="fas fa-phone"></i> Hotline: (043) 784 8022</span>
+                    <span><i class="fas fa-envelope"></i> pdaostotomas2025@gmail.com</span>
                 </div>
             </div>
         </div>
         <nav class="navbar">
             <div class="container">
                 <div class="nav-brand">
-                    <img src="assets/logo.png" alt="PWD Logo" class="logo">
-                    <span class="brand-text">PWD Portal</span>
+                    <img src="https://scontent.fpag2-1.fna.fbcdn.net/v/t39.30808-6/517703539_122107885826930992_4646467853699166888_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_ohc=ULWXeTTkiasQ7kNvwEcY-GP&_nc_oc=Adn_VUpk5YJV1uN7yOnvN2a--dDZ7AP0Du4RBdq__7E1zgxL6eQz9fGFpHCYDJIoiSM&_nc_zt=23&_nc_ht=scontent.fpag2-1.fna&_nc_gid=TiaJ00GZFdYkt-ZzIF-cVA&oh=00_Afdt7WT8vLrk-jW1aePbVmzhxRvCEUh1c-Fx3naBajmvwA&oe=68FE7C12" alt="PWD Logo" class="logo">
+                    <span class="brand-text">PDAO Helps</span>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#home">Home</a></li>
@@ -75,14 +75,9 @@ require_once 'config.php';
                     <p>Access essential services and support for Persons with Disabilities. 
                     Book appointments for PWD ID application, track your appointment status, and discover programs designed to enhance your quality of life.</p>
                 </div>
-                <div class="hero-banner">
-                    <div class="promo-badge">
-                        <div class="badge-content">
-                            <span class="badge-text">SPECIAL OFFER</span>
-                            <span class="badge-discount">DISCOUNTS & BENEFITS</span>
-                        </div>
-                    </div>
-                </div>
+                <div class="hero-sidebar">
+        <iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61577929784498&tabs=timeline%2C%20events%2C%20messages&width=500&height=500&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true&appId" width="500" height="500" style="border:none;overflow:hidden" scrolling="no" frameborder="0" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
+    </div>
             </div>
         </div>
     </section>
@@ -469,9 +464,9 @@ require_once 'config.php';
                     <div class="contact-card">
                         <h3><i class="fas fa-phone"></i> Contact Information</h3>
                         <div class="contact-details">
-                            <p><i class="fas fa-phone"></i> Hotline: 8888-1000</p>
-                            <p><i class="fas fa-envelope"></i> Email: info@pwd.gov.ph</p>
-                            <p><i class="fas fa-map-marker-alt"></i> Address: 123 Government Center, Manila</p>
+                             <p><i class="fas fa-phone"></i> Hotline: (043) 784 8022</p>
+                            <p><i class="fas fa-envelope"></i> Email: pdaostotomas2025@gmail.com</p>
+                            <p><i class="fas fa-map-marker-alt"></i> Address: CSWD Building. Pob 1, City of Sto. Tomas</p>
                             <p><i class="fas fa-clock"></i> Office Hours: Mon-Fri, 8:00 AM - 5:00 PM</p>
                         </div>
                     </div>
@@ -538,9 +533,9 @@ require_once 'config.php';
                 <div class="footer-contact">
                     <h3>We are always happy to assist you</h3>
                     <div class="contact-details">
-                        <p><i class="fas fa-envelope"></i> info@pwd.gov.ph</p>
-                        <p><i class="fas fa-phone"></i> Hotline: 8888-1000</p>
-                        <p><i class="fas fa-map-marker-alt"></i> 123 Government Center, Manila</p>
+                        <p><i class="fas fa-envelope"></i> pdaostotomas2025@gmail.com</p>
+                        <p><i class="fas fa-phone"></i> Hotline: (043) 784 8022</p>
+                        <p><i class="fas fa-map-marker-alt"></i> CSWD Building. Pob 1, City of Sto. Tomas</p>
                         <p><i class="fas fa-globe"></i> www.pwd.gov.ph</p>
                     </div>
                 </div>

@@ -66,9 +66,7 @@ $page_title = 'Settings';
 include 'includes/header.php';
 ?>
 
-<div class="admin-sidebar" id="adminSidebar">
-    <?php include 'includes/sidebar.php'; ?>
-</div>
+
 
 <div class="main-content" id="mainContent" data-theme="<?php echo $settings['dark_mode'] === '1' ? 'dark' : 'light'; ?>">
     <div class="page-header">

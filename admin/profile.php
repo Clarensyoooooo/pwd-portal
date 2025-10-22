@@ -77,9 +77,7 @@ $page_title = 'My Profile';
 include 'includes/header.php';
 ?>
 
-<div class="admin-sidebar" id="adminSidebar">
-    <?php include 'includes/sidebar.php'; ?>
-</div>
+
 
 <div class="main-content">
     <div class="page-header">

@@ -2,6 +2,8 @@
 require_once 'config.php';
 requireAdminLogin();
 
+date_default_timezone_set('Asia/Manila');
+
 $admin = getCurrentAdmin($pdo);
 $page_title = "Dashboard Overview";
 
@@ -259,7 +261,14 @@ include 'includes/header.php';
                                 </p>
                                 <span class="activity-time">
                                     <i class="fas fa-clock"></i>
-                                    <?php echo date('M j, Y g:i A', strtotime($activity['created_at'])); ?>
+                                     <?php 
+        // Create a DateTime object, telling it the time is in UTC
+        $utc_time = new DateTime($activity['created_at'], new DateTimeZone('UTC'));
+        // Set the object's timezone to your local one
+        $utc_time->setTimezone(new DateTimeZone('Asia/Manila'));
+        // Format and display the converted time
+        echo $utc_time->format('M j, Y g:i A');
+    ?>
                                 </span>
                             </div>
                         </div>

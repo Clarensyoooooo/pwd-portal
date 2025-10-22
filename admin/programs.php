@@ -587,12 +587,17 @@ requireAdminLogin();
     }
 
     .form-actions {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-        padding-top: 20px;
-        border-top: 1px solid #e2e8f0;
-    }
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 20px; /* <-- MODIFIED THIS LINE */
+    border-top: 1px solid #e2e8f0;
+}
+
+    #programForm {
+    /* This adds 20px padding to the top, left, and right */
+    padding: 20px 20px 0 20px;
+}
 
     .table-responsive {
         overflow-x: auto;

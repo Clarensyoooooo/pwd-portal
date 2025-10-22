@@ -30,10 +30,10 @@ try {
             </button>
             <div class="header-brand">
                 <i class="fas fa-wheelchair"></i>
-                <span>PWD Portal Admin</span>
+                <span>PDAO Helps Admin</span>
             </div>
         </div>
-        
+        <!--
         <div class="header-right">
             <div class="header-notifications">
                 <button class="notification-btn" id="notificationBtn">
@@ -59,6 +59,7 @@ try {
                     </div>
                 </div>
             </div>
+                    -->
             
             <div class="header-user">
                 <div class="user-avatar">

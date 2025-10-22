@@ -374,29 +374,40 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     $stmt->execute($params);
     $barangay_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Get total PWDs per barangay for percentage calculations
+    // --- START: FIX for CONCENTRATION CALCULATION ---
+    
+    // Create a new set of params and conditions for the *unfiltered* barangay totals.
+    // We must include all filters EXCEPT the disability filter.
+    
+    $totals_where_conditions = ["created_at BETWEEN ? AND ?"];
+    $totals_params = [$date_from, $date_to];
+
+    // Add the BARANGAY filter (if it exists)
+    if ($barangay_filter) {
+        $totals_where_conditions[] = "barangay = ?";
+        $totals_params[] = $barangay_filter;
+    }
+    
+    // *** We deliberately DO NOT add the $disability_filter here ***
+
+    $totals_where_clause = "WHERE " . implode(" AND ", $totals_where_conditions);
+
+    // Run the query to get the TRUE total PWDs for each barangay (ignoring disability filter)
     $stmt = $pdo->prepare("
         SELECT 
             barangay,
-            COUNT(*) as barangay_total,
-            disability_type
+            COUNT(*) as barangay_total
         FROM pwd_records
-        {$where_clause}
+        {$totals_where_clause}
         AND barangay IS NOT NULL
-        GROUP BY barangay, disability_type
+        GROUP BY barangay
     ");
-    $stmt->execute($params);
-    $barangay_totals_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute($totals_params);
     
-    // Calculate totals per barangay
-    $barangay_totals = [];
-    foreach ($barangay_totals_raw as $row) {
-        $brgy = $row['barangay'];
-        if (!isset($barangay_totals[$brgy])) {
-            $barangay_totals[$brgy] = 0;
-        }
-        $barangay_totals[$brgy] += $row['barangay_total'];
-    }
+    // Fetch this into a simple [ 'Barangay 4' => 150, 'Santa Maria' => 200 ] map
+    $barangay_totals_map = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    // --- END: FIX ---
     
     // Process and organize data by barangay
     $barangay_recommendations = [];
@@ -405,7 +416,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         $barangay = $row['barangay'];
         $disability = $row['disability_type'];
         $total = (int)$row['total_count'];
-        $barangay_total = $barangay_totals[$barangay] ?? $total;
+        $barangay_total = $barangay_totals_map[$barangay] ?? $total;
         
         // Calculate concentration percentage
         $concentration = $barangay_total > 0 ? ($total / $barangay_total) * 100 : 0;
@@ -535,10 +546,72 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         });
     }
     
-    $data['barangay_recommendations'] = $barangay_recommendations;
-    
+    // 1. SORT BARANGAYS BY TOTAL PWD (as you requested)
+    // We use uasort to maintain the barangay names as keys
+    uasort($barangay_recommendations, function($a, $b) {
+        // Sorts descending (highest number first)
+        return ($b['total_pwd'] ?? 0) - ($a['total_pwd'] ?? 0);
+    });
+
+    // 2. CALCULATE GRAND TOTALS *BEFORE* PAGINATION
+    // These totals are calculated from the *complete, sorted* list
+    $data['grand_totals'] = [
+        'total_barangays' => count($barangay_recommendations),
+        'total_pwd' => array_sum(array_column($barangay_recommendations, 'total_pwd')),
+        'total_unemployed' => array_sum(array_column($barangay_recommendations, 'total_unemployed')),
+        'total_children' => array_sum(array_column($barangay_recommendations, 'total_children'))
+    ];
+
+    // 3. PAGINATE THE FINAL ARRAY FOR DISPLAY
+    if (!empty($barangay_recommendations)) {
+        $all_barangays = $barangay_recommendations; // This is now our complete, sorted list
+        // --- 👇 ADD THIS LINE 👇 ---
+            // STORE THE COMPLETE, SORTED LIST FOR EXPORT
+            $data['full_export_data'] = $all_barangays;
+            // --- 👆 END OF NEW LINE 👆 ---
+            
+            // Get current page from URL, default to 1
+            $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            
+            
+        $total_items = count($all_barangays);
+        $items_per_page = 5; // You can change this number
+        $total_pages = ceil($total_items / $items_per_page);
+        
+        // Get current page from URL, default to 1
+        $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        if ($current_page < 1) {
+            $current_page = 1;
+        } elseif ($current_page > $total_pages && $total_pages > 0) {
+            $current_page = $total_pages;
+        }
+        
+        // Calculate the offset for the slice
+        $offset = ($current_page - 1) * $items_per_page;
+        
+        // Slice the array to get only the items for the current page
+        $paginated_barangays = array_slice($all_barangays, $offset, $items_per_page, true);
+        
+        // Pass the *sliced* list to the template
+        $data['barangay_recommendations'] = $paginated_barangays;
+        
+        // Pass pagination data to the template
+        $data['pagination'] = [
+            'current_page' => $current_page,
+            'total_pages' => $total_pages,
+            'items_per_page' => $items_per_page
+        ];
+    } else {
+        // Handle case with no data
+        $data['barangay_recommendations'] = [];
+        $data['pagination'] = null;
+    }
+
+    // --- END: NEW LOGIC ---
+
     return $data;
 }
+// Make sure this is the end of the function
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -550,6 +623,65 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+    
+    /* --- Pagination Styles --- */
+.pagination-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 2rem;
+}
+
+.pagination {
+    display: flex;
+    list-style: none; /* This removes the bullet points */
+    padding: 0;
+    margin: 0;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow: hidden; /* This helps round the corners */
+}
+
+.page-item {
+    margin: 0; /* Removes default list item margins */
+}
+
+.page-link {
+    display: block;
+    padding: 0.75rem 1rem;
+    color: #2c5aa0;
+    background-color: white;
+    border-left: 1px solid #e5e7eb;
+    text-decoration: none; /* Removes the underline */
+    transition: background-color 0.2s ease;
+}
+
+.page-item:first-child .page-link {
+    border-left: none;
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+
+.page-item:last-child .page-link {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.page-link:hover {
+    background-color: #f8fafc;
+}
+
+.page-item.active .page-link {
+    background-color: #2c5aa0;
+    color: white;
+    font-weight: 600;
+    pointer-events: none; /* Prevents clicking on the active page */
+}
+
+.page-item.disabled .page-link {
+    color: #9ca3af;
+    background-color: #f8fafc;
+    pointer-events: none; /* Disables the "Previous/Next" links */
+}
         .analytics-header {
             background: linear-gradient(135deg, #2c5aa0 0%, #1e40af 100%);
             color: white;
@@ -816,57 +948,11 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                 grid-template-columns: 1fr;
             }
         }
-
-
-        /* --- Pagination Styles --- */
-.pagination-container {
-    display: flex;
-    justify-content: center;
-    margin-top: 2rem;
-}
-.pagination {
-    display: flex;
-    list-style: none;
-    padding: 0;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    overflow: hidden;
-}
-.page-item {
-    margin: 0;
-}
-.page-link {
-    display: block;
-    padding: 0.75rem 1rem;
-    color: #2c5aa0;
-    background-color: white;
-    border-left: 1px solid #e5e7eb;
-    text-decoration: none;
-    transition: background-color 0.2s ease;
-}
-.page-item:first-child .page-link {
-    border-left: none;
-}
-.page-link:hover {
-    background-color: #f8fafc;
-}
-.page-item.active .page-link {
-    background-color: #2c5aa0;
-    color: white;
-    font-weight: 600;
-    pointer-events: none;
-}
-.page-item.disabled .page-link {
-    color: #9ca3af;
-    background-color: #f8fafc;
-    pointer-events: none;
-}
-
     </style>
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
-    <?php include 'includes/sidebar.php'; ?>
+
     
     <main class="main-content">
         <div class="analytics-header">
@@ -1000,45 +1086,14 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         </div>
         
         <div id="reportContent">
-    <?php if ($report_type == 'analytics'): ?>
-        <?php include 'reports/analytics.php'; ?>
-    <?php elseif ($report_type == 'demographics'): ?>
-        <?php include 'reports/demographics.php'; ?>
-    <?php elseif ($report_type == 'resources'): ?>
-        <?php 
-        // START: ADD PAGINATION LOGIC HERE
-        if (!empty($report_data['barangay_recommendations'])) {
-            $all_barangays = $report_data['barangay_recommendations'];
-            $total_items = count($all_barangays);
-            $items_per_page = 5; // You can change this number
-            $total_pages = ceil($total_items / $items_per_page);
-            
-            // Get current page from URL, default to 1
-            $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-            if ($current_page < 1) {
-                $current_page = 1;
-            } elseif ($current_page > $total_pages && $total_pages > 0) {
-                $current_page = $total_pages;
-            }
-            
-            // Calculate the offset for the slice
-            $offset = ($current_page - 1) * $items_per_page;
-            
-            // Slice the array to get only the items for the current page
-            $report_data['barangay_recommendations'] = array_slice($all_barangays, $offset, $items_per_page, true);
-            
-            // Pass pagination data to the view
-            $report_data['pagination'] = [
-                'current_page' => $current_page,
-                'total_pages' => $total_pages,
-                'items_per_page' => $items_per_page
-            ];
-        }
-        // END: PAGINATION LOGIC
-        ?>
-        <?php include 'reports/resources.php'; ?>
-    <?php endif; ?>
-</div>
+            <?php if ($report_type == 'analytics'): ?>
+                <?php include 'reports/analytics.php'; ?>
+            <?php elseif ($report_type == 'demographics'): ?>
+                <?php include 'reports/demographics.php'; ?>
+            <?php elseif ($report_type == 'resources'): ?>
+                <?php include 'reports/resources.php'; ?>
+            <?php endif; ?>
+        </div>
     </main>
     
     <script src="assets/admin.js"></script>
@@ -1135,12 +1190,22 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
             
             csv += "Barangay Resource Recommendations\n";
-            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Unemployed,Key Factors,Recommended Services\n";
+            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Seniors,Unemployed,Key Factors,Recommended Services\n"; // I also added Seniors here for you
             
-            if (reportData.barangay_recommendations) {
-                Object.entries(reportData.barangay_recommendations).forEach(([barangay, data]) => {
+            // --- 👇 THIS IS THE MODIFIED PART 👇 ---
+
+            // Check if the new 'full_export_data' exists,
+            // otherwise, fall back to the (paginated) 'barangay_recommendations'
+            const dataToExport = (reportData.full_export_data && Object.keys(reportData.full_export_data).length > 0) 
+                               ? reportData.full_export_data 
+                               : reportData.barangay_recommendations;
+            
+            if (dataToExport) {
+                Object.entries(dataToExport).forEach(([barangay, data]) => {
                     if (data.recommended_services) {
                         data.recommended_services.forEach(service => {
+            // --- 👆 END OF MODIFIED PART 👆 ---
+
                             const factors = [];
                             if (service.factors?.high_concentration) factors.push('High Concentration');
                             if (service.factors?.many_children) factors.push('Many Children');
@@ -1148,7 +1213,8 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                             
                             const services = service.services.slice(0, 5).join('; ');
                             
-                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
+                            // Added data.total_seniors to the export
+                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${data.total_seniors},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
                         });
                     }
                 });

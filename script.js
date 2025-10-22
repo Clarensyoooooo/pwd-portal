@@ -204,36 +204,177 @@ function clearProgramSelection() {
   displayPublicProgramsList(allPrograms)
 }
 
-async function handleProgramApplication(event) {
-  event.preventDefault()
+/**
+ * A simple regex check for email format, consistent with your site's other validation.
+ */
+function isValidEmail(email) {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; // Using the regex from your validateStep function
+    return regex.test(email);
+}
 
-  if (!selectedProgramId) {
-    showNotification("Please select a program", "error")
-    return
-  }
+/**
+ * Displays an error message for a specific form field.
+ * It uses the .input-error and .input-error-message classes from your index.php.
+ */
+function showProgramFormError(inputId, message) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
 
-  const formData = new FormData(document.getElementById("applyProgramForm"))
-  formData.append("action", "submit_program_application")
+    // Add error class to the input/select/textarea
+    input.classList.add('input-error');
 
-  try {
-    const response = await fetch("admin/api/programs.php", {
-      method: "POST",
-      body: formData,
-    })
+    // Find the parent .form-group
+    const formGroup = input.closest('.form-group');
+    if (!formGroup) return;
 
-    const result = await response.json()
+    // Create and append the error message span
+    const errorSpan = document.createElement('span');
+    errorSpan.className = 'input-error-message';
+    errorSpan.textContent = message;
+    formGroup.appendChild(errorSpan);
+}
 
-    if (result.success) {
-      showNotification("Application submitted successfully! We will contact you shortly.", "success")
-      clearProgramSelection()
-      document.getElementById("applyProgramForm").reset()
-    } else {
-      showNotification(result.error || "Error submitting application", "error")
+/**
+ * Clears all validation errors from the program application form.
+ */
+function clearProgramFormErrors() {
+    const form = document.getElementById('applyProgramForm');
+
+    // Remove all error classes from inputs
+    form.querySelectorAll('.input-error').forEach(input => {
+        input.classList.remove('input-error');
+    });
+
+    // Remove all error message spans
+    form.querySelectorAll('.input-error-message').forEach(span => {
+        span.remove();
+    });
+}
+
+/**
+ * Validates all fields in the program application form.
+ * Returns true if all fields are valid, false otherwise.
+ */
+function validateProgramForm() {
+    clearProgramFormErrors(); // Clear all previous errors
+    let isValid = true;
+    
+    // Get all the form inputs
+    const firstName = document.getElementById('appFirstName');
+    const lastName = document.getElementById('appLastName');
+    const email = document.getElementById('appEmail');
+    const phone = document.getElementById('appPhone');
+    const dob = document.getElementById('appDOB');
+    const disability = document.getElementById('appDisability');
+    const address = document.getElementById('appAddress');
+
+    // 1. Check First Name
+    if (firstName.value.trim() === '') {
+        showProgramFormError('appFirstName', 'First Name is required.');
+        isValid = false;
     }
-  } catch (error) {
-    console.error("Error submitting application:", error)
-    showNotification("Error submitting application", "error")
-  }
+
+    // 2. Check Last Name
+    if (lastName.value.trim() === '') {
+        showProgramFormError('appLastName', 'Last Name is required.');
+        isValid = false;
+    }
+
+    // 3. Check Email
+    if (email.value.trim() === '') {
+        showProgramFormError('appEmail', 'Email is required.');
+        isValid = false;
+    } else if (!isValidEmail(email.value.trim())) {
+        showProgramFormError('appEmail', 'Please enter a valid email address.');
+        isValid = false;
+    }
+
+    // 4. Check Phone (using regex to match placeholder: +63 912 345 6789)
+    const phoneRegex = /^\+63\s9\d{2}\s\d{3}\s\d{4}$/;
+    if (phone.value.trim() === '') {
+        showProgramFormError('appPhone', 'Phone is required.');
+        isValid = false;
+    } else if (!phoneRegex.test(phone.value.trim())) {
+        showProgramFormError('appPhone', 'Phone must be in the format +63 912 345 6789.');
+        isValid = false;
+    }
+
+    // 5. Check Date of Birth
+    if (dob.value.trim() === '') {
+        showProgramFormError('appDOB', 'Date of Birth is required.');
+        isValid = false;
+    } else if (new Date(dob.value) > new Date()) {
+        // Check if the date is in the future
+        showProgramFormError('appDOB', 'Date of Birth cannot be in the future.');
+        isValid = false;
+    }
+
+    // 6. Check Disability Type
+    if (disability.value === '') {
+        showProgramFormError('appDisability', 'Please select a disability type.');
+        isValid = false;
+    }
+    
+    // 7. Check Address
+    if (address.value.trim() === '') {
+        showProgramFormError('appAddress', 'Complete Address is required.');
+        isValid = false;
+    }
+
+    return isValid;
+}
+
+async function handleProgramApplication(event) {
+    event.preventDefault(); // Stop the form from submitting immediately
+
+    if (!selectedProgramId) {
+        showNotification("Please select a program", "error");
+        return;
+    }
+
+    // 1. Run the new validation function
+    if (!validateProgramForm()) {
+        showNotification('Please fix the errors in the form.', 'error');
+        return;
+    }
+
+    // 2. If validation is successful, proceed with submission
+    const form = document.getElementById('applyProgramForm');
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalButtonText = submitButton.innerHTML;
+
+    try {
+        // Disable button and show a loading state
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+
+        const formData = new FormData(form);
+        formData.append("action", "submit_program_application"); // This action is from your original script
+
+        // This API path is from your original script
+        const response = await fetch("admin/api/programs.php", { 
+            method: "POST",
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showNotification("Application submitted successfully! We will contact you shortly.", "success");
+            clearProgramSelection();
+            form.reset();
+            clearProgramFormErrors(); // Clear errors on success
+        } else {
+            showNotification(result.error || "Error submitting application", "error");
+        }
+    } catch (error) {
+        console.error("Error submitting application:", error);
+        showNotification("Error submitting application", "error");
+    } finally {
+        // Re-enable the button
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+    }
 }
 
 // Load programs on page load
