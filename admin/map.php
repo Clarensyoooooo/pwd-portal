@@ -526,8 +526,8 @@ function handleUpdateLocation() {
 $stmt = $pdo->prepare("
     SELECT id, pwd_id_number, first_name, last_name, disability_type, 
            address_line1, city_municipality, province, latitude, longitude,
-           status, created_at, barangay_id
-    FROM pwd_records 
+           status, created_at, barangay_id, expiry_date
+    FROM pwd_records
     WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     ORDER BY created_at DESC
 ");
@@ -1410,7 +1410,9 @@ $last_import = $pdo->query("
                                 <option value="">All Statuses</option>
                                 <option value="draft">Draft</option>
                                 <option value="validated">Validated</option>
-                                <option value="issued">Issued</option>
+                                <option value="issued">Active</option>
+                                <option value="expired">Expired</option>
+                                <option value="inactive">Inactive</option>
                             </select>
                         </div>
                     </div>
@@ -1418,10 +1420,7 @@ $last_import = $pdo->query("
                     <div class="filter-section">
                         <h4><i class="fas fa-layer-group"></i> Map Layers</h4>
                         <div class="layer-controls">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="clusterMarkers" checked onchange="toggleClustering()">
-                                Cluster Markers
-                            </label>
+                            
                             <label class="checkbox-label">
                                 <input type="checkbox" id="showBoundaries" checked onchange="toggleBoundaries()">
                                 Barangay Areas
@@ -1463,15 +1462,23 @@ $last_import = $pdo->query("
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker draft"></div>
-                        <span>Pending Review</span>
+                        <span>Draft</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker validated"></div>
-                        <span>Verified</span>
+                        <span>Validated</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-marker issued"></div>
-                        <span>ID Issued</span>
+                        <span>Active</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-marker" style="background-color: #ef4444;"></div>
+                        <span>Expired</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-marker" style="background-color: #6b7280;"></div>
+                        <span>Inactive</span>
                     </div>
                 </div>
             </div>
@@ -2006,17 +2013,12 @@ function zoomToBarangay(barangayId) {
             filteredLocations.forEach(function(location) {
                 const marker = createMarker(location);
                 markers.push(marker);
-                
-                if (document.getElementById('clusterMarkers').checked) {
-                    markerClusterGroup.addLayer(marker);
-                } else {
-                    marker.addTo(map);
-                }
+                // Always add to the cluster group
+                markerClusterGroup.addLayer(marker);
             });
             
-            if (document.getElementById('clusterMarkers').checked) {
-                map.addLayer(markerClusterGroup);
-            }
+            // Always add the cluster group to the map
+            map.addLayer(markerClusterGroup);
             
             updateVisibleMarkers();
         }
@@ -2025,7 +2027,14 @@ function zoomToBarangay(barangayId) {
             const lat = parseFloat(location.latitude);
             const lng = parseFloat(location.longitude);
             
-            const iconColor = getStatusColor(location.status);
+            // Determine true status
+            let displayStatus = location.status;
+            const isExpired = location.status === 'issued' && location.expiry_date && new Date(location.expiry_date) < new Date();
+            if (isExpired) {
+                displayStatus = 'expired';
+            }
+
+            const iconColor = getStatusColor(displayStatus);
             const icon = L.divIcon({
                 className: 'custom-marker',
                 html: `<div style="
@@ -2055,7 +2064,7 @@ function zoomToBarangay(barangayId) {
                     <p><strong>${location.first_name} ${location.last_name}</strong></p>
                     <p><i class="fas fa-info-circle"></i> ${location.disability_type}</p>
                     <p><i class="fas fa-map-marker-alt"></i> ${location.city_municipality}, ${location.province}</p>
-                    <p><i class="fas fa-flag"></i> Status: <span class="status-badge status-${location.status}">${getStatusLabel(location.status)}</span></p>
+                    <p><i class="fas fa-flag"></i> Status: <span class="status-badge status-${displayStatus}">${getStatusLabel(displayStatus)}</span></p>
                     <div class="popup-actions">
                         <button class="btn btn-sm btn-primary" onclick="viewRecord(${location.id})">
                             <i class="fas fa-eye"></i> View Details
@@ -2072,9 +2081,9 @@ function zoomToBarangay(barangayId) {
             const colors = {
                 'draft': '#f59e0b',
                 'validated': '#10b981',
-                'issued': '#2c5aa0',
-                'expired': '#ef4444',
-                'revoked': '#6b7280'
+                'issued': '#2c5aa0',      // Active
+                'expired': '#ef4444',     // Expired
+                'inactive': '#6b7280'    // Inactive
             };
             return colors[status] || '#6b7280';
         }
@@ -2083,21 +2092,18 @@ function zoomToBarangay(barangayId) {
             const labels = {
                 'draft': 'Pending Review',
                 'validated': 'Verified',
-                'issued': 'ID Issued',
-                'expired': 'Renewal Needed',
-                'revoked': 'Inactive'
+                'issued': 'Active',
+                'expired': 'Expired',
+                'inactive': 'Inactive'
             };
             return labels[status] || status;
         }
         
         function clearMarkers() {
-            markers.forEach(marker => {
-                map.removeLayer(marker);
-                markerClusterGroup.removeLayer(marker);
-            });
-            markers = [];
+            // We just need to clear the cluster group and remove it
             markerClusterGroup.clearLayers();
             map.removeLayer(markerClusterGroup);
+            markers = [];
         }
         
         function filterMarkers() {
@@ -2106,16 +2112,30 @@ function zoomToBarangay(barangayId) {
             
             filteredLocations = allPWDLocations.filter(location => {
                 const matchesDisability = !disabilityFilter || location.disability_type === disabilityFilter;
-                const matchesStatus = !statusFilter || location.status === statusFilter;
+                
+                let matchesStatus = true;
+                // Check if the record is expired
+                const isExpired = location.status === 'issued' && location.expiry_date && new Date(location.expiry_date) < new Date();
+
+                if (statusFilter) {
+                    if (statusFilter === 'expired') {
+                        matchesStatus = isExpired;
+                    } else if (statusFilter === 'issued') {
+                        // "Active" means status is 'issued' but NOT expired
+                        matchesStatus = location.status === 'issued' && !isExpired;
+                    } else {
+                        // This handles 'draft', 'validated', and 'inactive'
+                        matchesStatus = location.status === statusFilter;
+                    }
+                }
+                
                 return matchesDisability && matchesStatus;
             });
             
             loadMarkers();
         }
         
-        function toggleClustering() {
-            loadMarkers();
-        }
+        
         
         function toggleBoundaries() {
             showBoundaries = !showBoundaries;

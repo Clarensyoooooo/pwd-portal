@@ -22,9 +22,13 @@ if (isset($_GET['export']) && $_GET['export'] == '1') {
     $where_conditions = [];
     $params = [];
     
-    if ($status_filter) {
-        $where_conditions[] = "pr.status = ?";
-        $params[] = $status_filter;
+   if ($status_filter) {
+        if ($status_filter === 'expired') {
+            $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
+        } else {
+            $where_conditions[] = "pr.status = ?";
+            $params[] = $status_filter;
+        }
     }
     
     if ($barangay_filter) {
@@ -211,6 +215,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'issue_id':
             handleIssueID();
             break;
+            case 'renew_or_activate_id': // <-- ADD THIS
+            handleRenewOrActivateID();
+            break;
+        case 'deactivate_record': // <-- ADD THIS
+            handleDeactivateRecord();
+            break;
         case 'update_record':
             handleUpdateRecord();
             break;
@@ -244,8 +254,12 @@ $where_conditions = [];
 $params = [];
 
 if ($status_filter) {
-    $where_conditions[] = "pr.status = ?";
-    $params[] = $status_filter;
+    if ($status_filter === 'expired') {
+        $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
+    } else {
+        $where_conditions[] = "pr.status = ?";
+        $params[] = $status_filter;
+    }
 }
 
 if ($barangay_filter) {
@@ -661,6 +675,85 @@ function handleCreateDirectRecord() {
         adminJsonResponse(['error' => 'Failed to create PWD record: ' . $e->getMessage()], 500);
     }
 }
+
+function handleRenewOrActivateID() {
+    global $pdo;
+    // We re-use the 'issue' permission for this
+    requirePermission($pdo, 'records.issue');
+    
+    $record_id = $_POST['record_id'] ?? '';
+    $expiry_years = intval($_POST['expiry_years'] ?? 5);
+    
+    if (empty($record_id)) {
+        adminJsonResponse(['error' => 'Record ID is required'], 400);
+    }
+    
+    try {
+        $expiry_date = date('Y-m-d', strtotime("+{$expiry_years} years"));
+        
+        $stmt = $pdo->prepare("
+            UPDATE pwd_records 
+            SET status = 'issued', expiry_date = ?, issued_by = ?, updated_at = NOW()
+            WHERE id = ? AND (status = 'issued' OR status = 'expired' OR status = 'inactive')
+        ");
+        
+        $stmt->execute([$expiry_date, $_SESSION['admin_user_id'], $record_id]);
+        
+        if ($stmt->rowCount() === 0) {
+             adminJsonResponse(['error' => 'Record not found or not in a renewable/activatable state'], 400);
+        }
+        
+        logAdminActivity($pdo, 'renew/activate', 'records', 'pwd_record', $record_id, [
+            'new_expiry_date' => $expiry_date
+        ]);
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => 'PWD ID renewed/reactivated successfully'
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to renew ID: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleDeactivateRecord() {
+    global $pdo;
+    // Use our newly renamed permission
+    requirePermission($pdo, 'records.deactivate'); 
+    
+    $record_id = $_POST['record_id'] ?? '';
+    $reason = $_POST['reason'] ?? 'No reason provided';
+    
+    if (empty($record_id)) {
+        adminJsonResponse(['error' => 'Record ID is required'], 400);
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE pwd_records 
+            SET status = 'inactive', updated_at = NOW()
+            WHERE id = ? AND status = 'issued'
+        ");
+        $stmt->execute([$record_id]);
+        
+        if ($stmt->rowCount() === 0) {
+            adminJsonResponse(['error' => 'Record not found or not currently active'], 400);
+        }
+        
+        logAdminActivity($pdo, 'deactivate', 'records', 'pwd_record', $record_id, [
+            'reason' => $reason
+        ]);
+        
+        adminJsonResponse([
+            'success' => true,
+            'message' => 'PWD ID deactivated successfully'
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to deactivate record: ' . $e->getMessage()], 500);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -763,9 +856,9 @@ function handleCreateDirectRecord() {
                         <option value="">All Statuses</option>
                         <option value="draft" <?php echo $status_filter === 'draft' ? 'selected' : ''; ?>>Draft</option>
                         <option value="validated" <?php echo $status_filter === 'validated' ? 'selected' : ''; ?>>Validated</option>
-                        <option value="issued" <?php echo $status_filter === 'issued' ? 'selected' : ''; ?>>Issued</option>
+                        <option value="issued" <?php echo $status_filter === 'issued' ? 'selected' : ''; ?>>Active</option>
                         <option value="expired" <?php echo $status_filter === 'expired' ? 'selected' : ''; ?>>Expired</option>
-                        <option value="revoked" <?php echo $status_filter === 'revoked' ? 'selected' : ''; ?>>Revoked</option>
+                        <option value="inactive" <?php echo $status_filter === 'inactive' ? 'selected' : ''; ?>>Inactive</option>
                     </select>
                 </div>
                 
@@ -915,9 +1008,24 @@ function handleCreateDirectRecord() {
                                         <br><small class="text-muted"><?php echo htmlspecialchars($record['occupation']); ?></small>
                                     <?php endif; ?>
                                 </td>
-                                <td>
-                                    <span class="status-badge status-<?php echo $record['status']; ?>">
-                                        <?php echo ucfirst($record['status']); ?>
+                               <td>
+                                    <?php 
+                                    $status = $record['status'];
+                                    $status_text = ucfirst($status);
+                                    
+                                    if ($status === 'issued') {
+                                        if ($record['expiry_date'] && strtotime($record['expiry_date']) < time()) {
+                                            $status = 'expired';
+                                            $status_text = 'Expired';
+                                        } else {
+                                            $status_text = 'Active';
+                                        }
+                                    } elseif ($status === 'inactive') {
+                                        $status_text = 'Inactive';
+                                    }
+                                    ?>
+                                    <span class="status-badge status-<?php echo $status; ?>">
+                                        <?php echo $status_text; ?>
                                     </span>
                                     <br><small class="text-muted">
                                         <?php echo date('M j, Y', strtotime($record['created_at'])); ?>
@@ -935,15 +1043,42 @@ function handleCreateDirectRecord() {
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission($pdo, 'records.validate') && $record['status'] === 'draft'): ?>
+                                        <?php // Validate button (only for draft)
+                                        if (hasPermission($pdo, 'records.validate') && $record['status'] === 'draft'): ?>
                                             <button class="btn btn-sm btn-success" onclick="validateRecord(<?php echo $record['id']; ?>)" title="Validate">
                                                 <i class="fas fa-check"></i>
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission($pdo, 'records.issue') && $record['status'] === 'validated'): ?>
+                                        <?php // Issue button (only for validated)
+                                        if (hasPermission($pdo, 'records.issue') && $record['status'] === 'validated'): ?>
                                             <button class="btn btn-sm btn-info" onclick="issueID(<?php echo $record['id']; ?>)" title="Issue ID">
                                                 <i class="fas fa-id-badge"></i>
+                                            </button>
+                                        <?php endif; ?>
+
+                                        <?php 
+                                        $is_expired = ($record['status'] === 'issued' && $record['expiry_date'] && strtotime($record['expiry_date']) < time());
+                                        ?>
+
+                                        <?php // Renew button (for ACTIVE or EXPIRED)
+                                        if (hasPermission($pdo, 'records.issue') && ($record['status'] === 'issued' || $is_expired)): ?>
+                                            <button class="btn btn-sm <?php echo $is_expired ? 'btn-warning' : 'btn-secondary'; ?>" onclick="renewOrActivateID(<?php echo $record['id']; ?>)" title="<?php echo $is_expired ? 'Renew Expired ID' : 'Renew Active ID'; ?>">
+                                                <i class="fas fa-sync-alt"></i>
+                                            </button>
+                                        <?php endif; ?>
+
+                                        <?php // Deactivate button (only for ACTIVE 'issued' records)
+                                        if (hasPermission($pdo, 'records.deactivate') && $record['status'] === 'issued' && !$is_expired): ?>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deactivateRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')" title="Set Inactive">
+                                                <i class="fas fa-ban"></i>
+                                            </button>
+                                        <?php endif; ?>
+                                        
+                                        <?php // Activate button (only for INACTIVE)
+                                        if (hasPermission($pdo, 'records.issue') && $record['status'] === 'inactive'): ?>
+                                            <button class="btn btn-sm btn-success" onclick="renewOrActivateID(<?php echo $record['id']; ?>)" title="Activate ID">
+                                                <i class="fas fa-check-circle"></i>
                                             </button>
                                         <?php endif; ?>
                                         
@@ -1234,7 +1369,7 @@ function handleCreateDirectRecord() {
             <div class="modal-body">
                 <form id="issueForm">
                     <input type="hidden" id="issueRecordId" name="record_id">
-                    <div class="form-group">
+                    <input type="hidden" id="issueAction" name="action"> <div class="form-group">
                         <label for="expiryYears">ID Validity Period</label>
                         <select id="expiryYears" name="expiry_years" required>
                             <option value="5">5 Years</option>
@@ -2116,6 +2251,8 @@ function handleCreateDirectRecord() {
         // Issue ID
         function issueID(recordId) {
             document.getElementById('issueRecordId').value = recordId;
+            document.getElementById('issueAction').value = 'issue_id'; // Set action
+            document.querySelector('#issueModal .modal-header h3').textContent = 'Issue PWD ID';
             showModal('issueModal');
         }
         
@@ -2142,6 +2279,42 @@ function handleCreateDirectRecord() {
                     })
                     .catch(error => {
                         showNotification('Failed to delete record', 'error');
+                    });
+                }
+            }
+        }
+
+// Activate / Renew ID
+        function renewOrActivateID(recordId) {
+            document.getElementById('issueRecordId').value = recordId;
+            document.getElementById('issueAction').value = 'renew_or_activate_id'; // Set action
+            document.querySelector('#issueModal .modal-header h3').textContent = 'Renew / Activate PWD ID';
+            showModal('issueModal');
+        }
+        
+        // Deactivate record
+        function deactivateRecord(recordId, pwdId) {
+            const reason = prompt(`Please provide a reason for deactivating PWD ID ${pwdId}:`);
+            if (reason) {
+                if (confirm(`Are you sure you want to DEACTIVATE PWD ID ${pwdId}? This will mark it as inactive.`)) {
+                    fetch('records.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `action=deactivate_record&record_id=${recordId}&reason=${encodeURIComponent(reason)}`
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showNotification(data.message, 'success');
+                            setTimeout(() => location.reload(), 1000);
+                        } else {
+                            showNotification(data.error, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showNotification('Failed to deactivate record', 'error');
                     });
                 }
             }
@@ -2230,7 +2403,7 @@ function handleCreateDirectRecord() {
             e.preventDefault();
             
             const formData = new FormData(this);
-            formData.append('action', 'issue_id');
+            // The 'action' is now set in the hidden input by issueID() or renewOrActivateID()
             
             fetch('records.php', {
                 method: 'POST',
@@ -2549,6 +2722,22 @@ function handleCreateDirectRecord() {
             font-size: 0.9rem;
         }
 
+        .status-badge.status-expired {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-badge.status-inactive {
+            background: #4b5563; /* Dark gray */
+            color: #f9fafb;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
         .extra-large-modal .modal-content {
             max-width: 1100px;
             max-height: 90vh;
@@ -2750,6 +2939,22 @@ function handleCreateDirectRecord() {
             .location-actions {
                 flex-direction: row;
             }
+        }
+
+        .status-badge.status-expired {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-badge.status-inactive {
+            background: #4b5563; /* Dark gray */
+            color: #f9fafb;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
         }
     </style>
 </body>
