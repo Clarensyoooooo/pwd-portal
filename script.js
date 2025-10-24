@@ -289,15 +289,17 @@ function validateProgramForm() {
         isValid = false;
     }
 
-    // 4. Check Phone (using regex to match placeholder: +63 912 345 6789)
-    const phoneRegex = /^\+63\s9\d{2}\s\d{3}\s\d{4}$/;
-    if (phone.value.trim() === '') {
-        showProgramFormError('appPhone', 'Phone is required.');
-        isValid = false;
-    } else if (!phoneRegex.test(phone.value.trim())) {
-        showProgramFormError('appPhone', 'Phone must be in the format +63 912 345 6789.');
-        isValid = false;
-    }
+   // 4. Check Phone (must be 11 digits, starting with 09)
+const phoneRegex = /^09\d{9}$/;
+
+if (phone.value.trim() === '') {
+    showProgramFormError('appPhone', 'Phone is required.');
+    isValid = false;
+} else if (!phoneRegex.test(phone.value.trim())) {
+    showProgramFormError('appPhone', 'Phone must be 11 digits and start with 09 (e.g. 09123456789).');
+    isValid = false;
+}
+
 
     // 5. Check Date of Birth
     if (dob.value.trim() === '') {
