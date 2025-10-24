@@ -71,9 +71,9 @@ require_once 'config.php';
         <div class="container">
             <div class="hero-content">
                 <div class="hero-text">
-                    <h1>Empowering the PWD Community</h1>
-                    <p>Access essential services and support for Persons with Disabilities. 
-                    Book appointments for PWD ID application, track your appointment status, and discover programs designed to enhance your quality of life.</p>
+                    <h1>Serbisyong Alalay para sa PWD Community</h1>
+                    <p>Madali at maasahang serbisyo para sa ating PWDs!
+Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng request mo, at alamin ang iba’t ibang programa na tutulong sa’yo para mas mapaganda ang kalidad ng iyong buhay.</p>
                 </div>
                 <div class="hero-sidebar">
         <iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61577929784498%26ref%3Dembed_page%23&tabs=timeline&width=340&height=500&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true&appId" width="340" height="500" style="border:none;overflow:hidden" scrolling="no" frameborder="0" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
@@ -90,21 +90,21 @@ require_once 'config.php';
                         <i class="fas fa-file-alt"></i>
                     </div>
                     <h3>Fill Up Form</h3>
-                    <p>Complete the PWD ID application form with your personal information and disability details.</p>
+                    <p>I-fill out ang PWD ID application form gamit ang iyong personal information at disability details.</p>
                 </div>
                 <div class="step">
                     <div class="step-icon">
                         <i class="fas fa-calendar-alt"></i>
                     </div>
                     <h3>Set Appointment</h3>
-                    <p>Choose a convenient date and time to visit our office for document verification.</p>
+                    <p>Pumili ng convenient na date at time para makapunta sa aming office para sa document verification.</p>
                 </div>
                 <div class="step">
                     <div class="step-icon">
                         <i class="fas fa-building"></i>
                     </div>
                     <h3>Visit Office</h3>
-                    <p>Bring your requirements and completed form for verification and processing.</p>
+                    <p>Dalhin ang iyong requirements at completed form para sa verification at processing.</p>
                 </div>
             </div>
             <div class="process-action">
@@ -130,7 +130,7 @@ require_once 'config.php';
                             <input type="text" placeholder="Enter your reference number" id="trackingNumber">
                             <button class="btn-track" onclick="trackAppointment()">Track</button>
                         </div>
-                        <p class="tracking-help">Enter your reference number to check the status of your appointment.</p>
+                        <p class="tracking-help">Ilagay ang iyong reference number upang masuri ang estado ng iyong appointment.</p>
                     </div>
 
                     <div class="requirements-checklist" id="requirements">
@@ -141,7 +141,13 @@ require_once 'config.php';
                             <li><i class="fas fa-circle"></i> 2 recent 1x1 ID pictures</li>
                             <li><i class="fas fa-circle"></i> Valid government-issued ID</li>
                             <li><i class="fas fa-circle"></i> Birth certificate</li>
+                            <strong>For Guardians/Representatives:</strong>
+                   <li> <p>Kung ikaw ay nag-a-apply para sa ibang tao, maaaring kailanganin mong magpasa ng patunay ng guardianship o isang notarized authorization letter.</p>
+                            </li>
+                            <li></i><a href="assets/forms/PWD-Application-Form-Non-Apparent.pdf" class="btn-primary" download></i> Download Application Form</a></li>
                         </ul>
+
+                        
                     </div>
                 </div>
 
@@ -162,8 +168,8 @@ require_once 'config.php';
 
                         <!-- SMS Verification Section -->
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
-                            <h4>SMS Verification Required</h4>
-                            <p>Please enter the 6-digit code sent to your phone:</p>
+                            <h4>Email Verification Required</h4>
+                            <p>Please enter the 6-digit code sent to your email:</p>
                             <div class="sms-verification-form">
                                 <input type="text" id="smsVerificationCode" placeholder="Enter 6-digit code" maxlength="6">
                                 <button class="btn-verify" onclick="verifySMS()">Verify</button>
@@ -186,7 +192,7 @@ require_once 'config.php';
                         <div class="no-tracking-content">
                             <i class="fas fa-search"></i>
                             <h3>Enter Reference Number</h3>
-                            <p>Please enter your appointment reference number to view your appointment status and details.</p>
+                            <p>Mangyaring ilagay ang iyong appointment reference number upang makita ang estado at mga detalye ng iyong appointment.</p>
                         </div>
                     </div>
                 </div>
@@ -200,7 +206,7 @@ require_once 'config.php';
  <section class="programs-section" id="programs">
     <div class="container">
         <h2>Apply for Our Programs</h2>
-        <p class="section-intro">Join our programs and get the support you need. Fill up the form below to apply.</p>
+        <p class="section-intro">Sumali sa aming mga programa at makatanggap ng kinakailangang suporta. Punan ang form sa ibaba upang mag-apply.</p>
         
         <div class="programs-apply-container">
             <div class="programs-list-container">
@@ -235,7 +241,7 @@ require_once 'config.php';
                             </div>
                             <div class="form-group">
                                 <label for="appPhone">Phone *</label>
-                                <input type="tel" id="appPhone" name="phone" required placeholder="+63 912 345 6789">
+                                <input type="tel" id="appPhone" name="phone" required placeholder="09XXXXXXXXX" maxlength="11">
                             </div>
                         </div>
                         
@@ -286,7 +292,7 @@ require_once 'config.php';
                 <div id="programSelectionPrompt" class="program-selection-prompt">
                     <i class="fas fa-clipboard-list"></i>
                     <h3>Select a Program</h3>
-                    <p>Choose a program from the list to view details and apply.</p>
+                    <p>Pumili ng programa mula sa listahan upang makita ang mga detalye at makapag-apply.</p>
                 </div>
             </div>
         </div>
@@ -295,54 +301,69 @@ require_once 'config.php';
 
     <!-- Partner Organizations -->
     <section class="partners-section" id="organizations">
-        <div class="container">
-            <h2>Related Agencies</h2>
-            <p class="partners-intro">We work closely with these key government agencies to ensure comprehensive services and support for the PWD community.</p>
-            
-            <div class="partners-grid">
-                <div class="partner-logo">
-                    <a href="https://www.doh.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Department_of_Health_%28DOH%29_PHL.svg/2048px-Department_of_Health_%28DOH%29_PHL.svg.png" alt="Department of Health Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.deped.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Seal_of_the_Department_of_Education_of_the_Philippines.png/1024px-Seal_of_the_Department_of_Education_of_the_Philippines.png" alt="Department of Education Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.dswd.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Seal_of_the_Department_of_Social_Welfare_and_Development.svg/1105px-Seal_of_the_Department_of_Social_Welfare_and_Development.svg.png" alt="DSWD Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.tourism.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Department_of_Tourism_%28DOT%29.svg/2048px-Department_of_Tourism_%28DOT%29.svg.png" alt="Department of Tourism Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://ncda.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://ncda.gov.ph/wp-content/uploads/2023/02/NCDA-Logo-with-bigger-white-background.fw_.png" alt="NCDA Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.philhealth.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://images.seeklogo.com/logo-png/33/2/philhealth-logo-png_seeklogo-338250.png" alt="PhilHealth Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.sss.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://images.seeklogo.com/logo-png/32/1/republic-of-the-philippines-social-security-system-logo-png_seeklogo-326505.png" alt="SSS Logo">
-                    </a>
-                </div>
-                <div class="partner-logo">
-                    <a href="https://www.gsis.gov.ph" target="_blank" rel="noopener noreferrer">
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg/1633px-Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg.png" alt="GSIS Logo">
-                    </a>
-                </div>
+    <div class="container">
+        <h2>Related Agencies</h2>
+        <p class="partners-intro">
+            Nakikipagtulungan kami sa mga pangunahing ahensya ng pamahalaan upang matiyak ang masusing serbisyo at suporta para sa PWD community.
+        </p>
+        
+        <div class="partners-grid">
+            <div class="partner-logo">
+                <a href="https://www.doh.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Department_of_Health_%28DOH%29_PHL.svg/2048px-Department_of_Health_%28DOH%29_PHL.svg.png" alt="Department of Health Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.deped.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Seal_of_the_Department_of_Education_of_the_Philippines.png/1024px-Seal_of_the_Department_of_Education_of_the_Philippines.png" alt="Department of Education Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.dswd.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Seal_of_the_Department_of_Social_Welfare_and_Development.svg/1105px-Seal_of_the_Department_of_Social_Welfare_and_Development.svg.png" alt="DSWD Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.tourism.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Department_of_Tourism_%28DOT%29.svg/2048px-Department_of_Tourism_%28DOT%29.svg.png" alt="Department of Tourism Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://ncda.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://ncda.gov.ph/wp-content/uploads/2023/02/NCDA-Logo-with-bigger-white-background.fw_.png" alt="NCDA Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.philhealth.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://images.seeklogo.com/logo-png/33/2/philhealth-logo-png_seeklogo-338250.png" alt="PhilHealth Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.sss.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://images.seeklogo.com/logo-png/32/1/republic-of-the-philippines-social-security-system-logo-png_seeklogo-326505.png" alt="SSS Logo">
+                </a>
+            </div>
+            <div class="partner-logo">
+                <a href="https://www.gsis.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg/1633px-Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg.png" alt="GSIS Logo">
+                </a>
+            </div>
+            <!-- Added TESDA -->
+            <div class="partner-logo">
+                <a href="https://www.tesda.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://tesdamimaropa.com/wp-content/uploads/2016/09/cropped-Tesda-Logo.png" alt="TESDA Logo">
+                </a>
+            </div>
+            <!-- Added DOLE -->
+            <div class="partner-logo">
+                <a href="https://www.dole.gov.ph" target="_blank" rel="noopener noreferrer">
+                    <img src="https://batangmalaya.ph/wp-content/uploads/2024/01/RGB-removebg.png" alt="DOLE Logo">
+                </a>
             </div>
         </div>
-    </section>
+    </div>
+</section>
+
 
     <!-- FAQ Section -->
     <section class="faq-section">
@@ -364,7 +385,14 @@ require_once 'config.php';
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Please bring: Medical certificate from a licensed physician, Barangay certificate of residency, 2 recent 1x1 ID pictures, Valid government-issued ID, and Birth certificate. All documents should be original copies with photocopies.</p>
+                        <p>Kailangan mong ihanda ang mga sumusunod na documents:</p>
+                        <ul style="list-style-type: disc; margin-left: 20px; padding-left: 1rem;">
+                            <li>Application form</li>
+                            <li>ID photos</li>
+                            <li>Proof of identity (Valid ID)</li>
+                            <li>Proof of disability (Medical Certificate)</li>
+                            <li>Proof of residency (Barangay Certificate)</li>
+                        </ul>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -378,11 +406,11 @@ require_once 'config.php';
                 </div>
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>What is the SMS verification process?</span>
+                        <span>What is the email verification process?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>After booking your appointment, you'll receive a 6-digit verification code via SMS. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
+                        <p>After booking your appointment, you'll receive a 6-digit verification code via email. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
                     </div>
                 </div>
                 <div class="faq-item">
@@ -400,7 +428,7 @@ require_once 'config.php';
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Yes, you can reschedule your appointment by contacting our hotline at 8888-1000 or visiting our office. Please provide your reference number when requesting a reschedule.</p>
+                        <p>Yes, you can reschedule your appointment by contacting our hotline at (043) 784 8022 or visiting our office. Please provide your reference number when requesting a reschedule.</p>
                     </div>
                 </div>
             </div>
@@ -486,7 +514,7 @@ require_once 'config.php';
                     <h3>Description</h3>
                     <p>PDAO Helps empowers Persons with Disabilities by providing easy access to essential services, benefits, and support programs. Our mission is to create an inclusive society where PWDs can participate fully in community life.</p>
                     <div class="social-links">
-                        <a href="#" aria-label="Facebook"><i class="fab fa-facebook"></i></a>
+                        <a href="https://www.facebook.com/profile.php?id=61577929784498&ref=embed_page" aria-label="Facebook"><i class="fab fa-facebook"></i></a>
                         <a href="#" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
                         <a href="#" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
                         <a href="#" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
@@ -805,7 +833,7 @@ require_once 'config.php';
                         </div>
                         <div class="form-group">
                             <label for="newApplicantPhone">Phone Number *</label>
-                            <input type="tel" id="newApplicantPhone" name="phone" required placeholder="+63 912 345 6789">
+                            <input type="tel" id="newApplicantPhone" name="phone" required placeholder="09XXXXXXXXX" maxlength="11">
                         </div>
                     </div>
                     <div class="form-group">
@@ -857,7 +885,7 @@ require_once 'config.php';
                         </div>
                         <div class="form-group">
                             <label for="newEmergencyPhone">Emergency Contact Phone</label>
-                            <input type="tel" id="newEmergencyPhone" name="emergency_contact_phone" placeholder="+63 912 345 6789">
+                            <input type="tel" id="newEmergencyPhone" name="emergency_contact_phone" placeholder="09XXXXXXXXX" maxlength="11">
                         </div>
                     </div>
                     <div class="info-box">
@@ -898,7 +926,7 @@ require_once 'config.php';
                     </div>
                     <div class="info-box success">
                         <i class="fas fa-check-circle"></i>
-                        <p><strong>Almost done!</strong> Review your information and click "Submit Application" to complete your booking. You will receive an SMS verification code to confirm your appointment.</p>
+                        <p><strong>Almost done!</strong> Review your information and click "Submit Application" to complete your booking. You will receive an email verification code to confirm your appointment.</p>
                     </div>
                 </div>
 

@@ -317,9 +317,9 @@ if (!empty($_POST['website_url'])) {
                 <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
                 <p>Reference Number: <strong>{$reference_number}</strong></p>
                 <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-                <p>This is a copy of the verification code sent to your mobile number.</p>
+                <p>This is a copy of the verification code sent to your email address.</p>
                 <br>
-                <p>– PWD Portal Team, Tanauan City</p>
+                <p>– PDAO Helps, City of Sto. Tomas</p>
             ";
             // Ensure you have a function called sendResendEmail or change this to your email function name
              sendResendEmail($user_data['email'], $emailSubject, $emailBody);
@@ -330,7 +330,7 @@ if (!empty($_POST['website_url'])) {
 
         jsonResponse([
             'success' => true,
-            'message' => 'Appointment booked successfully! Verification code sent to ' . $phone,
+            'message' => 'Appointment booked successfully! Verification code sent to ' . $email,
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,
@@ -509,9 +509,9 @@ $emailBody = "
     <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
     <p>Reference Number: <strong>{$reference_number}</strong></p>
     <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-    <p>This is a copy of the verification code sent to your mobile number.</p>
+    <p>This is a copy of the verification code sent to your email address.</p>
     <br>
-    <p>– PWD Portal Team, Tanauan City</p>
+    <p>– PDAO Helps, City of Sto. Tomas</p>
 ";
 // Send the email
 sendResendEmail($_POST['email'], $emailSubject, $emailBody);
@@ -525,7 +525,7 @@ sendResendEmail($_POST['email'], $emailSubject, $emailBody);
         
         jsonResponse([
             'success' => true,
-            'message' => 'Application submitted successfully! SMS verification sent to ' . $phone,
+            'message' => 'Application submitted successfully! Email verification sent to ' . $email,
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,

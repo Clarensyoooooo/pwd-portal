@@ -966,8 +966,8 @@ function updateStatusProgress(appointment) {
     },
     {
       id: "step2",
-      title: "SMS Verification Sent",
-      description: "A 6-digit confirmation code was sent to your number.",
+      title: "Email Verification Sent",
+      description: "A 6-digit confirmation code was sent to your email.",
       completed: appointment.sms_verification_sent,
     },
     {
@@ -1008,8 +1008,8 @@ function updateAppointmentDetailsCard(appointment) {
         <span class="detail-value">${appointment.applicant_name}</span>
       </div>
       <div class="detail-item">
-        <span class="detail-label">Contact Number:</span>
-        <span class="detail-value">${appointment.contact_number}</span>
+        <span class="detail-label">Email:</span>
+        <span class="detail-value">${appointment.email}</span>
       </div>
       <div class="detail-item">
         <span class="detail-label">Date Submitted:</span>
@@ -1113,9 +1113,9 @@ function updateAppointmentTimeline(appointment) {
   // Show SMS sent if applicable
   if (appointment.sms_verification_sent) {
     timelineItems.push({
-      title: "SMS Verification Sent",
+      title: "Email Verification Sent",
       date: appointment.created_at,
-      description: "A 6-digit confirmation code was sent to your number.",
+      description: "A 6-digit confirmation code was sent to your email.",
       completed: true,
     })
   }
