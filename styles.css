@@ -349,12 +349,16 @@
 }
 
 .partner-logo {
-  text-align: center;
-  padding: 30px 20px;
+  /* Use flexbox to center the logo inside */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
   border-radius: 10px;
-  transition: transform 0.3s;
+  transition: transform 0.3s, box-shadow 0.3s;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
+  height: 120px; /* Give all boxes a uniform height */
 }
 
 .partner-logo:hover {
@@ -362,22 +366,20 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
 }
 
-.partner-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 15px;
+.partner-logo img {
+  max-width: 100%;
+  height: 80px; /* Set a uniform max-height for all logos */
+  object-fit: contain; /* Prevents logos from stretching/squishing */
+  
+  /* Optional: Make logos grayscale and color on hover */
+  filter: grayscale(100%);
+  opacity: 0.8;
+  transition: filter 0.3s, opacity 0.3s;
 }
 
-.partner-placeholder i {
-  font-size: 2.5rem;
-  color: #2c5aa0;
-}
-
-.partner-placeholder span {
-  font-weight: 500;
-  color: #333;
-  text-align: center;
+.partner-logo:hover img {
+  filter: grayscale(0%);
+  opacity: 1;
 }
 
 /* Feedback Section Enhancements */
@@ -782,6 +784,7 @@ body {
 
 .navbar {
   padding: 15px 0;
+  position: relative; /* Add this line to anchor the mobile menu */
 }
 
 .navbar .container {
@@ -868,6 +871,21 @@ body {
 .hero-banner {
   display: flex;
   justify-content: center;
+}
+
+/* Responsive Hero Iframe Fix */
+.hero-sidebar {
+    width: 100%;
+    max-width: 500px; /* This was the original width, good to keep as a max */
+    margin: 0 auto; /* Centers it in the grid column */
+    height: 500px; /* You can adjust this height as needed */
+    overflow: hidden; /* Hides any overflow from the Facebook plugin */
+}
+
+.hero-sidebar iframe {
+    width: 100% !important; /* Force override any inline styles */
+    height: 100%;
+    border: none;
 }
 
 .promo-badge {
@@ -1695,6 +1713,34 @@ body {
   .nav-menu {
     display: none;
   }
+
+  /* ADD THESE NEW RULES BELOW */
+.nav-menu.active {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 100%; /* Positions it right below the navbar */
+  left: 0;
+  right: 0;
+  background: #fff;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  z-index: 999;
+  border-top: 1px solid #e2e8f0;
+}
+
+.nav-menu.active li {
+  width: 100%;
+}
+
+.nav-menu.active a {
+  display: block;
+  padding: 15px 20px;
+  text-align: left;
+}
+
+.nav-menu.active a:hover {
+  background-color: #f8fafc;
+}
 
   .hero-content {
     grid-template-columns: 1fr;

@@ -530,6 +530,20 @@ function handleExportApplications() {
 
 function submitProgramApplication() {
     global $pdo;
+
+    // === START HONEYPOT CHECK ===
+if (!empty($_POST['website_url'])) {
+    // It's a bot. Silently pretend to succeed.
+    error_log("Honeypot triggered on Program Form by IP: " . $_SERVER['REMOTE_ADDR']);
+    
+    // Send a fake success message
+    echo json_encode([
+        'success' => true,
+        'message' => 'Your application has been received!' 
+    ]);
+    return; // Stop any further code
+}
+// === END HONEYPOT CHECK ===
     
     $program_id = $_POST['program_id'] ?? null;
     $first_name = trim($_POST['first_name'] ?? '');

@@ -19,6 +19,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 function handleFeedbackSubmission() {
     global $pdo;
     
+    // === START HONEYPOT CHECK ===
+    if (!empty($_POST['website_url'])) {
+        // This field should be empty. If it's filled, it's a bot.
+        // We will "pretend" it was a success to trick the bot.
+        error_log("Honeypot triggered by IP: " . $_SERVER['REMOTE_ADDR']);
+        
+        jsonResponse([
+            'success' => true,
+            'message' => 'Thank you for your feedback! We appreciate your input and will review it shortly.'
+        ]);
+        return; // Stop any further code execution
+    }
+    // === END HONEYPOT CHECK ===
+    
     // Validate required fields
     $required_fields = ['name', 'email', 'subject', 'message'];
     foreach ($required_fields as $field) {
@@ -43,6 +57,36 @@ function handleFeedbackSubmission() {
             return;
         }
     }
+
+    // === START RATE-LIMIT CHECK ===
+    // Check if this email submitted ANY feedback in the last 10 minutes
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id FROM feedback 
+            WHERE email = ? 
+              AND created_at > (NOW() - INTERVAL 10 MINUTE)
+        ");
+        
+        $stmt->execute([
+            $_POST['email']
+        ]);
+        
+        $existing = $stmt->fetch();
+        
+        if ($existing) {
+            // It's a recent submission from this email.
+            // Send a "Too Many Requests" error.
+            jsonResponse(['error' => 'You have submitted feedback too recently. Please wait a few minutes.'], 429);
+            return;
+        }
+        
+    } catch (PDOException $e) {
+        error_log("Feedback rate-limit check error: " . $e->getMessage());
+        // For safety, let's block submission if the check itself errors.
+        jsonResponse(['error' => 'Failed to verify feedback. Please try again later.'], 500);
+        return;
+    }
+    // === END RATE-LIMIT CHECK ===
     
     try {
         $stmt = $pdo->prepare("

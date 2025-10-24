@@ -265,7 +265,7 @@ function getBrowserName($userAgent) {
             </div>
         </div>
         
-         Filters 
+         
         <div class="card mb-4">
             <div class="card-header">
                 <h3><i class="fas fa-filter"></i> Filter Logs</h3>
@@ -336,7 +336,7 @@ function getBrowserName($userAgent) {
             </div>
         </div>
         
-         Logs Table 
+          
         <div class="card">
             <div class="card-header">
                 <h3><i class="fas fa-list"></i> Activity Logs</h3>
@@ -447,7 +447,7 @@ function getBrowserName($userAgent) {
                         <?php endforeach; ?>
                     </div>
                     
-                     Pagination 
+                      
                     <?php if ($total_pages > 1): ?>
                         <div class="pagination-wrapper">
                             <div class="pagination">

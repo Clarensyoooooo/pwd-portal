@@ -204,6 +204,19 @@ function handleVerifyExistingPWD() {
 function handleRenewalUpdate() {
     global $pdo;
 
+    // === START HONEYPOT CHECK ===
+if (!empty($_POST['website_url'])) {
+    // It's a bot. Silently pretend to succeed.
+    error_log("Honeypot triggered on New App Form by IP: " . $_SERVER['REMOTE_ADDR']);
+    
+    // Send a fake success message
+    echo json_encode([
+        'success' => true,
+        'message' => 'Your application has been submitted!' 
+    ]);
+    return; // Stop any further code
+}
+
     $required_fields = ['email', 'appointment_type', 'preferred_date', 'preferred_time'];
     foreach ($required_fields as $field) {
         if (empty($_POST[$field])) {
@@ -334,6 +347,19 @@ function handleRenewalUpdate() {
 
 function handleNewApplication() {
     global $pdo;
+
+    // === START HONEYPOT CHECK ===
+if (!empty($_POST['website_url'])) {
+    // It's a bot. Silently pretend to succeed.
+    error_log("Honeypot triggered on New App Form by IP: " . $_SERVER['REMOTE_ADDR']);
+    
+    // Send a fake success message
+    echo json_encode([
+        'success' => true,
+        'message' => 'Your application has been submitted!' 
+    ]);
+    return; // Stop any further code
+}
     
     $required_fields = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'address', 'disability_type', 'preferred_date', 'preferred_time'];
     foreach ($required_fields as $field) {

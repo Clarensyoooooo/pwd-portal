@@ -526,7 +526,7 @@ function formatDateTime($datetime) {
         </div>
     </main>
     
-     Feedback Details Modal 
+     
     <div id="feedbackModal" class="modal">
         <div class="modal-content large-modal">
             <div class="modal-header">

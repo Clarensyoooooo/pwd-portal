@@ -433,7 +433,7 @@ function deleteRole($pdo) {
             </div>
         <?php endif; ?>
         
-         Users Table 
+         
         <div class="card">
             <div class="card-header">
                 <h3><i class="fas fa-users"></i> Admin Users</h3>
@@ -513,7 +513,7 @@ function deleteRole($pdo) {
             </div>
         </div>
         
-         Roles & Permissions 
+          
         <?php if ($canManageRoles && !empty($roles)): ?>
         <div class="card mt-4">
             <div class="card-header">
@@ -600,7 +600,7 @@ try {
         <?php endif; ?>
     </main>
     
-     Create User Modal 
+     
     <div id="createUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -672,7 +672,7 @@ try {
         </div>
     </div>
     
-     Edit User Modal 
+      
     <div id="editUserModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -752,7 +752,7 @@ try {
         </div>
     </div>
     
-     Create Role Modal 
+      
     <div id="createRoleModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -845,7 +845,7 @@ try {
         </div>
     </div>
     
-     Edit Role Modal 
+     
     <div id="editRoleModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">

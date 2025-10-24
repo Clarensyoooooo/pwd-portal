@@ -76,9 +76,7 @@ require_once 'config.php';
                     Book appointments for PWD ID application, track your appointment status, and discover programs designed to enhance your quality of life.</p>
                 </div>
                 <div class="hero-sidebar">
-        <iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61577929784498&tabs=timeline%2C%20events%2C%20messages&width=500&height=500&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true&appId" width="500" height="500" style="border:none;overflow:hidden" scrolling="no" frameborder="0" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
-    </div>
-            </div>
+        <iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61577929784498%26ref%3Dembed_page%23&tabs=timeline&width=340&height=500&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true&appId" width="340" height="500" style="border:none;overflow:hidden" scrolling="no" frameborder="0" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
         </div>
     </section>
 
@@ -274,6 +272,12 @@ require_once 'config.php';
                         
                         <div class="form-actions">
                             <button type="button" class="btn-secondary" onclick="clearProgramSelection()">Cancel</button>
+
+                            <div style="opacity: 0; position: absolute; left: -5000px;" aria-hidden="true">
+        <label for="program_website">Website</label>
+        <input type="text" id="program_website" name="website_url" tabindex="-1" autocomplete="off">
+    </div>
+
                             <button type="submit" class="btn-primary">Submit Application</button>
                         </div>
                     </form>
@@ -292,56 +296,49 @@ require_once 'config.php';
     <!-- Partner Organizations -->
     <section class="partners-section" id="organizations">
         <div class="container">
-            <h2>Partner Organizations</h2>
-            <p class="partners-intro">We collaborate with various government agencies and organizations to provide comprehensive support for the PWD community.</p>
+            <h2>Related Agencies</h2>
+            <p class="partners-intro">We work closely with these key government agencies to ensure comprehensive services and support for the PWD community.</p>
+            
             <div class="partners-grid">
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-hospital"></i>
-                        <span>Department of Health</span>
-                    </div>
+                    <a href="https://www.doh.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Department_of_Health_%28DOH%29_PHL.svg/2048px-Department_of_Health_%28DOH%29_PHL.svg.png" alt="Department of Health Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-school"></i>
-                        <span>Department of Education</span>
-                    </div>
+                    <a href="https://www.deped.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Seal_of_the_Department_of_Education_of_the_Philippines.png/1024px-Seal_of_the_Department_of_Education_of_the_Philippines.png" alt="Department of Education Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-hands-helping"></i>
-                        <span>DSWD</span>
-                    </div>
+                    <a href="https://www.dswd.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Seal_of_the_Department_of_Social_Welfare_and_Development.svg/1105px-Seal_of_the_Department_of_Social_Welfare_and_Development.svg.png" alt="DSWD Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-plane"></i>
-                        <span>Department of Tourism</span>
-                    </div>
+                    <a href="https://www.tourism.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Department_of_Tourism_%28DOT%29.svg/2048px-Department_of_Tourism_%28DOT%29.svg.png" alt="Department of Tourism Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-universal-access"></i>
-                        <span>NCDA</span>
-                    </div>
+                    <a href="https://ncda.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://ncda.gov.ph/wp-content/uploads/2023/02/NCDA-Logo-with-bigger-white-background.fw_.png" alt="NCDA Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-medkit"></i>
-                        <span>PhilHealth</span>
-                    </div>
+                    <a href="https://www.philhealth.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://images.seeklogo.com/logo-png/33/2/philhealth-logo-png_seeklogo-338250.png" alt="PhilHealth Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-shield-alt"></i>
-                        <span>SSS</span>
-                    </div>
+                    <a href="https://www.sss.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://images.seeklogo.com/logo-png/32/1/republic-of-the-philippines-social-security-system-logo-png_seeklogo-326505.png" alt="SSS Logo">
+                    </a>
                 </div>
                 <div class="partner-logo">
-                    <div class="partner-placeholder">
-                        <i class="fas fa-building"></i>
-                        <span>GSIS</span>
-                    </div>
+                    <a href="https://www.gsis.gov.ph" target="_blank" rel="noopener noreferrer">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg/1633px-Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg.png" alt="GSIS Logo">
+                    </a>
                 </div>
             </div>
         </div>
@@ -452,6 +449,10 @@ require_once 'config.php';
                                 <span class="rating-text">Click to rate</span>
                             </div>
                         </div>
+                        <div style="opacity: 0; position: absolute; left: -5000px;" aria-hidden="true">
+                            <label for="website_url">Website</label>
+                            <input type="text" id="website_url" name="website_url" tabindex="-1" autocomplete="off">
+                        </div>
                         <div class="form-group">
                             <label for="feedbackMessage">Message</label>
                             <textarea id="feedbackMessage" name="message" rows="5" required placeholder="Please share your feedback, suggestions, or concerns..."></textarea>
@@ -471,27 +472,7 @@ require_once 'config.php';
                         </div>
                     </div>
                     
-                    <div class="feedback-stats">
-                        <h3><i class="fas fa-chart-bar"></i> Service Statistics</h3>
-                        <div class="stats-grid">
-                            <div class="stat-item">
-                                <span class="stat-number">15,000+</span>
-                                <span class="stat-label">PWD IDs Issued</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">98%</span>
-                                <span class="stat-label">Customer Satisfaction</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">24/7</span>
-                                <span class="stat-label">Online Support</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number">50+</span>
-                                <span class="stat-label">Partner Organizations</span>
-                            </div>
-                        </div>
-                    </div>
+                    
                 </div>
             </div>
         </div>
@@ -503,7 +484,7 @@ require_once 'config.php';
             <div class="footer-content">
                 <div class="footer-section">
                     <h3>Description</h3>
-                    <p>The PWD Portal empowers Persons with Disabilities by providing easy access to essential services, benefits, and support programs. Our mission is to create an inclusive society where PWDs can participate fully in community life.</p>
+                    <p>PDAO Helps empowers Persons with Disabilities by providing easy access to essential services, benefits, and support programs. Our mission is to create an inclusive society where PWDs can participate fully in community life.</p>
                     <div class="social-links">
                         <a href="#" aria-label="Facebook"><i class="fab fa-facebook"></i></a>
                         <a href="#" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
@@ -550,7 +531,7 @@ require_once 'config.php';
                 </div>
             </div>
             <div class="copyright">
-                <p>&copy; 2025 PWD Portal. All rights reserved. | Developed with ❤️ for the PWD Community</p>
+                <p>&copy; 2025 PDAO Helps. All rights reserved. | Developed with ❤️ for the PWD Community</p>
             </div>
         </div>
     </footer>
@@ -760,6 +741,10 @@ require_once 'config.php';
                         <textarea id="renewalNotes" name="notes" rows="3" placeholder="Any special requirements or concerns..."></textarea>
                     </div>
                 </div>
+                <div style="opacity: 0; position: absolute; left: -5000px;" aria-hidden="true">
+        <label for="new_app_website">Website</label>
+        <input type="text" id="new_app_website" name="website_url" tabindex="-1" autocomplete="off">
+    </div>
                 <button type="submit" class="btn-primary btn-block">Book Appointment</button>
             </form>
         </div>
@@ -922,6 +907,12 @@ require_once 'config.php';
                     <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
                         <i class="fas fa-arrow-left"></i> Previous
                     </button>
+
+                    <div style="opacity: 0; position: absolute; left: -5000px;" aria-hidden="true">
+        <label for="new_app_website">Website</label>
+        <input type="text" id="new_app_website" name="website_url" tabindex="-1" autocomplete="off">
+    </div> 
+
                     <button type="button" class="btn-primary" id="nextStepBtn" onclick="nextStep()">
                         Next <i class="fas fa-arrow-right"></i>
                     </button>
