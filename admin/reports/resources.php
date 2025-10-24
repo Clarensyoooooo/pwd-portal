@@ -1,4 +1,3 @@
-<!-- Resource Planning Report -->
 <div class="analytics-grid">
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($report_data['grand_totals']['total_barangays'] ?? 0); ?></div>
@@ -33,27 +32,25 @@
     </div>
 </div>
 
-<!-- Key Insights Alert -->
-<div class="analytics-card" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #f59e0b; margin-bottom: 1.5rem;">
-    <h3 style="color: #92400e; margin-bottom: 1rem;"><i class="fas fa-lightbulb"></i> Resource Planning Methodology</h3>
-    <p style="color: #78350f; margin-bottom: 0.5rem;">This analysis considers multiple factors:</p>
-    <ul style="color: #78350f; margin: 0; padding-left: 1.5rem;">
-        <li><strong>Disability Type & Severity:</strong> Tailored services for each disability</li>
-        <li><strong>Population Concentration:</strong> High concentration (>50%) = Critical priority</li>
-        <li><strong>Age Groups:</strong> Children need education/therapy, adults need employment</li>
-        <li><strong>Employment Status:</strong> High unemployment (>40%) triggers livelihood programs</li>
-        <li><strong>Service Gaps:</strong> Recommendations avoid duplication of existing programs</li>
-    </ul>
+<div class="analytics-card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9; margin-bottom: 1.5rem;">
+    <h3 style="color: #0c4a6e; margin-bottom: 1rem;"><i class="fas fa-lightbulb"></i> Key Planning Insights</h3>
+    <?php if (!empty($report_data['insights'])): ?>
+        <ul style="color: #0369a1; margin: 0; padding-left: 1.5rem; line-height: 1.8;">
+            <?php foreach ($report_data['insights'] as $insight): ?>
+                <li><?php echo $insight; ?></li>
+            <?php endforeach; ?>
+        </ul>
+    <?php else: ?>
+        <p style="color: #0369a1; margin: 0;">No specific insights for this filter. Try a broader date range.</p>
+    <?php endif; ?>
 </div>
 
-<!-- Resource Recommendations by Barangay -->
 <?php if (!empty($report_data['barangay_recommendations'])): ?>
 <div class="analytics-grid">
     <?php foreach ($report_data['barangay_recommendations'] as $barangay => $data): ?>
     <div class="analytics-card">
         <h3><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($barangay); ?></h3>
         
-        <!-- Barangay Summary -->
         <div style="margin-bottom: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px;">
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
                 <div>
@@ -81,7 +78,6 @@
             </div>
         </div>
         
-        <!-- Top Disabilities -->
         <h4 style="margin: 1rem 0 0.5rem 0; color: #374151; font-size: 1rem;">Disability Distribution:</h4>
         <?php foreach (array_slice($data['disabilities'], 0, 3) as $disability): ?>
         <div style="margin-bottom: 0.75rem;">
@@ -112,78 +108,67 @@
         </div>
         <?php endforeach; ?>
         
-        <!-- Service Recommendations -->
         <?php if (!empty($data['recommended_services'])): ?>
         <h4 style="margin: 1.5rem 0 0.75rem 0; color: #374151; font-size: 1rem;">
             <i class="fas fa-hand-holding-heart"></i> Priority Services:
         </h4>
-        <?php foreach ($data['recommended_services'] as $service): ?>
-        <div class="resource-card" style="margin-bottom: 0.75rem;">
-            <!-- Service Header -->
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
-                <div style="flex: 1;">
-                    <h4 style="margin: 0 0 0.25rem 0; font-size: 0.95rem; color: #0c4a6e;">
+        <div class="service-recommendation-list">
+            <?php foreach ($data['recommended_services'] as $service): ?>
+            <details class="resource-card-details">
+                <summary class="resource-card-summary">
+                    <span class="priority-badge priority-<?php echo strtolower($service['priority']); ?>">
+                        <?php echo htmlspecialchars($service['priority']); ?>
+                    </span>
+                    <span class="summary-title">
                         <?php echo htmlspecialchars($service['disability_type']); ?>
-                    </h4>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem;">
-                        <span class="priority-badge priority-<?php echo strtolower($service['priority']); ?>">
-                            <?php echo htmlspecialchars($service['priority']); ?> Priority
+                        <span class="summary-subtitle">
+                            (<?php echo $service['affected_count']; ?> affected, <?php echo $service['concentration']; ?>% concentration)
                         </span>
-                        <span style="font-size: 0.75rem; color: #64748b; padding: 0.25rem 0.5rem; background: white; border-radius: 4px;">
-                            <strong><?php echo $service['affected_count']; ?></strong> affected
-                        </span>
-                        <span style="font-size: 0.75rem; color: #64748b; padding: 0.25rem 0.5rem; background: white; border-radius: 4px;">
-                            <strong><?php echo $service['concentration']; ?>%</strong> concentration
-                        </span>
+                    </span>
+                    <div class="summary-chevron"><i class="fas fa-chevron-down"></i></div>
+                </summary>
+                <div class="resource-card-content">
+                    <?php if (!empty($service['factors']) && ($service['factors']['high_concentration'] || $service['factors']['many_children'] || $service['factors']['high_unemployment'])): ?>
+                    <div class="key-factors-box">
+                        <div style="font-size: 0.75rem; font-weight: 600; color: #92400e; margin-bottom: 0.25rem;">
+                            📊 Key Factors Triggering This Priority:
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
+                            <?php if ($service['factors']['high_concentration']): ?>
+                                <span class="factor-badge factor-concentration">
+                                    <i class="fas fa-exclamation-circle"></i> High Concentration
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($service['factors']['many_children']): ?>
+                                <span class="factor-badge factor-children">
+                                    <i class="fas fa-child"></i> Many Children (<?php echo $service['children_count']; ?>)
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($service['factors']['high_unemployment']): ?>
+                                <span class="factor-badge factor-unemployment">
+                                    <i class="fas fa-briefcase"></i> High Unemployment (<?php echo $service['unemployed_count']; ?>)
+                                </span>
+                            <?php endif; ?>
+                        </div>
                     </div>
-                </div>
-            </div>
-            
-            <!-- Key Factors -->
-            <?php if (!empty($service['factors']) && (
-                $service['factors']['high_concentration'] || 
-                $service['factors']['many_children'] || 
-                $service['factors']['high_unemployment']
-            )): ?>
-            <div style="margin-bottom: 0.75rem; padding: 0.5rem; background: #fef3c7; border-radius: 4px; border-left: 3px solid #f59e0b;">
-                <div style="font-size: 0.75rem; font-weight: 600; color: #92400e; margin-bottom: 0.25rem;">
-                    📊 Key Factors:
-                </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
-                    <?php if ($service['factors']['high_concentration']): ?>
-                        <span class="factor-badge factor-concentration">
-                            <i class="fas fa-exclamation-circle"></i> High Concentration
-                        </span>
                     <?php endif; ?>
-                    <?php if ($service['factors']['many_children']): ?>
-                        <span class="factor-badge factor-children">
-                            <i class="fas fa-child"></i> Many Children (<?php echo $service['children_count']; ?>)
-                        </span>
-                    <?php endif; ?>
-                    <?php if ($service['factors']['high_unemployment']): ?>
-                        <span class="factor-badge factor-unemployment">
-                            <i class="fas fa-briefcase"></i> High Unemployment (<?php echo $service['unemployed_count']; ?>)
-                        </span>
-                    <?php endif; ?>
+                    
+                    <ul class="resource-list" style="margin: 0;">
+                        <?php foreach (array_slice($service['services'], 0, 6) as $serviceItem): ?>
+                        <li style="font-size: 0.85rem; line-height: 1.5;">
+                            <?php echo htmlspecialchars($serviceItem); ?>
+                        </li>
+                        <?php endforeach; ?>
+                        <?php if (count($service['services']) > 6): ?>
+                        <li style="font-size: 0.85rem; font-style: italic; color: #6b7280;">
+                            + <?php echo count($service['services']) - 6; ?> more services recommended...
+                        </li>
+                        <?php endif; ?>
+                    </ul>
                 </div>
-            </div>
-            <?php endif; ?>
-            
-            <!-- Service List -->
-            <ul class="resource-list" style="margin: 0;">
-                <?php foreach (array_slice($service['services'], 0, 6) as $serviceItem): ?>
-                <li style="font-size: 0.85rem; line-height: 1.5;">
-                    <?php echo htmlspecialchars($serviceItem); ?>
-                </li>
-                <?php endforeach; ?>
-                <?php if (count($service['services']) > 6): ?>
-                <li style="font-size: 0.85rem; font-style: italic; color: #6b7280;">
-                    + <?php echo count($service['services']) - 6; ?> more services recommended...
-                </li>
-                <?php endif; ?>
-            </ul>
+            </details>
+            <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
         <?php else: ?>
         <p style="margin-top: 1rem; padding: 1rem; background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px; font-size: 0.875rem; color: #92400e;">
             <i class="fas fa-info-circle"></i> Insufficient data for service recommendations in this barangay.
@@ -204,7 +189,7 @@
 <?php endif; ?>
 
 <?php 
-// START: ADD PAGINATION CONTROLS
+// START: PAGINATION CONTROLS
 // Check if pagination data exists and if there is more than one page
 if (isset($report_data['pagination']) && $report_data['pagination']['total_pages'] > 1): 
     $pagination = $report_data['pagination'];
@@ -248,8 +233,80 @@ if (isset($report_data['pagination']) && $report_data['pagination']['total_pages
 // END: PAGINATION CONTROLS
 ?>
 
+<style>
+.service-recommendation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.resource-card-details {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white; /* Set base background to white */
+}
+.resource-card-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    background: white;
+    list-style: none; /* Remove default list-item marker */
+    transition: background-color 0.2s;
+}
+.resource-card-details[open] .resource-card-summary {
+    background-color: #f8fafc; /* Light gray when open */
+    border-bottom: 1px solid #e5e7eb;
+}
+.resource-card-summary:hover {
+    background-color: #f0f9ff; /* Light blue on hover */
+}
+.resource-card-summary::-webkit-details-marker {
+    display: none; /* Hide default arrow */
+}
+.summary-title {
+    font-weight: 600;
+    color: #1f2937;
+    flex-grow: 1;
+}
+.summary-subtitle {
+    font-weight: 400;
+    color: #64748b;
+    font-size: 0.8rem;
+    margin-left: 8px;
+}
+.summary-chevron {
+    margin-left: auto;
+    transition: transform 0.2s;
+    color: #9ca3af;
+}
+.resource-card-details[open] .summary-chevron {
+    transform: rotate(180deg);
+}
+.resource-card-content {
+    padding: 16px;
+    background: #f8fafc; /* Content area has a light gray background */
+}
+.key-factors-box {
+    margin-bottom: 0.75rem; 
+    padding: 0.75rem; 
+    background: #fefce8; 
+    border-radius: 6px; 
+    border-left: 3px solid #facc15;
+}
+.resource-list li::before {
+    content: "✓";
+    color: #10b981;
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+</style>
+
 <script>
 function initializeAnalyticsCharts() {
+    // This function is just a placeholder to be consistent
+    // No charts are on this specific page.
     console.log('Resource planning report loaded successfully');
 }
 </script>

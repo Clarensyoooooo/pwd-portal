@@ -45,7 +45,7 @@ switch ($report_type) {
         $report_data = generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter, $gender_filter, $disability_filter);
         break;
     case 'resources':
-        $report_data = generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter);
+        $report_data = generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter, $status_filter, $gender_filter, $employment_filter);
         break;
 }
 
@@ -56,8 +56,16 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $params = [$date_from, $date_to];
     
     if ($status_filter) {
-        $where_conditions[] = "status = ?";
-        $params[] = $status_filter;
+        if ($status_filter === 'expired') {
+            $where_conditions[] = "(status = 'issued' AND expiry_date < CURDATE())";
+        } else if ($status_filter === 'issued') {
+            // 'issued' from dropdown now means 'Active'
+            $where_conditions[] = "(status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()))";
+        } else {
+            // This handles draft, validated, inactive
+            $where_conditions[] = "status = ?";
+            $params[] = $status_filter;
+        }
     }
     
     if ($disability_filter) {
@@ -85,9 +93,11 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt = $pdo->prepare("
         SELECT 
             COUNT(*) as total_individuals,
+            SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_records,
             SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated_profiles,
-            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as active_ids,
-            SUM(CASE WHEN status = 'pending_validation' THEN 1 ELSE 0 END) as pending_support,
+            SUM(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 ELSE 0 END) as active_ids,
+            SUM(CASE WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 ELSE 0 END) as expired_ids,
+            SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_ids,
             AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
             COUNT(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 END) as with_coordinates,
             COUNT(CASE WHEN barangay IS NOT NULL THEN 1 END) as assigned_to_barangay
@@ -146,7 +156,11 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
         SELECT 
             barangay,
             COUNT(*) as count,
-            COUNT(CASE WHEN status = 'issued' THEN 1 END) as active_ids,
+            SUM(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 ELSE 0 END) as active_ids,
+            SUM(CASE WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 ELSE 0 END) as expired_ids,
+            SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_ids,
+            SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated,
+            SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as drafts,
             AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
             ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM pwd_records {$where_clause} AND barangay IS NOT NULL), 1) as percentage
         FROM pwd_records 
@@ -176,7 +190,9 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
         SELECT 
             DATE_FORMAT(created_at, '{$date_format}') as period,
             COUNT(*) as registrations,
-            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as ids_issued,
+            SUM(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 ELSE 0 END) as active_ids,
+            SUM(CASE WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 ELSE 0 END) as expired_ids,
+            SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_ids,
             SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated
         FROM pwd_records 
         {$where_clause}
@@ -234,7 +250,7 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
             COUNT(CASE WHEN gender = 'Female' THEN 1 END) as female_count,
             AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age,
             COUNT(CASE WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 1 END) as children_count,
-            COUNT(CASE WHEN status = 'issued' THEN 1 END) as active_ids
+            COUNT(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 END) as active_ids
         FROM pwd_records
         {$where_clause}
         AND barangay IS NOT NULL
@@ -280,23 +296,49 @@ function generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $bar
     return $data;
 }
 
-function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter) {
+function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $disability_filter, $status_filter, $gender_filter, $employment_filter) {
     $data = [];
     
-    $where_conditions = ["created_at BETWEEN ? AND ?"];
+    // --- START: Main Filter Logic ---
+    $where_conditions = ["pwd_records.created_at BETWEEN ? AND ?"];
     $params = [$date_from, $date_to];
     
     if ($barangay_filter) {
-        $where_conditions[] = "barangay = ?";
+        $where_conditions[] = "pwd_records.barangay = ?";
         $params[] = $barangay_filter;
     }
     
     if ($disability_filter) {
-        $where_conditions[] = "disability_type = ?";
+        $where_conditions[] = "pwd_records.disability_type = ?";
         $params[] = $disability_filter;
+    }
+
+    if ($gender_filter) {
+        $where_conditions[] = "pwd_records.gender = ?";
+        $params[] = $gender_filter;
+    }
+
+    if ($employment_filter) {
+        $where_conditions[] = "pwd_records.employment_status = ?";
+        $params[] = $employment_filter;
+    }
+
+    if ($status_filter) {
+        if ($status_filter === 'expired') {
+            $where_conditions[] = "(pwd_records.status = 'issued' AND pwd_records.expiry_date < CURDATE())";
+        } else if ($status_filter === 'issued') {
+            // 'issued' from dropdown now means 'Active'
+            $where_conditions[] = "(pwd_records.status = 'issued' AND (pwd_records.expiry_date IS NULL OR pwd_records.expiry_date >= CURDATE()))";
+        } else {
+            // This handles draft, validated, inactive
+            $where_conditions[] = "pwd_records.status = ?";
+            $params[] = $status_filter;
+        }
     }
     
     $where_clause = "WHERE " . implode(" AND ", $where_conditions);
+    // --- END: Main Filter Logic ---
+    
     
     // Master service mapping by disability type
     $service_recommendations = [
@@ -340,7 +382,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                 'Community integration support'
             ]
         ],
-        'Physical/Mobility Impairment' => [
+        'Physical Disability' => [
             'services' => [
                 'Mobility aids and assistive devices',
                 'Rehabilitation therapy',
@@ -364,7 +406,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             COUNT(CASE WHEN employment_status = 'Unemployed' THEN 1 END) as unemployed_count,
             COUNT(CASE WHEN employment_status = 'Employed' THEN 1 END) as employed_count,
             AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as avg_age
-        FROM pwd_records
+        FROM pwd_records pwd_records
         {$where_clause}
         AND barangay IS NOT NULL
         AND disability_type IS NOT NULL
@@ -382,10 +424,30 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     $totals_where_conditions = ["created_at BETWEEN ? AND ?"];
     $totals_params = [$date_from, $date_to];
 
-    // Add the BARANGAY filter (if it exists)
     if ($barangay_filter) {
         $totals_where_conditions[] = "barangay = ?";
         $totals_params[] = $barangay_filter;
+    }
+
+    if ($gender_filter) {
+        $totals_where_conditions[] = "gender = ?";
+        $totals_params[] = $gender_filter;
+    }
+
+    if ($employment_filter) {
+        $totals_where_conditions[] = "employment_status = ?";
+        $totals_params[] = $employment_filter;
+    }
+
+    if ($status_filter) {
+        if ($status_filter === 'expired') {
+            $totals_where_conditions[] = "(status = 'issued' AND expiry_date < CURDATE())";
+        } else if ($status_filter === 'issued') {
+            $totals_where_conditions[] = "(status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()))";
+        } else {
+            $totals_where_conditions[] = "status = ?";
+            $totals_params[] = $status_filter;
+        }
     }
     
     // *** We deliberately DO NOT add the $disability_filter here ***
@@ -404,7 +466,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     ");
     $stmt->execute($totals_params);
     
-    // Fetch this into a simple [ 'Barangay 4' => 150, 'Santa Maria' => 200 ] map
     $barangay_totals_map = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
     // --- END: FIX ---
@@ -418,10 +479,8 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         $total = (int)$row['total_count'];
         $barangay_total = $barangay_totals_map[$barangay] ?? $total;
         
-        // Calculate concentration percentage
         $concentration = $barangay_total > 0 ? ($total / $barangay_total) * 100 : 0;
         
-        // Determine priority based on concentration
         $priority = 'Medium';
         if ($concentration > 50) {
             $priority = 'Critical';
@@ -429,11 +488,9 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             $priority = 'High';
         }
         
-        // Age-based priority adjustments
         $children_percentage = $total > 0 ? ((int)$row['children_count'] / $total) * 100 : 0;
         $unemployment_rate = $total > 0 ? ((int)$row['unemployed_count'] / $total) * 100 : 0;
         
-        // Initialize barangay if not exists
         if (!isset($barangay_recommendations[$barangay])) {
             $barangay_recommendations[$barangay] = [
                 'total_pwd' => 0,
@@ -446,14 +503,12 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             ];
         }
         
-        // Aggregate totals
         $barangay_recommendations[$barangay]['total_pwd'] += $total;
         $barangay_recommendations[$barangay]['total_children'] += (int)$row['children_count'];
         $barangay_recommendations[$barangay]['total_adults'] += (int)$row['adult_count'];
         $barangay_recommendations[$barangay]['total_seniors'] += (int)$row['senior_count'];
         $barangay_recommendations[$barangay]['total_unemployed'] += (int)$row['unemployed_count'];
         
-        // Add disability data
         $barangay_recommendations[$barangay]['disabilities'][] = [
             'type' => $disability,
             'count' => $total,
@@ -464,7 +519,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             'avg_age' => round((float)$row['avg_age'], 1)
         ];
         
-        // Find matching service recommendations
         $matched_services = [];
         foreach ($service_recommendations as $key => $rec) {
             if (stripos($disability, $key) !== false || stripos($key, $disability) !== false) {
@@ -473,7 +527,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             }
         }
         
-        // If no match, provide general services
         if (empty($matched_services)) {
             $matched_services = [
                 'General accessibility improvements',
@@ -485,10 +538,8 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             ];
         }
         
-        // Build service recommendation with contextual additions
         $contextual_services = $matched_services;
         
-        // Add age-specific services
         if ($children_percentage > 30) {
             array_unshift($contextual_services, 
                 '🎓 Inclusive education programs',
@@ -497,7 +548,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             if ($priority === 'Medium') $priority = 'High';
         }
         
-        // Add employment services
         if ($unemployment_rate > 40) {
             array_push($contextual_services,
                 '💼 Livelihood programs and vocational training',
@@ -506,7 +556,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             if ($priority === 'Medium') $priority = 'High';
         }
         
-        // Add adult-specific services
         if ((int)$row['adult_count'] > $total * 0.5) {
             array_push($contextual_services,
                 '🎯 Employment and skills training',
@@ -530,7 +579,6 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         ];
     }
     
-    // Sort disabilities by count within each barangay
     foreach ($barangay_recommendations as $barangay => &$brgy_data) {
         usort($brgy_data['disabilities'], function($a, $b) {
             return $b['count'] - $a['count'];
@@ -546,15 +594,10 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         });
     }
     
-    // 1. SORT BARANGAYS BY TOTAL PWD (as you requested)
-    // We use uasort to maintain the barangay names as keys
     uasort($barangay_recommendations, function($a, $b) {
-        // Sorts descending (highest number first)
         return ($b['total_pwd'] ?? 0) - ($a['total_pwd'] ?? 0);
     });
 
-    // 2. CALCULATE GRAND TOTALS *BEFORE* PAGINATION
-    // These totals are calculated from the *complete, sorted* list
     $data['grand_totals'] = [
         'total_barangays' => count($barangay_recommendations),
         'total_pwd' => array_sum(array_column($barangay_recommendations, 'total_pwd')),
@@ -562,23 +605,14 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         'total_children' => array_sum(array_column($barangay_recommendations, 'total_children'))
     ];
 
-    // 3. PAGINATE THE FINAL ARRAY FOR DISPLAY
     if (!empty($barangay_recommendations)) {
-        $all_barangays = $barangay_recommendations; // This is now our complete, sorted list
-        // --- 👇 ADD THIS LINE 👇 ---
-            // STORE THE COMPLETE, SORTED LIST FOR EXPORT
-            $data['full_export_data'] = $all_barangays;
-            // --- 👆 END OF NEW LINE 👆 ---
-            
-            // Get current page from URL, default to 1
-            $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-            
+        $all_barangays = $barangay_recommendations;
+        $data['full_export_data'] = $all_barangays;
             
         $total_items = count($all_barangays);
-        $items_per_page = 5; // You can change this number
+        $items_per_page = 5; 
         $total_pages = ceil($total_items / $items_per_page);
         
-        // Get current page from URL, default to 1
         $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
         if ($current_page < 1) {
             $current_page = 1;
@@ -586,28 +620,79 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             $current_page = $total_pages;
         }
         
-        // Calculate the offset for the slice
         $offset = ($current_page - 1) * $items_per_page;
         
-        // Slice the array to get only the items for the current page
         $paginated_barangays = array_slice($all_barangays, $offset, $items_per_page, true);
         
-        // Pass the *sliced* list to the template
         $data['barangay_recommendations'] = $paginated_barangays;
         
-        // Pass pagination data to the template
         $data['pagination'] = [
             'current_page' => $current_page,
             'total_pages' => $total_pages,
             'items_per_page' => $items_per_page
         ];
     } else {
-        // Handle case with no data
         $data['barangay_recommendations'] = [];
         $data['pagination'] = null;
+        $data['full_export_data'] = [];
     }
 
-    // --- END: NEW LOGIC ---
+    // --- START: Generate Key Insights (NEW) ---
+    $insights = [];
+    $full_data = $data['full_export_data'];
+    
+    if (!empty($full_data)) {
+        // Find top priority barangay
+        $top_barangay_name = key($full_data); // Get the first key (barangay name) since it's sorted by total PWD
+        $top_barangay_data = $full_data[$top_barangay_name];
+        $critical_count = 0;
+        foreach ($top_barangay_data['recommended_services'] as $service) {
+            if ($service['priority'] == 'Critical') {
+                $critical_count++;
+            }
+        }
+        if ($critical_count > 0) {
+            $insights[] = "<strong>{$top_barangay_name}</strong> shows the highest need with <strong>{$critical_count}</strong> 'Critical' priority service recommendations.";
+        } else {
+            $insights[] = "<strong>{$top_barangay_name}</strong> has the highest PWD population (<strong>{$top_barangay_data['total_pwd']}</strong>) in this filter set.";
+        }
+
+        // Find most common service factors
+        $factor_counts = ['children' => 0, 'unemployment' => 0, 'concentration' => 0];
+        $priority_disabilities = [];
+        foreach ($full_data as $brgy_name => $brgy_data) {
+            foreach ($brgy_data['recommended_services'] as $service) {
+                if ($service['factors']['many_children']) $factor_counts['children']++;
+                if ($service['factors']['high_unemployment']) $factor_counts['unemployment']++;
+                if ($service['factors']['high_concentration']) $factor_counts['concentration']++;
+                
+                if ($service['priority'] == 'Critical' || $service['priority'] == 'High') {
+                    $type = $service['disability_type'];
+                    $priority_disabilities[$type] = ($priority_disabilities[$type] ?? 0) + 1;
+                }
+            }
+        }
+        
+        // Add factor insights
+        if ($factor_counts['unemployment'] > 0 && $factor_counts['unemployment'] >= count($full_data) / 2) {
+            $insights[] = "<strong>Livelihood programs</strong> are a common need, triggered by high unemployment rates in <strong>" . $factor_counts['unemployment'] . "</strong> barangay(s).";
+        }
+        if ($factor_counts['children'] > 0 && $factor_counts['children'] >= count($full_data) / 2) {
+            $insights[] = "<strong>Child-focused services</strong> (education/therapy) are a high priority, triggered in <strong>" . $factor_counts['children'] . "</strong> barangay(s).";
+        }
+
+        // Add top disability insight
+        if (!empty($priority_disabilities)) {
+            arsort($priority_disabilities);
+            $top_disability_type = key($priority_disabilities);
+            $top_disability_count = $priority_disabilities[$top_disability_type];
+            $insights[] = "<strong>{$top_disability_type}</strong> is the most common high-priority disability, appearing in <strong>{$top_disability_count}</strong> barangay(s).";
+        }
+    } else {
+        $insights[] = "No specific insights generated due to the current filters. Broaden your search to identify key trends.";
+    }
+    $data['insights'] = $insights;
+    // --- END: Generate Key Insights ---
 
     return $data;
 }
@@ -1000,9 +1085,11 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                         <label for="status_filter">Status</label>
                         <select name="status" id="status_filter" class="form-control">
                             <option value="">All Statuses</option>
-                            <option value="pending_validation" <?php echo $status_filter == 'pending_validation' ? 'selected' : ''; ?>>Pending Validation</option>
+                            <option value="draft" <?php echo $status_filter == 'draft' ? 'selected' : ''; ?>>Draft</option>
                             <option value="validated" <?php echo $status_filter == 'validated' ? 'selected' : ''; ?>>Validated</option>
-                            <option value="issued" <?php echo $status_filter == 'issued' ? 'selected' : ''; ?>>ID Issued</option>
+                            <option value="issued" <?php echo $status_filter == 'issued' ? 'selected' : ''; ?>>Active</option>
+                            <option value="expired" <?php echo $status_filter == 'expired' ? 'selected' : ''; ?>>Expired</option>
+                            <option value="inactive" <?php echo $status_filter == 'inactive' ? 'selected' : ''; ?>>Inactive</option>
                         </select>
                     </div>
                     
@@ -1190,7 +1277,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
             
             csv += "Barangay Resource Recommendations\n";
-            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Seniors,Unemployed,Key Factors,Recommended Services\n"; // I also added Seniors here for you
+            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Seniors,Unemployed,Key Factors,Recommended Services\n";
             
             // --- 👇 THIS IS THE MODIFIED PART 👇 ---
 
@@ -1213,8 +1300,8 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                             
                             const services = service.services.slice(0, 5).join('; ');
                             
-                            // Added data.total_seniors to the export
-                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${data.total_seniors},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
+                            // Corrected to data['total_seniors']
+                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${data['total_seniors']},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
                         });
                     }
                 });
