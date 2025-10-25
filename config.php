@@ -1,9 +1,10 @@
 <?php
 // Enhanced Database Configuration
-$host = 'localhost';
-$dbname = 'pwd_portal';
-$username = 'root';
-$password = '';
+// After
+$host = getenv('MYSQLHOST') ?: 'localhost';
+$dbname = getenv('MYSQLDATABASE') ?: 'pwd_portal';
+$username = getenv('MYSQLUSER') ?: 'root';
+$password = getenv('MYSQLPASSWORD') ?: '';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
