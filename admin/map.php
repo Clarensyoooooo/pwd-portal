@@ -228,15 +228,17 @@ function handleGetDetailedStats() {
 
 function handleExportMapReport() {
     global $pdo;
-    
+    ob_start(); // Start output buffering immediately
+
     try {
         requirePermission($pdo, 'reports.export');
         
         $filters = $_POST['filters'] ?? [];
-        $stats = $_POST['stats'] ?? [];
         $visible_location_ids = $_POST['visible_locations'] ?? [];
         
-        // Build query based on filters
+        // --- DATA PREPARATION ---
+        
+        // Build query based on filters (for $records)
         $where_clauses = ['1=1'];
         $params = [];
         
@@ -250,10 +252,18 @@ function handleExportMapReport() {
             $params[] = $filters['status'];
         }
         
+        if (!is_array($visible_location_ids)) {
+            $visible_location_ids = [];
+        }
+
         if (!empty($visible_location_ids)) {
+            $visible_location_ids = array_map('intval', $visible_location_ids); 
             $placeholders = str_repeat('?,', count($visible_location_ids) - 1) . '?';
             $where_clauses[] = "id IN ($placeholders)";
             $params = array_merge($params, $visible_location_ids);
+        } else {
+            // No locations visible, force query to return nothing
+            $where_clauses[] = "1 = 0";
         }
         
         $where_sql = implode(' AND ', $where_clauses);
@@ -271,39 +281,86 @@ function handleExportMapReport() {
         $stmt->execute($params);
         $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Get barangay summary
-        $stmt = $pdo->prepare("
-            SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
-            FROM barangay_boundaries b
-            LEFT JOIN pwd_records p ON b.id = p.barangay_id
-            WHERE p.id IN (" . ($visible_location_ids ? str_repeat('?,', count($visible_location_ids) - 1) . '?' : 'SELECT id FROM pwd_records WHERE 0') . ")
-            GROUP BY b.id, b.barangay_name, b.city_municipality
-            HAVING count > 0
-            ORDER BY count DESC
-        ");
-        $stmt->execute($visible_location_ids);
-        $barangay_summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // --- NEW: PREPARE STATS QUERIES ---
+        // We will use the same $visible_location_ids to get stats
         
-        // Generate PDF using TCPDF or FPDF
-        require_once 'vendor/autoload.php'; // Assuming you have TCPDF installed via composer
+        $disabilityStats = [];
+        $ageStats = [];
+        $barangay_summary = [];
+
+        if (!empty($visible_location_ids)) {
+            $placeholders_stats = str_repeat('?,', count($visible_location_ids) - 1) . '?';
+            $params_stats = $visible_location_ids;
+
+            // Get Barangay summary
+            $stmt = $pdo->prepare("
+                SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
+                FROM barangay_boundaries b
+                LEFT JOIN pwd_records p ON b.id = p.barangay_id
+                WHERE p.id IN ($placeholders_stats)
+                GROUP BY b.id, b.barangay_name, b.city_municipality
+                HAVING count > 0
+                ORDER BY count DESC
+            ");
+            $stmt->execute($params_stats);
+            $barangay_summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get Disability Type stats
+            $stmt = $pdo->prepare("
+                SELECT disability_type, COUNT(*) as count
+                FROM pwd_records 
+                WHERE id IN ($placeholders_stats) 
+                  AND disability_type IS NOT NULL AND disability_type != ''
+                GROUP BY disability_type
+                ORDER BY count DESC
+            ");
+            $stmt->execute($params_stats);
+            $disabilityStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get Age Distribution stats
+            $stmt = $pdo->prepare("
+                SELECT 
+                    CASE 
+                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 'Under 18'
+                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 18 AND 30 THEN '18-30'
+                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 31 AND 50 THEN '31-50'
+                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 51 AND 65 THEN '51-65'
+                        ELSE 'Over 65'
+                    END as age_group,
+                    COUNT(*) as count
+                FROM pwd_records 
+                WHERE id IN ($placeholders_stats) AND date_of_birth IS NOT NULL
+                GROUP BY age_group
+                ORDER BY 
+                    CASE age_group
+                        WHEN 'Under 18' THEN 1
+                        WHEN '18-30' THEN 2
+                        WHEN '31-50' THEN 3
+                        WHEN '51-65' THEN 4
+                        WHEN 'Over 65' THEN 5
+                    END
+            ");
+            $stmt->execute($params_stats);
+            $ageStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // --- PDF GENERATION ---
+        
+        require_once '../vendor/autoload.php'; // Corrected path
         
         $pdf = new \TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
         
-        // Set document information
         $pdf->SetCreator('PWD Portal');
         $pdf->SetAuthor($_SESSION['admin_username']);
         $pdf->SetTitle('PWD Map Report - ' . date('Y-m-d'));
         $pdf->SetSubject('Community Presence Report');
         
-        // Remove default header/footer
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         
-        // Set margins
         $pdf->SetMargins(15, 15, 15);
         $pdf->SetAutoPageBreak(TRUE, 15);
         
-        // Add a page
         $pdf->AddPage();
         
         // Title
@@ -337,26 +394,85 @@ function handleExportMapReport() {
         
         $pdf->Ln(5);
         
-        // Barangay summary
+        // --- NEW: SERVICE-DRIVEN SUMMARY SECTION ---
+        
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 8, 'Service-Driven Summary', 0, 1, 'L');
+        
+        // Disability Type Table
+        $pdf->SetFont('helvetica', 'B', 11);
+        $pdf->Cell(0, 7, 'Summary by Disability Type', 0, 1, 'L');
+        
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFillColor(240, 240, 240); // Light gray header
+        $pdf->SetTextColor(0);
+        $pdf->Cell(120, 7, 'Disability Type', 1, 0, 'L', true);
+        $pdf->Cell(60, 7, 'Total Members', 1, 1, 'C', true);
+        
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+        if (!empty($disabilityStats)) {
+            foreach ($disabilityStats as $row) {
+                $pdf->Cell(120, 6, $row['disability_type'], 1, 0, 'L', $fill);
+                $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
+                $fill = !$fill;
+            }
+        } else {
+            $pdf->Cell(180, 6, 'No disability data available for this selection', 1, 1, 'C', $fill);
+        }
+        $pdf->Ln(5);
+        
+        // Age Group Table
+        $pdf->SetFont('helvetica', 'B', 11);
+        $pdf->Cell(0, 7, 'Summary by Age Group', 0, 1, 'L');
+        
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFillColor(240, 240, 240);
+        $pdf->Cell(120, 7, 'Age Group', 1, 0, 'L', true);
+        $pdf->Cell(60, 7, 'Total Members', 1, 1, 'C', true);
+        
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+        if (!empty($ageStats)) {
+            foreach ($ageStats as $row) {
+                $pdf->Cell(120, 6, $row['age_group'], 1, 0, 'L', $fill);
+                $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
+                $fill = !$fill;
+            }
+        } else {
+            $pdf->Cell(180, 6, 'No age data available for this selection', 1, 1, 'C', $fill);
+        }
+        $pdf->Ln(5);
+
+        // --- END OF NEW SECTION ---
+
+        // Barangay summary (Original Table)
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 8, 'Community Presence by Barangay', 0, 1, 'L');
-        $pdf->SetFont('helvetica', '', 9);
         
-        // Table header
+        $pdf->SetFont('helvetica', 'B', 9);
         $pdf->SetFillColor(44, 90, 160);
         $pdf->SetTextColor(255, 255, 255);
         $pdf->Cell(120, 7, 'Barangay', 1, 0, 'L', true);
         $pdf->Cell(60, 7, 'Registered Members', 1, 1, 'C', true);
         
-        // Table rows
+        $pdf->SetFont('helvetica', '', 9);
         $pdf->SetTextColor(0, 0, 0);
         $pdf->SetFillColor(248, 250, 252);
         $fill = false;
         
-        foreach ($barangay_summary as $row) {
-            $pdf->Cell(120, 6, $row['barangay_name'] . ', ' . $row['city_municipality'], 1, 0, 'L', $fill);
-            $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
-            $fill = !$fill;
+        if (!empty($barangay_summary)) {
+            foreach ($barangay_summary as $row) {
+                // --- FIX for 'Unknown City' ---
+                // We just print the barangay name now, since the city is in the title
+                $pdf->Cell(120, 6, $row['barangay_name'], 1, 0, 'L', $fill);
+                $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
+                $fill = !$fill;
+            }
+        } else {
+             $pdf->Cell(180, 6, 'No members found in any barangay for this selection', 1, 1, 'C', $fill);
         }
         
         // Log the export
@@ -366,11 +482,18 @@ function handleExportMapReport() {
             'filters' => $filters
         ]);
         
-        // Output PDF
+        ob_end_clean(); 
+        
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="pwd_map_report_' . date('Y-m-d') . '.pdf"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
         $pdf->Output('pwd_map_report_' . date('Y-m-d') . '.pdf', 'D');
         exit();
         
     } catch (Exception $e) {
+        ob_end_clean(); 
         error_log("Map report export error: " . $e->getMessage());
         adminJsonResponse(['error' => 'Export failed: ' . $e->getMessage()], 500);
     }
@@ -674,6 +797,51 @@ $last_import = $pdo->query("
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ... existing styles ... */
+        
+        /* Modal Footer Fix */
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end; /* This moves the button to the right */
+            background-color: #f8fafc;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+        }
+        
+        /* Make table scrollable */
+        .modal-body .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* Pagination Styles */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            margin-top: 16px;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .pagination-info {
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+        
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .pagination-controls .btn[disabled] {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #e2e8f0;
+        }
+
         .gis-container {
             position: relative;
             height: calc(100vh - 140px);
@@ -1736,8 +1904,8 @@ function loadBarangayBoundaries() {
                     const popupContent = `
                         <div class="barangay-popup">
                             <h4>${barangay.barangay_name}</h4>
-                            <p><strong>${barangay.city_municipality || 'Santo Tomas City'}</strong></p>
-                            <p><i class="fas fa-map-marker-alt"></i> ${barangay.province || 'Batangas'}</p>
+                            <p><strong>${'City of Sto. Tomas'}</strong></p>
+                            <p><i class="fas fa-map-marker-alt"></i> ${ 'Batangas'}</p>
                             <div class="barangay-stats">
                                 <div class="stat-item">
                                     <span class="stat-label">PWD Records:</span>
@@ -2063,7 +2231,7 @@ function zoomToBarangay(barangayId) {
                     <h4>${location.pwd_id_number}</h4>
                     <p><strong>${location.first_name} ${location.last_name}</strong></p>
                     <p><i class="fas fa-info-circle"></i> ${location.disability_type}</p>
-                    <p><i class="fas fa-map-marker-alt"></i> ${location.city_municipality}, ${location.province}</p>
+                    
                     <p><i class="fas fa-flag"></i> Status: <span class="status-badge status-${displayStatus}">${getStatusLabel(displayStatus)}</span></p>
                     <div class="popup-actions">
                         <button class="btn btn-sm btn-primary" onclick="viewRecord(${location.id})">
@@ -2752,45 +2920,14 @@ function zoomToBarangay(barangayId) {
         }
         
         function showBarangayRecordsModal(barangayName, records) {
+            // Create the modal element
             const modal = document.createElement('div');
             modal.className = 'modal show';
             
-            let recordsHtml = '';
-            if (records.length === 0) {
-                recordsHtml = '<p class="text-center text-muted">No PWD records found in this barangay.</p>';
-            } else {
-                recordsHtml = `
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>PWD ID</th>
-                                    <th>Name</th>
-                                    <th>Disability Type</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${records.map(record => `
-                                    <tr>
-                                        <td>${record.pwd_id_number}</td>
-                                        <td>${record.first_name} ${record.last_name}</td>
-                                        <td>${record.disability_type}</td>
-                                        <td><span class="status-badge status-${record.status}">${record.status}</span></td>
-                                        <td>
-                                            <button class="btn btn-sm btn-primary" onclick="viewRecord(${record.id})">
-                                                <i class="fas fa-eye"></i> View
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
-            
+            // Store records and name on the modal element itself for pagination
+            modal.dataset.records = JSON.stringify(records);
+            modal.dataset.barangayName = barangayName;
+
             modal.innerHTML = `
                 <div class="modal-content" style="max-width: 800px;">
                     <div class="modal-header">
@@ -2798,8 +2935,24 @@ function zoomToBarangay(barangayId) {
                         <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
                     </div>
                     <div class="modal-body">
-                        <p><strong>Total Records:</strong> ${records.length}</p>
-                        ${recordsHtml}
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>PWD ID</th>
+                                        <th>Name</th>
+                                        <th>Disability Type</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="barangay-records-body">
+                                    </tbody>
+                            </table>
+                        </div>
+                        
+                        <div id="barangay-pagination-container" class="pagination-container">
+                            </div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Close</button>
@@ -2808,6 +2961,79 @@ function zoomToBarangay(barangayId) {
             `;
             
             document.body.appendChild(modal);
+            
+            // Initial render of the first page
+            renderBarangayRecordsPage(modal, 1);
+        }
+        
+        function renderBarangayRecordsPage(modal, page) {
+            const records = JSON.parse(modal.dataset.records);
+            const recordsPerPage = 10; // You can change this number
+            
+            modal.dataset.currentPage = page;
+            
+            const totalRecords = records.length;
+            const totalPages = Math.ceil(totalRecords / recordsPerPage);
+            
+            // Ensure page is within bounds
+            page = Math.max(1, Math.min(page, totalPages));
+            
+            const startIndex = (page - 1) * recordsPerPage;
+            const endIndex = startIndex + recordsPerPage;
+            const pageRecords = records.slice(startIndex, endIndex);
+            
+            const tableBody = modal.querySelector('#barangay-records-body');
+            const paginationContainer = modal.querySelector('#barangay-pagination-container');
+            
+            // 1. Render Table Rows
+            if (pageRecords.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No PWD records found in this barangay.</td></tr>';
+            } else {
+                tableBody.innerHTML = pageRecords.map(record => `
+                    <tr>
+                        <td>${record.pwd_id_number}</td>
+                        <td>${record.first_name} ${record.last_name}</td>
+                        <td>${record.disability_type}</td>
+                        <td><span class="status-badge status-${record.status}">${record.status}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="viewRecord(${record.id})">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+            
+            // 2. Render Pagination Controls
+            if (totalPages <= 1) {
+                paginationContainer.innerHTML = ''; // No pagination needed
+                return;
+            }
+            
+            paginationContainer.innerHTML = `
+                <div class="pagination-info">
+                    Showing ${startIndex + 1} to ${Math.min(endIndex, totalRecords)} of ${totalRecords} records
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn btn-sm btn-outline" onclick="changeBarangayRecordsPage(this, -1)" ${page === 1 ? 'disabled' : ''}>
+                        <i class="fas fa-chevron-left"></i> Prev
+                    </button>
+                    <span style="align-self: center; font-size: 0.9rem; color: #64748b;">
+                        Page ${page} of ${totalPages}
+                    </span>
+                    <button class="btn btn-sm btn-outline" onclick="changeBarangayRecordsPage(this, 1)" ${page === totalPages ? 'disabled' : ''}>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            `;
+        }
+
+        function changeBarangayRecordsPage(buttonElement, delta) {
+            const modal = buttonElement.closest('.modal');
+            const currentPage = parseInt(modal.dataset.currentPage || '1');
+            const newPage = currentPage + delta;
+            
+            renderBarangayRecordsPage(modal, newPage);
         }
         
         function showLoading(message = 'Loading...') {
@@ -2955,37 +3181,70 @@ function zoomToBarangay(barangayId) {
         function exportMapReport() {
             showLoading('Preparing map report for export...');
             
-            // Collect current map state
-            const reportData = {
-                action: 'export_map_report',
-                filters: {
-                    disability_type: document.getElementById('disabilityFilter').value,
-                    status: document.getElementById('statusFilter').value
-                },
-                stats: {
-                    total_records: filteredLocations.length,
-                    total_barangays: barangayBoundaries.length,
-                    map_center: mapCenter,
-                    map_zoom: map.getZoom()
-                },
-                visible_locations: filteredLocations.map(loc => loc.id)
-            };
+            // Use FormData to correctly build the POST request for PHP
+            const formData = new FormData();
+            formData.append('action', 'export_map_report');
             
+            // Append filters in a way PHP will understand as an array
+            formData.append('filters[disability_type]', document.getElementById('disabilityFilter').value);
+            formData.append('filters[status]', document.getElementById('statusFilter').value);
+
+            // Append visible location IDs in a way PHP will understand as an array
+            filteredLocations.forEach(loc => {
+                formData.append('visible_locations[]', loc.id);
+            });
+            
+            // The 'stats' object from your original JS isn't used by the PHP function,
+            // so we don't need to send it.
+
             fetch('map.php', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams(reportData)
+                body: formData // FormData sets its own Content-Type header
             })
             .then(response => {
-                hideLoading();
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    // If we get a 4xx or 5xx error, try to read the text
+                    return response.text().then(text => {
+                        let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                        try {
+                            // Check if the server sent a JSON error
+                            const errData = JSON.parse(text);
+                            if (errData.error) errorMsg = errData.error;
+                        } catch (e) {
+                            // Not JSON, just use the text (might be an HTML error page)
+                            errorMsg = text.substring(0, 200) + '...';
+                        }
+                        throw new Error(errorMsg);
+                    });
                 }
+
+                // Check if the server actually sent a PDF
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/pdf")) {
+                    // Not a PDF. It's probably a JSON error or PHP warning.
+                    return response.text().then(text => {
+                        let errorMsg = 'Export failed: Server did not return a PDF.';
+                        try {
+                            const errData = JSON.parse(text);
+                            if (errData.error) errorMsg = errData.error;
+                        } catch(e) {
+                            // Check for common PHP error text
+                            const htmlErrorMatch = text.match(/<b>(Warning|Error|Notice)<\/b>:\s*(.*?)\s*in/i);
+                            if (htmlErrorMatch && htmlErrorMatch[2]) {
+                                errorMsg = htmlErrorMatch[2];
+                            } else {
+                                errorMsg = 'Unknown error. Check server logs.';
+                            }
+                        }
+                        throw new Error(errorMsg);
+                    });
+                }
+                
+                // If we're here, response is OK and it's a PDF
                 return response.blob();
             })
             .then(blob => {
+                hideLoading();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -3000,7 +3259,8 @@ function zoomToBarangay(barangayId) {
             .catch(error => {
                 hideLoading();
                 console.error('Export error:', error);
-                showToast('Export failed: ' + error.message, 'error');
+                // Show a longer toast for errors
+                showToast('Export failed: ' + error.message, 'error', 8000); 
             });
         }
     </script>

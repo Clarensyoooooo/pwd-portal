@@ -740,7 +740,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                         <form method="POST" class="pwd-record-form" id="pwdRecordForm">
                             <input type="hidden" name="action" value="create_pwd_record">
                             
-                             Personal Information 
+                            <!-- Personal Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-user"></i> Personal Information</h4>
@@ -803,8 +803,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Address Information 
+
+                            <!-- Address Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
@@ -826,10 +826,22 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         <label for="barangay_id">Barangay *</label>
                                         <select id="barangay_id" name="barangay_id" class="form-select" required onchange="updateCityProvince()">
                                             <option value="">Select Barangay</option>
-                                            <?php foreach ($barangays as $barangay): ?>
+                                            <?php 
+                                            foreach ($barangays as $barangay): 
+                                                // FIX: Check for null, empty, or "Unknown City"
+                                                $city = $barangay['city_municipality'];
+                                                $province = $barangay['province'];
+                                                
+                                                if (empty($city) || $city === 'Unknown City') {
+                                                    $city = 'Santo Tomas City';
+                                                }
+                                                if (empty($province) || $province === 'Unknown Province') {
+                                                    $province = 'Batangas';
+                                                }
+                                            ?>
                                                 <option value="<?php echo $barangay['id']; ?>" 
-                                                        data-city="<?php echo htmlspecialchars($barangay['city_municipality'] ?: 'Santo Tomas City'); ?>"
-                                                        data-province="<?php echo htmlspecialchars($barangay['province'] ?: 'Batangas'); ?>">
+                                                        data-city="<?php echo htmlspecialchars($city); ?>"
+                                                        data-province="<?php echo htmlspecialchars($province); ?>">
                                                     <?php echo htmlspecialchars($barangay['barangay_name']); ?>
                                                 </option>
                                             <?php endforeach; ?>
@@ -859,18 +871,9 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                                 
-                                <div class="address-helper">
-                                    <div class="helper-info">
-                                        <i class="fas fa-info-circle"></i>
-                                        <span>Select the appropriate barangay from the dropdown. If not found, you can enter it manually.</span>
-                                    </div>
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="toggleManualBarangay()">
-                                        <i class="fas fa-edit"></i> Enter Barangay Manually
-                                    </button>
-                                </div>
-                            </div>
-                            
-                             Geographic Location 
+                               
+
+                            <!-- Geographic Location -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
@@ -889,9 +892,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                             <input type="number" id="longitude" name="longitude" class="form-input" 
                                                    step="0.000001" placeholder="121.0000" readonly>
                                         </div>
-                                        <div class="location-actions">
+                                       <div class="location-actions">
+                                            <button type="button" class="btn btn-outline btn-sm" id="expandMapBtn" onclick="toggleMapExpand()">
+                                                <i class="fas fa-expand-arrows-alt"></i> Expand Map
+                                            </button>
                                             <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocation()">
-                                                <i class="fas fa-crosshairs"></i> Use Current Location
+                                                <i class="fas fa-crosshairs"></i> Use My Location
                                             </button>
                                             <button type="button" class="btn btn-outline btn-sm" onclick="clearLocation()">
                                                 <i class="fas fa-times"></i> Clear Location
@@ -899,17 +905,15 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </div>
                                     </div>
                                     
-                                    <div class="map-container">
+                                    <div class="map-container" id="locationContainer">
                                         <div id="locationMap" class="location-map"></div>
-                                        <div class="map-instructions">
-                                            <i class="fas fa-mouse-pointer"></i>
-                                            <span>Click anywhere on the map to set the exact location</span>
-                                        </div>
                                     </div>
+                                    
+                                   
                                 </div>
                             </div>
-                            
-                             Contact Information 
+
+                            <!-- Contact Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-phone"></i> Contact Information</h4>
@@ -927,8 +931,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Disability Information 
+
+                            <!-- Disability Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
@@ -970,8 +974,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Medical Information 
+
+                            <!-- Medical Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa- stethoscope"></i> Medical Information</h4>
@@ -994,8 +998,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Emergency Contact 
+
+                            <!-- Emergency Contact -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
@@ -1032,8 +1036,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Employment Information 
+
+                            <!-- Employment Information -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
@@ -1066,8 +1070,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                     </div>
                                 </div>
                             </div>
-                            
-                             Government IDs 
+
+                            <!-- Government IDs -->
                             <div class="form-section">
                                 <div class="section-header">
                                     <h4><i class="fas fa-id-card-alt"></i> Government IDs</h4>
@@ -1265,6 +1269,31 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
             document.getElementById('longitude').value = '';
             
             showNotification('Location cleared', 'info');
+        }
+
+        // NEW FUNCTION: Toggle Map Expand
+        function toggleMapExpand() {
+            const container = document.getElementById('locationContainer');
+            const button = document.getElementById('expandMapBtn');
+            const icon = button.querySelector('i');
+
+            const isExpanded = container.classList.toggle('map-expanded');
+
+            if (isExpanded) {
+                // Move the button inside the container so it's visible
+                container.appendChild(button); 
+                button.innerHTML = '<i class="fas fa-compress-arrows-alt"></i> Compress Map';
+            } else {
+                // Move the button back to its original place
+                const actionsContainer = document.querySelector('.location-actions');
+                actionsContainer.prepend(button); // Puts it at the top of the list
+                button.innerHTML = '<i class="fas fa-expand-arrows-alt"></i> Expand Map';
+            }
+
+            // IMPORTANT: Tell Leaflet to recalculate its size
+            setTimeout(() => {
+                locationMap.invalidateSize();
+            }, 100); // Small delay to let CSS animations finish
         }
         
         // Tab switching functionality
@@ -2130,6 +2159,46 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
             
             .document-checklist {
                 grid-template-columns: 1fr;
+            }
+        }
+        /* ... existing styles ... */
+        
+        /* Expandable Map Styles */
+        .map-container.map-expanded {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            z-index: 9998;
+            padding: 20px;
+            /* Use vh/vw for full screen dimensions */
+            width: 100vw; 
+            height: 100vh;
+        }
+        
+        .map-container.map-expanded .location-map {
+            height: 100%; /* Fill the expanded container */
+            border: none;
+        }
+
+        /* Move the expand button to the top right when expanded */
+        .map-container.map-expanded #expandMapBtn {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            z-index: 9999;
+            background: white;
+        }
+        
+        @media (max-width: 768px) {
+            .map-container.map-expanded {
+                padding: 10px;
+            }
+            .map-container.map-expanded #expandMapBtn {
+                top: 20px;
+                right: 20px;
             }
         }
     </style>

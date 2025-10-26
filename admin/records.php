@@ -602,7 +602,7 @@ function handleCreateDirectRecord() {
                 employment_status, occupation, employer_name, monthly_income,
                 sss_number, philhealth_number, tin_number,
                 status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         // Prepare parameters array with exact count (39 parameters)
@@ -998,7 +998,16 @@ function handleDeactivateRecord() {
                                 </td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($record['barangay']); ?></strong>
-                                    <br><small class="text-muted"><?php echo htmlspecialchars($record['city_municipality']); ?></small>
+                                    <br><small class="text-muted">
+                                        <?php 
+                                        $city = $record['city_municipality'];
+                                        if (empty($city) || $city === 'Unknown City') {
+                                            echo 'Santo Tomas City';
+                                        } else {
+                                            echo htmlspecialchars($city);
+                                        }
+                                        ?>
+                                    </small>
                                 </td>
                                 <td>
                                     <span class="employment-badge employment-<?php echo strtolower(str_replace(' ', '-', $record['employment_status'])); ?>">
@@ -1493,11 +1502,23 @@ function handleDeactivateRecord() {
                                 <label for="createBarangayId">Barangay *</label>
                                 <select id="createBarangayId" name="barangay_id" class="form-select" onchange="updateCreateCityProvince()">
                                     <option value="">Select Barangay</option>
-                                    <?php foreach ($barangay_boundaries as $barangay): ?>
+                                    <?php 
+                                    foreach ($barangay_boundaries as $barangay): 
+                                        // FIX: Check for null, empty, or "Unknown City"
+                                        $city = $barangay['city_municipality'];
+                                        $province = $barangay['province'];
+                                        
+                                        if (empty($city) || $city === 'Unknown City') {
+                                            $city = 'Santo Tomas City';
+                                        }
+                                        if (empty($province) || $province === 'Unknown Province') {
+                                            $province = 'Batangas';
+                                        }
+                                    ?>
                                         <option value="<?php echo $barangay['id']; ?>" 
                                                 data-name="<?php echo htmlspecialchars($barangay['barangay_name']); ?>"
-                                                data-city="<?php echo htmlspecialchars($barangay['city_municipality'] ?: 'Santo Tomas City'); ?>"
-                                                data-province="<?php echo htmlspecialchars($barangay['province'] ?: 'Batangas'); ?>">
+                                                data-city="<?php echo htmlspecialchars($city); ?>"
+                                                data-province="<?php echo htmlspecialchars($province); ?>">
                                             <?php echo htmlspecialchars($barangay['barangay_name']); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -1525,15 +1546,7 @@ function handleDeactivateRecord() {
                             </div>
                         </div>
                         
-                        <div class="address-helper">
-                            <div class="helper-info">
-                                <i class="fas fa-info-circle"></i>
-                                <span>Select the appropriate barangay from the dropdown. If not found, you can enter it manually.</span>
-                            </div>
-                            <button type="button" class="btn btn-outline btn-sm" onclick="toggleCreateManualBarangay()">
-                                <i class="fas fa-edit"></i> Enter Barangay Manually
-                            </button>
-                        </div>
+                       
                     </div>
                     
                      Geographic Location 
@@ -2014,6 +2027,18 @@ function handleDeactivateRecord() {
             
             modalTitle.textContent = `PWD Record: ${record.pwd_id_number}`;
             
+            // --- NEW FIX: Clean up city/province data ---
+            let city = record.city_municipality;
+            let province = record.province;
+
+            if (!city || city === 'Unknown City') {
+                city = 'Santo Tomas City';
+            }
+            if (!province || province === 'Unknown Province') {
+                province = 'Batangas';
+            }
+            // --- END OF FIX ---
+
             modalBody.innerHTML = `
                 <div class="record-details">
                     <div class="details-grid">
@@ -2056,12 +2081,10 @@ function handleDeactivateRecord() {
                                 </div>
                                 <div class="detail-row">
                                     <span class="label">City/Municipality:</span>
-                                    <span class="value">${record.city_municipality}</span>
-                                </div>
+                                    <span class="value">${city}</span> </div>
                                 <div class="detail-row">
                                     <span class="label">Province:</span>
-                                    <span class="value">${record.province}</span>
-                                </div>
+                                    <span class="value">${province}</span> </div>
                                 <div class="detail-row">
                                     <span class="label">Postal Code:</span>
                                     <span class="value">${record.postal_code || 'Not specified'}</span>
@@ -2218,6 +2241,18 @@ function handleDeactivateRecord() {
         }
         
         function populateEditForm(record) {
+            // --- NEW FIX: Clean up city/province data ---
+            let city = record.city_municipality;
+            let province = record.province;
+
+            if (!city || city === 'Unknown City') {
+                city = 'Santo Tomas City';
+            }
+            if (!province || province === 'Unknown Province') {
+                province = 'Batangas';
+            }
+            // --- END OF FIX ---
+
             document.getElementById('editRecordId').value = record.id;
             document.getElementById('editFirstName').value = record.first_name || '';
             document.getElementById('editMiddleName').value = record.middle_name || '';
@@ -2228,8 +2263,8 @@ function handleDeactivateRecord() {
             document.getElementById('editAddress1').value = record.address_line1 || '';
             document.getElementById('editAddress2').value = record.address_line2 || '';
             document.getElementById('editBarangay').value = record.barangay || '';
-            document.getElementById('editCity').value = record.city_municipality || '';
-            document.getElementById('editProvince').value = record.province || '';
+            document.getElementById('editCity').value = city; // Use the fixed 'city' variable
+            document.getElementById('editProvince').value = province; // Use the fixed 'province' variable
             document.getElementById('editPostal').value = record.postal_code || '';
             document.getElementById('editLatitude').value = record.latitude || '';
             document.getElementById('editLongitude').value = record.longitude || '';
