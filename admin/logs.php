@@ -5,6 +5,183 @@ requirePermission($pdo, 'system.logs');
 
 $admin = getCurrentAdmin($pdo);
 
+// Handle PDF export
+if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
+    requirePermission($pdo, 'system.logs'); // Or a specific export permission
+    ob_start(); // Start output buffering
+
+    // Get filter parameters
+    $search = $_GET['search'] ?? '';
+    $admin_filter = $_GET['admin_user'] ?? '';
+    $action_filter = $_GET['action'] ?? '';
+    $module_filter = $_GET['module'] ?? '';
+    $date_from = $_GET['date_from'] ?? date('Y-m-d', strtotime('-30 days'));
+    $date_to = $_GET['date_to'] ?? date('Y-m-d');
+
+    // Build query conditions
+    $where_conditions = [];
+    $params = [];
+
+    if ($search) {
+        $where_conditions[] = "(aal.action LIKE ? OR aal.module LIKE ? OR au.full_name LIKE ? OR aal.details LIKE ?)";
+        $search_param = "%{$search}%";
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
+    }
+    if ($admin_filter) {
+        $where_conditions[] = "aal.admin_user_id = ?";
+        $params[] = $admin_filter;
+    }
+    if ($action_filter) {
+        $where_conditions[] = "aal.action = ?";
+        $params[] = $action_filter;
+    }
+    if ($module_filter) {
+        $where_conditions[] = "aal.module = ?";
+        $params[] = $module_filter;
+    }
+    if ($date_from) {
+        $where_conditions[] = "DATE(aal.created_at) >= ?";
+        $params[] = $date_from;
+    }
+    if ($date_to) {
+        $where_conditions[] = "DATE(aal.created_at) <= ?";
+        $params[] = $date_to;
+    }
+
+    $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT aal.*, au.full_name as admin_name, au.username
+            FROM admin_activity_logs aal
+            JOIN admin_users au ON aal.admin_user_id = au.id
+            {$where_clause}
+            ORDER BY aal.created_at DESC
+        ");
+        $stmt->execute($params);
+        $logs = $stmt->fetchAll();
+        
+        // --- PDF Generation ---
+        require_once '../vendor/autoload.php';
+        
+        $pdf = new \TCPDF('L', PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false); 
+        
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($admin['full_name']);
+        $pdf->SetTitle('Activity Logs Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('Filtered Activity Logs');
+        
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        $pdf->SetMargins(10, 10, 10);
+        $pdf->SetAutoPageBreak(TRUE, 10);
+        
+        $pdf->AddPage();
+        
+        // Title
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->Cell(0, 10, 'Admin Activity Logs Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+        
+        // Summary
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 8, 'Report Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->Cell(35, 6, 'Total Logs:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($logs), 0, 1, 'L');
+        $pdf->Cell(35, 6, 'Date Range:', 0, 0, 'L');
+        $pdf->Cell(0, 6, $date_from . ' to ' . $date_to, 0, 1, 'L');
+        
+        $pdf->Ln(5);
+        
+        // Data Table (Landscape width ~277mm)
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->SetFillColor(44, 90, 160);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(40, 7, 'Date/Time', 1, 0, 'L', true);
+        $pdf->Cell(45, 7, 'Admin User', 1, 0, 'L', true);
+        $pdf->Cell(30, 7, 'Action', 1, 0, 'L', true);
+        $pdf->Cell(30, 7, 'Module', 1, 0, 'L', true);
+        $pdf->Cell(40, 7, 'Target', 1, 0, 'L', true);
+        $pdf->Cell(30, 7, 'IP Address', 1, 0, 'L', true);
+        $pdf->Cell(62, 7, 'Details (Summary)', 1, 1, 'L', true);
+        
+        $pdf->SetFont('helvetica', '', 7); // Use a smaller font for data
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+
+        if (empty($logs)) {
+             $pdf->Cell(277, 10, 'No logs found matching the criteria.', 1, 1, 'C', $fill);
+        } else {
+            foreach ($logs as $log) {
+                // Format target
+                $target = $log['target_type'] ? (ucfirst($log['target_type']) . ' #' . $log['target_id']) : 'N/A';
+                
+                // Format details for a single line
+                $details_summary = 'N/A';
+                if ($log['details']) {
+                    $details_arr = json_decode($log['details'], true);
+                    if (is_array($details_arr)) {
+                        $summaries = [];
+                        foreach ($details_arr as $key => $value) {
+                            if (is_scalar($value)) {
+                                $summaries[] = "$key: $value";
+                            }
+                        }
+                        $details_summary = implode(', ', $summaries);
+                    } else {
+                        $details_summary = $log['details'];
+                    }
+                }
+
+                // Format date to local time (as in your HTML)
+                $utc_time = new DateTime($log['created_at'], new DateTimeZone('UTC'));
+                $utc_time->setTimezone(new DateTimeZone('Asia/Manila'));
+                $local_time = $utc_time->format('M j, Y g:i A');
+
+                $pdf->Cell(40, 6, $local_time, 1, 0, 'L', $fill);
+                $pdf->Cell(45, 6, $log['admin_name'], 1, 0, 'L', $fill);
+                $pdf->Cell(30, 6, ucfirst($log['action']), 1, 0, 'L', $fill);
+                $pdf->Cell(30, 6, ucfirst($log['module']), 1, 0, 'L', $fill);
+                $pdf->Cell(40, 6, $target, 1, 0, 'L', $fill);
+                $pdf->Cell(30, 6, $log['ip_address'], 1, 0, 'L', $fill);
+                $pdf->Cell(62, 6, substr($details_summary, 0, 50) . '...', 1, 1, 'L', $fill);
+                $fill = !$fill;
+            }
+        }
+        
+        // --- MODIFIED LOG CALL ---
+        // Log the export
+        logAdminActivity($pdo, 'export', 'activity_logs', 'pdf', count($logs), [
+            'filters' => compact('search', 'admin_filter', 'action_filter', 'module_filter', 'date_from', 'date_to')
+        ]);
+        
+        ob_end_clean(); 
+        
+        $filename = 'activity_logs_' . date('Y-m-d_H-i-s') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
+        $pdf->Output($filename, 'D');
+        exit;
+        
+    } catch (Exception $e) {
+        ob_end_clean(); 
+        http_response_code(500);
+        echo 'Export failed: ' . $e->getMessage();
+        exit;
+    }
+}
+
 // Handle export
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     // Get filter parameters
@@ -96,8 +273,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         
         fclose($output);
         
-        logAdminActivity($pdo, 'export', 'system', 'activity_logs', null, [
-            'log_count' => count($logs),
+        // --- MODIFIED LOG CALL ---
+        logAdminActivity($pdo, 'export', 'activity_logs', 'csv', count($logs), [
             'filters' => compact('search', 'admin_filter', 'action_filter', 'module_filter', 'date_from', 'date_to')
         ]);
         
@@ -260,7 +437,18 @@ function getBrowserName($userAgent) {
                     'date_from' => $date_from,
                     'date_to' => $date_to
                 ])); ?>" class="btn btn-primary">
-                    <i class="fas fa-download"></i> Export Logs
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </a>
+                
+                <a href="?export=pdf&<?php echo http_build_query(array_filter([
+                    'search' => $search,
+                    'admin_user' => $admin_filter,
+                    'action' => $action_filter,
+                    'module' => $module_filter,
+                    'date_from' => $date_from,
+                    'date_to' => $date_to
+                ])); ?>" class="btn btn-outline">
+                    <i class="fas fa-file-pdf"></i> Export PDF
                 </a>
             </div>
         </div>

@@ -89,9 +89,14 @@ requireAdminLogin();
                 <option value="archived">Archived</option>
             </select>
 
-            <button class="btn btn-secondary" onclick="exportPrograms()">
-                <i class="fas fa-download"></i> Export Programs
-            </button>
+            <div class="export-buttons" style="margin-left: auto; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="exportPrograms()">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="btn btn-secondary" onclick="exportProgramsPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
+            </div>
         </div>
 
         <div class="programs-grid" id="programsGrid">
@@ -104,7 +109,7 @@ requireAdminLogin();
 
     <!-- Applications Tab -->
     <div id="applications-tab" class="tab-content">
-        <div class="filters-bar">
+       <div class="filters-bar">
             <input type="text" id="applicationSearch" placeholder="Search by email or name..." class="search-input">
             <select id="applicationProgramFilter" class="filter-select">
                 <option value="">All Programs</option>
@@ -117,9 +122,14 @@ requireAdminLogin();
                 <option value="rejected">Rejected</option>
             </select>
 
-            <button class="btn btn-secondary" onclick="exportApplications()" style="margin-left: auto;">
-            <i class="fas fa-download"></i> Export Applications
-        </button>
+            <div class="export-buttons" style="margin-left: auto; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="exportApplications()">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="btn btn-secondary" onclick="exportApplicationsPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
+            </div>
 
         </div>
 
@@ -1536,6 +1546,47 @@ function exportPrograms() {
     window.location.href = `api/programs.php?${params.toString()}`;
 }
 
+// This is your existing function for CSV
+    function exportPrograms() {
+        // 1. Get the current filter values
+        const search = document.getElementById('programSearch').value;
+        const category = document.getElementById('programCategoryFilter').value;
+        const status = document.getElementById('programStatusFilter').value;
+
+        // 2. Build the URL for the API
+        const params = new URLSearchParams();
+        params.append('action', 'export_programs'); // This is our new API action
+
+        if (search) params.append('search', search);
+        if (category) params.append('category', category);
+        if (status) params.append('status', status);
+
+        // 3. Trigger the download by pointing the browser to the API URL
+        // (This assumes your API file is at 'api/programs.php')
+        window.location.href = `api/programs.php?${params.toString()}`;
+    }
+
+    // ADD THIS NEW FUNCTION FOR PDF
+    function exportProgramsPDF() {
+        // 1. Get the current filter values
+        const search = document.getElementById('programSearch').value;
+        const category = document.getElementById('programCategoryFilter').value;
+        const status = document.getElementById('programStatusFilter').value;
+
+        // 2. Build the URL for the API
+        const params = new URLSearchParams();
+        params.append('action', 'export_programs_pdf'); // This is our new API action
+
+        if (search) params.append('search', search);
+        if (category) params.append('category', category);
+        if (status) params.append('status', status);
+
+        // 3. Trigger the PDF in a new tab
+        window.open(`api/programs.php?${params.toString()}`, '_blank');
+    }
+
+   
+
 // ADD THIS NEW FUNCTION
 function exportApplications() {
     // 1. Get the current filter values
@@ -1555,6 +1606,26 @@ function exportApplications() {
     window.location.href = `api/programs.php?${params.toString()}`;
 }
 
+
+// ADD THIS NEW FUNCTION
+function exportApplicationsPDF() {
+    // 1. Get the current filter values
+    const search = document.getElementById('applicationSearch').value;
+    const program = document.getElementById('applicationProgramFilter').value;
+    const status = document.getElementById('applicationStatusFilter').value;
+
+    // 2. Build the URL for the API
+    const params = new URLSearchParams();
+    params.append('action', 'export_applications_pdf'); // <-- This is the new action
+
+    if (search) params.append('search', search);
+    if (program) params.append('program', program);
+    if (status) params.append('status', status);
+
+    // 3. Trigger the PDF in a new tab
+    // We use window.open() so it doesn't navigate away from the admin page
+    window.open(`api/programs.php?${params.toString()}`, '_blank');
+}
 
 
 </script>

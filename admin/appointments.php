@@ -5,7 +5,201 @@ requirePermission($pdo, 'appointments.view');
 
 $admin = getCurrentAdmin($pdo);
 
-// Handle export request
+// Handle PDF export
+if (isset($_GET['export']) && $_GET['export'] == 'pdf') {
+    requirePermission($pdo, 'appointments.view');
+    ob_start(); // Start output buffering
+
+    try {
+        // --- 1. COPY FILTER LOGIC (from your CSV export) ---
+        $status_filter = $_GET['status'] ?? '';
+        $date_filter = $_GET['date'] ?? '';
+        $date_range = $_GET['date_range'] ?? '';
+        $appointment_type_filter = $_GET['appointment_type'] ?? '';
+        $search = $_GET['search'] ?? '';
+        
+        $where_conditions = [];
+        $params = [];
+        
+        if ($status_filter) {
+            $where_conditions[] = "a.status = ?";
+            $params[] = $status_filter;
+        }
+        if ($appointment_type_filter) {
+            $where_conditions[] = "a.appointment_type = ?";
+            $params[] = $appointment_type_filter;
+        }
+        if ($date_filter) {
+            $where_conditions[] = "DATE(a.preferred_date) = ?";
+            $params[] = $date_filter;
+        }
+        if ($date_range) {
+            switch ($date_range) {
+                case 'today': $where_conditions[] = "DATE(a.preferred_date) = CURDATE()"; break;
+                case 'tomorrow': $where_conditions[] = "DATE(a.preferred_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)"; break;
+                case 'this_week': $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(CURDATE())"; break;
+                case 'next_week': $where_conditions[] = "YEARWEEK(a.preferred_date) = YEARWEEK(DATE_ADD(CURDATE(), INTERVAL 1 WEEK))"; break;
+                case 'this_month': $where_conditions[] = "YEAR(a.preferred_date) = YEAR(CURDATE()) AND MONTH(a.preferred_date) = MONTH(CURDATE())"; break;
+            }
+        }
+        if ($search) {
+            $where_conditions[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR a.reference_number LIKE ? OR u.phone LIKE ?)";
+            $search_param = "%{$search}%";
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+        }
+        
+        $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+        // --- 2. GET DATA (Simplified for PDF) ---
+        $stmt = $pdo->prepare("
+            SELECT 
+                a.reference_number, a.appointment_type, a.preferred_date, a.preferred_time, a.status,
+                u.first_name, u.last_name, u.phone,
+                ir.status as interview_status,
+                pr.pwd_id_number, pr.status as record_status
+            FROM appointments a
+            JOIN users u ON a.user_id = u.id
+            LEFT JOIN interview_records ir ON a.id = ir.appointment_id
+            LEFT JOIN pwd_records pr ON a.id = pr.appointment_id
+            {$where_clause}
+            ORDER BY a.preferred_date, a.preferred_time
+        ");
+        $stmt->execute($params);
+        $appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // --- 3. GENERATE PDF ---
+        require_once '../vendor/autoload.php';
+        
+        // Use 'L' for Landscape to fit more columns
+        $pdf = new \TCPDF('L', PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false); 
+        
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($admin['full_name']);
+        $pdf->SetTitle('Appointments Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('Filtered Appointments Report');
+        
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        $pdf->SetMargins(10, 10, 10);
+        $pdf->SetAutoPageBreak(TRUE, 10);
+        
+        $pdf->AddPage();
+        
+        // Title
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->Cell(0, 10, 'PWD Appointments Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Santo Tomas, Batangas', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+        
+        // Summary section
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 8, 'Report Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        
+        $pdf->Cell(35, 6, 'Total Appointments:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($appointments), 0, 1, 'L');
+        
+        if ($status_filter) {
+            $pdf->Cell(35, 6, 'Status Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, ucfirst($status_filter), 0, 1, 'L');
+        }
+        if ($appointment_type_filter) {
+            $pdf->Cell(35, 6, 'Type Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, ucwords(str_replace('_', ' ', $appointment_type_filter)), 0, 1, 'L');
+        }
+        
+        $pdf->Ln(5);
+        
+        // Data Table (Landscape width is ~277mm)
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->SetFillColor(44, 90, 160);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(30, 7, 'Reference', 1, 0, 'L', true);
+        $pdf->Cell(45, 7, 'Applicant', 1, 0, 'L', true);
+        $pdf->Cell(30, 7, 'Phone', 1, 0, 'L', true);
+        $pdf->Cell(35, 7, 'Type', 1, 0, 'L', true);
+        $pdf->Cell(25, 7, 'Date', 1, 0, 'L', true);
+        $pdf->Cell(20, 7, 'Time', 1, 0, 'L', true);
+        $pdf->Cell(25, 7, 'Status', 1, 0, 'C', true);
+        $pdf->Cell(67, 7, 'Progress', 1, 1, 'L', true);
+        
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+
+        if (empty($appointments)) {
+             $pdf->Cell(277, 10, 'No appointments found matching the criteria.', 1, 1, 'C', $fill);
+        } else {
+            foreach ($appointments as $appointment) {
+                $name = $appointment['first_name'] . ' ' . $appointment['last_name'];
+                $type = ucwords(str_replace('_', ' ', $appointment['appointment_type']));
+                $date = date('M j, Y', strtotime($appointment['preferred_date']));
+                $time = date('g:i A', strtotime($appointment['preferred_time']));
+                $status = ucfirst($appointment['status']);
+
+                // Re-create the progress logic from the HTML table
+                $progress_text = '';
+                if ($appointment['appointment_type'] === 'new_application') {
+                    if ($appointment['record_status'] === 'issued') $progress_text = 'ID Issued';
+                    elseif ($appointment['record_status'] === 'validated') $progress_text = 'Record Validated';
+                    elseif ($appointment['record_status'] === 'draft') $progress_text = 'Record Created';
+                    elseif ($appointment['interview_status'] === 'completed') $progress_text = 'Interview Completed';
+                    elseif ($appointment['interview_status']) $progress_text = 'Interview: ' . ucfirst($appointment['interview_status']);
+                    else $progress_text = 'Awaiting Interview';
+                } else {
+                    if ($appointment['status'] === 'completed') $progress_text = 'Completed';
+                    else $progress_text = 'Awaiting Processing';
+                }
+                
+                $pdf->Cell(30, 6, $appointment['reference_number'], 1, 0, 'L', $fill);
+                $pdf->Cell(45, 6, $name, 1, 0, 'L', $fill);
+                $pdf->Cell(30, 6, $appointment['phone'], 1, 0, 'L', $fill);
+                $pdf->Cell(35, 6, $type, 1, 0, 'L', $fill);
+                $pdf->Cell(25, 6, $date, 1, 0, 'L', $fill);
+                $pdf->Cell(20, 6, $time, 1, 0, 'L', $fill);
+                $pdf->Cell(25, 6, $status, 1, 0, 'C', $fill);
+                $pdf->Cell(67, 6, $progress_text, 1, 1, 'L', $fill);
+                $fill = !$fill;
+            }
+        }
+        
+        // --- 4. LOG AND OUTPUT ---
+        logAdminActivity($pdo, 'export', 'appointments', 'appointments_pdf_export', null, [
+            'filters' => array_filter([
+                'status' => $status_filter,
+                'appointment_type' => $appointment_type_filter,
+                'date_range' => $date_range,
+                'date' => $date_filter,
+                'search' => $search
+            ])
+        ]);
+        
+        ob_end_clean(); 
+        
+        $filename = 'pwd_appointments_report_' . date('Y-m-d') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
+        $pdf->Output($filename, 'D');
+        exit();
+        
+    } catch (Exception $e) {
+        ob_end_clean(); 
+        error_log("Appointments PDF export error: " . $e->getMessage());
+        die("Export failed: " . $e->getMessage() . ". Please check server logs.");
+    }
+}
+
+// Handle export request (This is your existing CSV export)
 if (isset($_GET['export']) && $_GET['export'] == '1') {
     requirePermission($pdo, 'appointments.view');
     
@@ -607,7 +801,10 @@ function handleGetAppointmentDetails() {
             </div>
             <div class="page-actions">
                 <button class="btn btn-outline" onclick="exportAppointments()">
-                    <i class="fas fa-download"></i> Export
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="btn btn-outline" onclick="exportAppointmentsPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
                 </button>
                 <button class="btn btn-primary" onclick="refreshAppointments()">
                     <i class="fas fa-sync-alt"></i> Refresh
@@ -1540,6 +1737,30 @@ endif; ?>
             window.location.href = `appointments.php?${params.toString()}`;
         }
         
+        // Export appointments as PDF
+        function exportAppointmentsPDF() {
+            // Build the export URL with all current filters
+            const params = new URLSearchParams();
+            params.append('export', 'pdf'); // Use the 'pdf' trigger
+            
+            // Get filter values
+            const status = document.getElementById('status').value;
+            const appointmentType = document.getElementById('appointment_type').value;
+            const dateRange = document.getElementById('date_range').value;
+            const specificDate = document.getElementById('date').value;
+            const search = document.getElementById('search').value;
+            
+            // Add filters to params
+            if (status) params.append('status', status);
+            if (appointmentType) params.append('appointment_type', appointmentType);
+            if (dateRange) params.append('date_range', dateRange);
+            if (specificDate) params.append('date', specificDate);
+            if (search) params.append('search', search);
+            
+            // Trigger download
+            window.location.href = `appointments.php?${params.toString()}`;
+        }
+
         // Refresh appointments
         function refreshAppointments() {
             location.reload();

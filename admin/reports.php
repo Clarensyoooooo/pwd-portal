@@ -49,6 +49,7 @@ switch ($report_type) {
         break;
 }
 
+// --- THIS IS THE FUNCTION WITH THE FIX FOR THE ID STATUS CHART ---
 function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter) {
     $data = [];
     
@@ -106,6 +107,21 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     ");
     $stmt->execute($params);
     $data['summary'] = $stmt->fetch();
+    
+    // --- NEW: Format summary data for ID Status Pie Chart ---
+    $summary = $data['summary'];
+    $id_status_data = [
+        ['status' => 'Active', 'count' => (int)($summary['active_ids'] ?? 0)],
+        ['status' => 'Validated (Pending ID)', 'count' => (int)($summary['validated_profiles'] ?? 0)],
+        ['status' => 'Expired', 'count' => (int)($summary['expired_ids'] ?? 0)],
+        ['status' => 'Inactive', 'count' => (int)($summary['inactive_ids'] ?? 0)],
+        ['status' => 'Draft', 'count' => (int)($summary['draft_records'] ?? 0)],
+    ];
+    // Filter out zero-count entries to keep the pie chart clean
+    $data['id_status_distribution'] = array_values(array_filter($id_status_data, function($row) {
+        return $row['count'] > 0;
+    }));
+    // --- END NEW ---
     
     $stmt = $pdo->prepare("
         SELECT 
@@ -697,6 +713,182 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     return $data;
 }
 // Make sure this is the end of the function
+
+
+// --- START: PDF EXPORT LOGIC ---
+if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
+
+    define('PWD_PORTAL_PDF_EXPORT', true); 
+    require_once __DIR__ . '/../vendor/autoload.php'; 
+    require_once('reports/pdf_templates.php');      
+    
+    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+    
+    $pdf->SetCreator(PDF_CREATOR);
+    $pdf->SetAuthor('PWD Support Portal Admin');
+    $pdf->SetHeaderData('', 0, 'PWD Support Portal Report', "Type: " . ucfirst($report_type) . "\nPeriod: " . htmlspecialchars($date_from) . " to " . htmlspecialchars($date_to));
+    $pdf->SetMargins(PDF_MARGIN_LEFT, PDF_MARGIN_TOP, PDF_MARGIN_RIGHT);
+    $pdf->AddPage();
+    
+    switch ($report_type) {
+        case 'analytics':
+            generateAnalyticsPdf($pdf, $report_data);
+            break;
+        case 'demographics':
+            generateDemographicsPdf($pdf, $report_data);
+            break;
+        case 'resources':
+            generateResourcesPdf($pdf, $report_data);
+            break;
+    }
+
+    // --- NEW: ADDED LOGGING ---
+    $filters = compact('report_type', 'date_from', 'date_to', 'status_filter', 'disability_filter', 'age_group', 'barangay_filter', 'time_period', 'gender_filter', 'employment_filter');
+    logAdminActivity($pdo, 'export', 'reports', $report_type . '_pdf', null, $filters);
+    
+    $pdf->Output('pwd_report_' . $report_type . '_' . date('Y-m-d') . '.pdf', 'D');
+    
+    exit;
+
+// --- NEW: ADDED SERVER-SIDE CSV EXPORT LOGIC ---
+} elseif (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    
+    $filename = 'pwd_report_' . $report_type . '_' . date('Y-m-d') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    // Add BOM for UTF-8 Excel compatibility
+    fwrite($output, "\xEF\xBB\xBF");
+    
+    // --- Generate CSV based on report type ---
+    switch ($report_type) {
+        case 'analytics':
+            fputcsv($output, ["PWD Analytics Report"]);
+            fputcsv($output, ["Period:", $date_from . " to " . $date_to]);
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ["Summary Statistics"]);
+            fputcsv($output, ["Metric", "Value"]);
+            if (!empty($report_data['summary'])) {
+                $summary = $report_data['summary'];
+                fputcsv($output, ["Total Individuals", $summary['total_individuals'] ?? 0]);
+                fputcsv($output, ["Draft Records", $summary['draft_records'] ?? 0]);
+                fputcsv($output, ["Validated Profiles", $summary['validated_profiles'] ?? 0]);
+                fputcsv($output, ["Active IDs", $summary['active_ids'] ?? 0]);
+                fputcsv($output, ["Expired IDs", $summary['expired_ids'] ?? 0]);
+                fputcsv($output, ["Inactive IDs", $summary['inactive_ids'] ?? 0]);
+                fputcsv($output, ["Average Age", round($summary['avg_age'] ?? 0, 1)]);
+            }
+            fputcsv($output, []); // Empty line
+
+            fputcsv($output, ["Age Distribution"]);
+            fputcsv($output, ["Age Group", "Count", "Percentage"]);
+            if (!empty($report_data['age_groups'])) {
+                foreach ($report_data['age_groups'] as $row) {
+                    fputcsv($output, [$row['age_group'], $row['count'], $row['percentage']]);
+                }
+            }
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ["Gender Distribution"]);
+            fputcsv($output, ["Gender", "Count", "Percentage"]);
+            if (!empty($report_data['gender_distribution'])) {
+                foreach ($report_data['gender_distribution'] as $row) {
+                    fputcsv($output, [$row['gender'], $row['count'], $row['percentage']]);
+                }
+            }
+            fputcsv($output, []); // Empty line
+
+            fputcsv($output, ["Disability Type Distribution"]);
+            fputcsv($output, ["Disability Type", "Count", "Percentage"]);
+            if (!empty($report_data['disability_distribution'])) {
+                foreach ($report_data['disability_distribution'] as $row) {
+                    fputcsv($output, [$row['disability_type'], $row['count'], $row['percentage']]);
+                }
+            }
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ["Geographic Distribution Across Barangays"]);
+            fputcsv($output, ["Barangay", "Total", "Active IDs", "Expired IDs", "Inactive IDs", "Validated", "Drafts", "Avg Age"]);
+            if (!empty($report_data['barangay_distribution'])) {
+                foreach ($report_data['barangay_distribution'] as $row) {
+                    fputcsv($output, [
+                        $row['barangay'], $row['count'], $row['active_ids'], $row['expired_ids'],
+                        $row['inactive_ids'], $row['validated'], $row['drafts'], round($row['avg_age'], 1)
+                    ]);
+                }
+            }
+            break;
+            
+        case 'demographics':
+            fputcsv($output, ["PWD Demographics Report"]);
+            fputcsv($output, ["Period:", $date_from . " to " . $date_to]);
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ["Detailed Area Profiles"]);
+            fputcsv($output, ["Barangay", "Total Members", "Male", "Female", "Children (0-17)", "Avg Age", "Active IDs"]);
+            if (!empty($report_data['barangay_profiles'])) {
+                foreach ($report_data['barangay_profiles'] as $row) {
+                    fputcsv($output, [
+                        $row['barangay'], $row['total_individuals'], $row['male_count'], $row['female_count'],
+                        $row['children_count'], round($row['avg_age'], 1), $row['active_ids']
+                    ]);
+                }
+            }
+            
+            fputcsv($output, []); // Empty line
+            fputcsv($output, ["Disability Type by Area"]);
+            fputcsv($output, ["Barangay", "Disability Type", "Count"]);
+            if (!empty($report_data['disability_by_barangay'])) {
+                 foreach ($report_data['disability_by_barangay'] as $row) {
+                    fputcsv($output, [$row['barangay'], $row['disability_type'], $row['count']]);
+                }
+            }
+            break;
+            
+        case 'resources':
+            fputcsv($output, ["PWD Resource Planning Report"]);
+            fputcsv($output, ["Period:", $date_from . " to " . $date_to]);
+            fputcsv($output, []); // Empty line
+
+            fputcsv($output, [
+                "Barangay", "Disability Type", "Affected Count", "Concentration %", "Priority", 
+                "Children Count", "Unemployed Count", "Recommended Services (Sample)"
+            ]);
+            
+            // Use the full_export_data for a complete CSV, not the paginated one
+            $dataToExport = $report_data['full_export_data'] ?? $report_data['barangay_recommendations'] ?? [];
+
+            if (!empty($dataToExport)) {
+                foreach ($dataToExport as $barangay => $data) {
+                    if (!empty($data['recommended_services'])) {
+                        foreach ($data['recommended_services'] as $service) {
+                            fputcsv($output, [
+                                $barangay,
+                                $service['disability_type'],
+                                $service['affected_count'],
+                                $service['concentration'],
+                                $service['priority'],
+                                $service['children_count'],
+                                $service['unemployed_count'],
+                                implode('; ', array_slice($service['services'], 0, 5)) // Get first 5 services
+                            ]);
+                        }
+                    }
+                }
+            }
+            break;
+    }
+    
+    fclose($output);
+    
+    // --- NEW: ADDED LOGGING ---
+    $filters = compact('report_type', 'date_from', 'date_to', 'status_filter', 'disability_filter', 'age_group', 'barangay_filter', 'time_period', 'gender_filter', 'employment_filter');
+    logAdminActivity($pdo, 'export', 'reports', $report_type . '_csv', null, $filters);
+    
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -832,6 +1024,28 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             gap: 1rem;
             align-items: end;
         }
+
+        /* --- STYLES FOR BUTTONS --- */
+        .filters-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem; /* Slightly smaller gap for buttons */
+            align-items: center;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e5e7eb; /* Separator line */
+        }
+        
+        /* Remove bottom margin from form-groups inside the new actions container */
+        .filters-actions .form-group {
+            margin-bottom: 0; 
+        }
+
+        /* This is the magic class. It pushes the items after it to the right */
+        .filters-actions .push-left {
+            margin-left: auto; 
+        }
+        /* --- END NEW STYLES --- */
         
         .analytics-grid {
             display: grid;
@@ -1032,6 +1246,14 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
             .analytics-grid {
                 grid-template-columns: 1fr;
             }
+
+            /* --- RESPONSIVE FIX FOR BUTTONS --- */
+            .filters-actions {
+                justify-content: flex-start; /* Stack them on the left on mobile */
+            }
+            .filters-actions .push-left {
+                margin-left: 0; /* Remove the auto-margin */
+            }
         }
     </style>
 </head>
@@ -1060,6 +1282,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
         <div class="filters-panel">
             <form method="GET" id="filtersForm">
                 <input type="hidden" name="type" value="<?php echo htmlspecialchars($report_type); ?>">
+                
                 <div class="filters-grid">
                     <div class="form-group">
                         <label for="date_from">From Date</label>
@@ -1150,7 +1373,9 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                         </select>
                     </div>
                     <?php endif; ?>
-                    
+                </div>
+
+                <div class="filters-actions">
                     <div class="form-group">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-sync-alt"></i> Update Report
@@ -1163,10 +1388,24 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
                         </button>
                     </div>
                     
+                    <?php
+                    // Build the query string for the export links, preserving all filters
+                    $query_params = $_GET;
+                    unset($query_params['export']); // Remove any old export param
+                    ?>
+                    
+                    <div class="form-group push-left">
+                        <?php $csv_query_string = http_build_query($query_params) . '&export=csv'; ?>
+                        <a href="?<?php echo $csv_query_string; ?>" class="btn btn-outline">
+                            <i class="fas fa-file-csv"></i> Export CSV
+                        </a>
+                    </div>
+
                     <div class="form-group">
-                        <button type="button" onclick="exportReport()" class="btn btn-outline">
-                            <i class="fas fa-download"></i> Export Report
-                        </button>
+                        <?php $pdf_query_string = http_build_query($query_params) . '&export=pdf'; ?>
+                        <a href="?<?php echo $pdf_query_string; ?>" class="btn btn-primary" style="background-color: #e53935; border-color: #e53935;" target="_blank">
+                            <i class="fas fa-file-pdf"></i> Export PDF
+                        </a>
                     </div>
                 </div>
             </form>
@@ -1185,130 +1424,7 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     
     <script src="assets/admin.js"></script>
     <script>
-        // Store report data for export
-        const reportData = <?php echo json_encode($report_data); ?>;
-        const reportType = '<?php echo $report_type; ?>';
-        const filters = {
-            date_from: '<?php echo $date_from; ?>',
-            date_to: '<?php echo $date_to; ?>',
-            status: '<?php echo $status_filter; ?>',
-            disability: '<?php echo $disability_filter; ?>',
-            barangay: '<?php echo $barangay_filter; ?>',
-            gender: '<?php echo $gender_filter; ?>',
-            employment: '<?php echo $employment_filter; ?>',
-            age_group: '<?php echo $age_group; ?>'
-        };
-        
-        function exportReport() {
-            let csvContent = "data:text/csv;charset=utf-8,\ufeff";
-            
-            if (reportType === 'analytics') {
-                csvContent += exportAnalyticsData();
-            } else if (reportType === 'demographics') {
-                csvContent += exportDemographicsData();
-            } else if (reportType === 'resources') {
-                csvContent += exportResourcesData();
-            }
-            
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `PWD_${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification('Report exported successfully!', 'success');
-        }
-        
-        function exportAnalyticsData() {
-            let csv = "PWD Analytics Report\n";
-            csv += `Generated: ${new Date().toLocaleString()}\n`;
-            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
-            
-            csv += "Summary Statistics\n";
-            csv += "Metric,Value\n";
-            if (reportData.summary) {
-                csv += `Total Individuals,${reportData.summary.total_individuals || 0}\n`;
-                csv += `Validated Profiles,${reportData.summary.validated_profiles || 0}\n`;
-                csv += `Active IDs,${reportData.summary.active_ids || 0}\n`;
-                csv += `Pending Support,${reportData.summary.pending_support || 0}\n`;
-                csv += `Average Age,${reportData.summary.avg_age ? Math.round(reportData.summary.avg_age) : 'N/A'}\n`;
-            }
-            
-            csv += "\n\nDisability Type Distribution\n";
-            csv += "Disability Type,Count,Percentage\n";
-            if (reportData.disability_distribution) {
-                reportData.disability_distribution.forEach(row => {
-                    csv += `"${row.disability_type}",${row.count},${row.percentage}%\n`;
-                });
-            }
-            
-            csv += "\n\nBarangay Distribution\n";
-            csv += "Barangay,Count,Active IDs,Average Age,Percentage\n";
-            if (reportData.barangay_distribution) {
-                reportData.barangay_distribution.forEach(row => {
-                    csv += `"${row.barangay}",${row.count},${row.active_ids},${Math.round(row.avg_age)},${row.percentage}%\n`;
-                });
-            }
-            
-            return csv;
-        }
-        
-        function exportDemographicsData() {
-            let csv = "PWD Demographics Report\n";
-            csv += `Generated: ${new Date().toLocaleString()}\n`;
-            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
-            
-            csv += "Barangay Summary\n";
-            csv += "Barangay,Total PWDs,Male,Female,Children,Average Age,Active IDs\n";
-            if (reportData.barangay_profiles) {
-                reportData.barangay_profiles.forEach(row => {
-                    csv += `"${row.barangay}",${row.total_individuals},${row.male_count},${row.female_count},${row.children_count},${Math.round(row.avg_age)},${row.active_ids}\n`;
-                });
-            }
-            
-            return csv;
-        }
-        
-        function exportResourcesData() {
-            let csv = "PWD Resource Planning Report\n";
-            csv += `Generated: ${new Date().toLocaleString()}\n`;
-            csv += `Period: ${filters.date_from} to ${filters.date_to}\n\n`;
-            
-            csv += "Barangay Resource Recommendations\n";
-            csv += "Barangay,Disability Type,Affected Count,Concentration %,Priority,Children,Seniors,Unemployed,Key Factors,Recommended Services\n";
-            
-            // --- 👇 THIS IS THE MODIFIED PART 👇 ---
-
-            // Check if the new 'full_export_data' exists,
-            // otherwise, fall back to the (paginated) 'barangay_recommendations'
-            const dataToExport = (reportData.full_export_data && Object.keys(reportData.full_export_data).length > 0) 
-                               ? reportData.full_export_data 
-                               : reportData.barangay_recommendations;
-            
-            if (dataToExport) {
-                Object.entries(dataToExport).forEach(([barangay, data]) => {
-                    if (data.recommended_services) {
-                        data.recommended_services.forEach(service => {
-            // --- 👆 END OF MODIFIED PART 👆 ---
-
-                            const factors = [];
-                            if (service.factors?.high_concentration) factors.push('High Concentration');
-                            if (service.factors?.many_children) factors.push('Many Children');
-                            if (service.factors?.high_unemployment) factors.push('High Unemployment');
-                            
-                            const services = service.services.slice(0, 5).join('; ');
-                            
-                            // Corrected to data['total_seniors']
-                            csv += `"${barangay}","${service.disability_type}",${service.affected_count},${service.concentration}%,${service.priority},${service.children_count},${data['total_seniors']},${service.unemployed_count},"${factors.join(', ')}","${services}"\n`;
-                        });
-                    }
-                });
-            }
-            
-            return csv;
-        }
+        // --- REMOVED old JS export functions ---
         
         function clearFilters() {
             const form = document.getElementById('filtersForm');

@@ -11,6 +11,170 @@ $canManageRoles = hasPermission($pdo, 'users.roles');
 
 $admin = getCurrentAdmin($pdo);
 
+// Handle CSV Export
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    requirePermission($pdo, 'users.view'); // Or a specific export permission
+
+    try {
+        // Get all users with roles (no pagination)
+        $stmt = $pdo->query("
+            SELECT au.*, ar.display_name as role_name
+            FROM admin_users au
+            LEFT JOIN admin_roles ar ON au.role_id = ar.id
+            ORDER BY au.created_at DESC
+        ");
+        $users_to_export = $stmt->fetchAll();
+
+        // Set headers for CSV download
+        $filename = 'admin_users_export_' . date('Y-m-d_H-i-s') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $output = fopen('php://output', 'w');
+
+        // Add BOM for UTF-8 Excel compatibility
+        fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+        // Write CSV header
+        fputcsv($output, [
+            'ID', 'Username', 'Full Name', 'Email', 'Role', 
+            'Status', 'Last Login', 'Created At'
+        ]);
+
+        // Write data rows
+        foreach ($users_to_export as $user) {
+            fputcsv($output, [
+                $user['id'],
+                $user['username'],
+                $user['full_name'],
+                $user['email'],
+                $user['role_name'] ?? 'No Role',
+                $user['is_active'] ? 'Active' : 'Inactive',
+                $user['last_login'] ? date('Y-m-d H:i:s', strtotime($user['last_login'])) : 'Never',
+                $user['created_at']
+            ]);
+        }
+
+        fclose($output);
+
+        logAdminActivity($pdo, 'export', 'users', 'admin_users_csv', null, ['user_count' => count($users_to_export)]);
+        exit;
+
+    } catch (PDOException $e) {
+        // Log error or display a user-friendly message
+        error_log("CSV Export Error: " . $e->getMessage());
+        die("An error occurred during CSV export. Please try again later.");
+    }
+}
+
+// Handle PDF Export
+if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
+    requirePermission($pdo, 'users.view'); // Or a specific export permission
+    ob_start();
+
+    try {
+        // Get all users with roles (no pagination)
+        $stmt = $pdo->query("
+            SELECT au.id, au.username, au.full_name, au.email, au.is_active, au.last_login, au.created_at, ar.display_name as role_name
+            FROM admin_users au
+            LEFT JOIN admin_roles ar ON au.role_id = ar.id
+            ORDER BY au.created_at DESC
+        ");
+        $users_to_export = $stmt->fetchAll();
+
+        // --- PDF Generation ---
+        require_once '../vendor/autoload.php';
+
+        $pdf = new \TCPDF('L', PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($admin['full_name']); // Assuming $admin is available
+        $pdf->SetTitle('Admin Users Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('List of Admin Users');
+
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+
+        $pdf->SetMargins(10, 10, 10);
+        $pdf->SetAutoPageBreak(TRUE, 10);
+
+        $pdf->AddPage();
+
+        // Title
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->Cell(0, 10, 'Admin Users Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+
+        // Summary
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 8, 'Report Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->Cell(35, 6, 'Total Users:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($users_to_export), 0, 1, 'L');
+        $pdf->Ln(5);
+
+        // Data Table (Landscape width ~277mm)
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->SetFillColor(44, 90, 160);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(15, 7, 'ID', 1, 0, 'C', true);
+        $pdf->Cell(40, 7, 'Username', 1, 0, 'L', true);
+        $pdf->Cell(50, 7, 'Full Name', 1, 0, 'L', true);
+        $pdf->Cell(55, 7, 'Email', 1, 0, 'L', true);
+        $pdf->Cell(40, 7, 'Role', 1, 0, 'L', true);
+        $pdf->Cell(20, 7, 'Status', 1, 0, 'C', true);
+        $pdf->Cell(57, 7, 'Last Login', 1, 1, 'L', true);
+
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+
+        if (empty($users_to_export)) {
+            $pdf->Cell(277, 10, 'No users found.', 1, 1, 'C', $fill);
+        } else {
+            foreach ($users_to_export as $user) {
+                $status = $user['is_active'] ? 'Active' : 'Inactive';
+                $last_login = $user['last_login'] ? date('M j, Y g:i A', strtotime($user['last_login'])) : 'Never';
+                $role = $user['role_name'] ?? 'No Role';
+
+                $pdf->Cell(15, 6, $user['id'], 1, 0, 'C', $fill);
+                $pdf->Cell(40, 6, $user['username'], 1, 0, 'L', $fill);
+                $pdf->Cell(50, 6, $user['full_name'], 1, 0, 'L', $fill);
+                $pdf->Cell(55, 6, $user['email'], 1, 0, 'L', $fill);
+                $pdf->Cell(40, 6, $role, 1, 0, 'L', $fill);
+                $pdf->Cell(20, 6, $status, 1, 0, 'C', $fill);
+                $pdf->Cell(57, 6, $last_login, 1, 1, 'L', $fill);
+                $fill = !$fill;
+            }
+        }
+
+        // Log the export
+        logAdminActivity($pdo, 'export', 'users', 'admin_users_pdf', null, ['user_count' => count($users_to_export)]);
+
+        ob_end_clean();
+
+        $filename = 'admin_users_report_' . date('Y-m-d_H-i-s') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
+        $pdf->Output($filename, 'D');
+        exit;
+
+    } catch (Exception $e) {
+        ob_end_clean();
+        error_log("PDF Export Error: " . $e->getMessage());
+        die("An error occurred during PDF export. Please try again later.");
+    }
+}
+
 // If user can't view, redirect to dashboard with message
 if (!$canView) {
     $_SESSION['error'] = 'You do not have permission to access user management.';
@@ -416,6 +580,12 @@ function deleteRole($pdo) {
                     <i class="fas fa-plus"></i> Add User
                 </button>
                 <?php endif; ?>
+                <a href="?export=csv" class="btn btn-outline">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </a>
+                <a href="?export=pdf" class="btn btn-outline">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </a>
             </div>
         </div>
         

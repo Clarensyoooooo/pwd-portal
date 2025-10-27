@@ -5,7 +5,214 @@ requirePermission($pdo, 'records.view');
 
 $admin = getCurrentAdmin($pdo);
 
-// Handle export
+// Handle PDF export
+if (isset($_GET['export']) && $_GET['export'] == 'pdf') {
+    requirePermission($pdo, 'records.export');
+    ob_start(); // Start output buffering
+
+    try {
+        // --- 1. COPY FILTER LOGIC (from your CSV export) ---
+        $status_filter = $_GET['status'] ?? '';
+        $barangay_filter = $_GET['barangay'] ?? '';
+        $disability_filter = $_GET['disability_type'] ?? '';
+        $gender_filter = $_GET['gender'] ?? '';
+        $age_group_filter = $_GET['age_group'] ?? '';
+        $employment_filter = $_GET['employment_status'] ?? '';
+        $search = $_GET['search'] ?? '';
+        
+        $where_conditions = [];
+        $params = [];
+        
+        if ($status_filter) {
+            if ($status_filter === 'expired') {
+                $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
+            } else {
+                $where_conditions[] = "pr.status = ?";
+                $params[] = $status_filter;
+            }
+        }
+        if ($barangay_filter) {
+            $where_conditions[] = "pr.barangay = ?";
+            $params[] = $barangay_filter;
+        }
+        if ($disability_filter) {
+            $where_conditions[] = "pr.disability_type = ?";
+            $params[] = $disability_filter;
+        }
+        if ($gender_filter) {
+            $where_conditions[] = "pr.gender = ?";
+            $params[] = $gender_filter;
+        }
+        if ($employment_filter) {
+            $where_conditions[] = "pr.employment_status = ?";
+            $params[] = $employment_filter;
+        }
+        if ($age_group_filter) {
+            switch ($age_group_filter) {
+                case 'children':
+                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
+                    break;
+                case 'adults':
+                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
+                    break;
+                case 'seniors':
+                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
+                    break;
+            }
+        }
+        if ($search) {
+            $where_conditions[] = "(pr.first_name LIKE ? OR pr.last_name LIKE ? OR pr.pwd_id_number LIKE ? OR pr.email_address LIKE ? OR pr.phone_number LIKE ?)";
+            $search_param = "%{$search}%";
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+        }
+        
+        $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+        // --- 2. GET DATA (from your CSV export) ---
+        $stmt = $pdo->prepare("
+            SELECT 
+                pr.pwd_id_number, pr.first_name, pr.last_name, pr.barangay,
+                pr.disability_type, pr.status, pr.issue_date, pr.expiry_date,
+                TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age
+            FROM pwd_records pr
+            {$where_clause}
+            ORDER BY pr.barangay, pr.last_name, pr.first_name
+        ");
+        $stmt->execute($params);
+        $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // --- 3. GENERATE PDF (from map.php example) ---
+        require_once '../vendor/autoload.php';
+        
+        $pdf = new \TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+        
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($admin['full_name']);
+        $pdf->SetTitle('PWD Records Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('Filtered PWD Records Report');
+        
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        $pdf->SetMargins(15, 15, 15);
+        $pdf->SetAutoPageBreak(TRUE, 15);
+        
+        $pdf->AddPage();
+        
+        // Title
+        $pdf->SetFont('helvetica', 'B', 20);
+        $pdf->Cell(0, 10, 'PWD Records Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Santo Tomas, Batangas', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+        
+        // Summary section
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 8, 'Report Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 10);
+        
+        $pdf->Cell(40, 6, 'Total Records:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($records), 0, 1, 'L');
+        
+        if ($status_filter) {
+            $pdf->Cell(40, 6, 'Status Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, ucfirst($status_filter), 0, 1, 'L');
+        }
+        if ($barangay_filter) {
+            $pdf->Cell(40, 6, 'Barangay Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, $barangay_filter, 0, 1, 'L');
+        }
+        if ($disability_filter) {
+            $pdf->Cell(40, 6, 'Disability Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, $disability_filter, 0, 1, 'L');
+        }
+        
+        $pdf->Ln(5);
+        
+        // Data Table
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->SetFillColor(44, 90, 160); // Blue header from map.php
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(30, 7, 'PWD ID', 1, 0, 'L', true);
+        $pdf->Cell(45, 7, 'Name', 1, 0, 'L', true);
+        $pdf->Cell(35, 7, 'Barangay', 1, 0, 'L', true);
+        $pdf->Cell(35, 7, 'Disability', 1, 0, 'L', true);
+        $pdf->Cell(20, 7, 'Status', 1, 0, 'C', true);
+        $pdf->Cell(15, 7, 'Age', 1, 1, 'C', true);
+        
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+
+        if (empty($records)) {
+             $pdf->Cell(180, 10, 'No records found matching the criteria.', 1, 1, 'C', $fill);
+        } else {
+            foreach ($records as $record) {
+                // Handle status logic (same as your HTML table)
+                $status = $record['status'];
+                $status_text = ucfirst($status);
+                if ($status === 'issued') {
+                    if ($record['expiry_date'] && strtotime($record['expiry_date']) < time()) {
+                        $status_text = 'Expired';
+                    } else {
+                        $status_text = 'Active';
+                    }
+                }
+
+                $name = $record['first_name'] . ' ' . $record['last_name'];
+                
+                $pdf->Cell(30, 6, $record['pwd_id_number'], 1, 0, 'L', $fill);
+                $pdf->Cell(45, 6, $name, 1, 0, 'L', $fill);
+                $pdf->Cell(35, 6, $record['barangay'], 1, 0, 'L', $fill);
+                $pdf->Cell(35, 6, $record['disability_type'], 1, 0, 'L', $fill);
+                $pdf->Cell(20, 6, $status_text, 1, 0, 'C', $fill);
+                $pdf->Cell(15, 6, $record['age'], 1, 1, 'C', $fill);
+                $fill = !$fill;
+            }
+        }
+        
+        // --- 4. LOG AND OUTPUT ---
+        
+        // Log the export (from your CSV logic)
+        logAdminActivity($pdo, 'export', 'records', 'pdf_report', null, [
+            'record_count' => count($records),
+            'filters' => array_filter([
+                'status' => $status_filter,
+                'barangay' => $barangay_filter,
+                'disability' => $disability_filter,
+                'gender' => $gender_filter,
+                'age_group' => $age_group_filter,
+                'employment' => $employment_filter,
+                'search' => $search
+            ])
+        ]);
+        
+        ob_end_clean(); // Clean buffer
+        
+        // Output headers (from map.php)
+        $filename = 'pwd_records_report_' . date('Y-m-d') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
+        $pdf->Output($filename, 'D');
+        exit();
+        
+    } catch (Exception $e) {
+        ob_end_clean(); 
+        error_log("Records PDF export error: " . $e->getMessage());
+        die("Export failed: " . $e->getMessage() . ". Please check server logs.");
+    }
+}
+
+// Handle export (This is your existing CSV export)
 if (isset($_GET['export']) && $_GET['export'] == '1') {
     requirePermission($pdo, 'records.export');
     
@@ -786,7 +993,10 @@ function handleDeactivateRecord() {
                     </a>
                 <?php endif; ?>
                 <button class="btn btn-outline" onclick="exportRecords()">
-                    <i class="fas fa-download"></i> Export
+                    <i class="fas fa-download"></i> Export CSV
+                </button>
+                <button class="btn btn-outline" onclick="exportRecordsPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
                 </button>
             </div>
         </div>
@@ -2458,6 +2668,34 @@ function handleDeactivateRecord() {
                 showNotification('Failed to issue ID', 'error');
             });
         });
+
+        // Export records as PDF
+        function exportRecordsPDF() {
+            // Build the export URL with all current filters
+            const params = new URLSearchParams();
+            params.append('export', 'pdf'); // Use the 'pdf' trigger
+            
+            // Get filter values
+            const status = document.getElementById('status').value;
+            const barangay = document.getElementById('barangay').value;
+            const disabilityType = document.getElementById('disability_type').value;
+            const gender = document.getElementById('gender').value;
+            const ageGroup = document.getElementById('age_group').value;
+            const employment = document.getElementById('employment_status').value;
+            const search = document.getElementById('search').value;
+            
+            // Add filters to params
+            if (status) params.append('status', status);
+            if (barangay) params.append('barangay', barangay);
+            if (disabilityType) params.append('disability_type', disabilityType);
+            if (gender) params.append('gender', gender);
+            if (ageGroup) params.append('age_group', ageGroup);
+            if (employment) params.append('employment_status', employment);
+            if (search) params.append('search', search);
+            
+            // Trigger download
+            window.location.href = `records.php?${params.toString()}`;
+        }
 
         // Show create record modal
         function showCreateRecordModal() {

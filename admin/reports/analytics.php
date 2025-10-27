@@ -16,6 +16,11 @@ $disability_distribution = $report_data['disability_distribution'] ?? [];
 $barangay_distribution = $report_data['barangay_distribution'] ?? [];
 $trends = $report_data['trends'] ?? [];
 
+// --- NEW: Get data for new charts ---
+$id_status_distribution = $report_data['id_status_distribution'] ?? [];
+$employment_distribution = $report_data['employment_distribution'] ?? [];
+
+
 $total = (int)($summary['total_individuals'] ?? 0);
 
 // Helper function
@@ -138,12 +143,28 @@ $safe_percent = function($numerator, $denominator) {
         <div class="chart-legend" id="genderLegend"></div>
     </div>
     
-    <div class="analytics-card" style="grid-column: 1 / -1;">
+    <div class="analytics-card">
         <h3><i class="fas fa-hands-helping"></i> Disability Type Distribution</h3>
         <div class="chart-container">
             <canvas id="disabilityChart"></canvas>
         </div>
         <div class="chart-legend" id="disabilityLegend"></div>
+    </div>
+
+    <div class="analytics-card">
+        <h3><i class="fas fa-id-card"></i> ID Status Distribution</h3>
+        <div class="chart-container">
+            <canvas id="idStatusChart"></canvas>
+        </div>
+        <div class="chart-legend" id="idStatusLegend"></div>
+    </div>
+
+    <div class="analytics-card">
+        <h3><i class="fas fa-briefcase"></i> Employment Status</h3>
+        <div class="chart-container">
+            <canvas id="employmentChart"></canvas>
+        </div>
+        <div class="chart-legend" id="employmentLegend"></div>
     </div>
     
     <div class="analytics-card" style="grid-column: 1 / -1;">
@@ -426,6 +447,78 @@ function initializeAnalyticsCharts() {
                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 const percentage = ((context.parsed / total) * 100).toFixed(1);
                                 return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // --- NEW: ID Status Pie Chart ---
+    destroyChart('idStatusChart');
+    const idStatusCtx = document.getElementById('idStatusChart')?.getContext('2d');
+    if (idStatusCtx) {
+        chartInstances['idStatusChart'] = new Chart(idStatusCtx, {
+            type: 'pie',
+            plugins: [htmlLegendPlugin],
+            data: {
+                labels: <?php echo json_encode(array_column($id_status_distribution, 'status')); ?>,
+                datasets: [{
+                    data: <?php echo json_encode(array_column($id_status_distribution, 'count')); ?>,
+                    backgroundColor: ['#10b981', '#0ea5e9', '#f59e0b', '#64748b', '#cbd5e1'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    htmlLegend: { containerID: 'idStatusLegend' },
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return context.label + ': ' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // --- NEW: Employment Status Donut Chart ---
+    destroyChart('employmentChart');
+    const employmentCtx = document.getElementById('employmentChart')?.getContext('2d');
+    if (employmentCtx) {
+        chartInstances['employmentChart'] = new Chart(employmentCtx, {
+            type: 'doughnut',
+            plugins: [htmlLegendPlugin],
+            data: {
+                labels: <?php echo json_encode(array_column($employment_distribution, 'employment_status')); ?>,
+                datasets: [{
+                    data: <?php echo json_encode(array_column($employment_distribution, 'count')); ?>,
+                    backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    htmlLegend: { containerID: 'employmentLegend' },
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return context.label + ': ' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
                             }
                         }
                     }

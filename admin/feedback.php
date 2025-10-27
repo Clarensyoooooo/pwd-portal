@@ -5,6 +5,233 @@ requirePermission($pdo, 'feedback.view');
 
 $admin = getCurrentAdmin($pdo);
 
+// Handle PDF export
+if (isset($_GET['export']) && $_GET['export'] == 'pdf') {
+    requirePermission($pdo, 'feedback.view'); // Or a specific export permission
+    ob_start(); // Start output buffering
+
+    try {
+        // --- 1. COPY FILTER LOGIC ---
+        $status_filter = $_GET['status'] ?? '';
+        $rating_filter = $_GET['rating'] ?? '';
+        $search = $_GET['search'] ?? '';
+        
+        $where_conditions = [];
+        $params = [];
+        
+        if ($status_filter) {
+            $where_conditions[] = "f.status = ?";
+            $params[] = $status_filter;
+        }
+        if ($rating_filter) {
+            $where_conditions[] = "f.rating = ?";
+            $params[] = $rating_filter;
+        }
+        if ($search) {
+            $where_conditions[] = "(f.name LIKE ? OR f.email LIKE ? OR f.subject LIKE ? OR f.message LIKE ?)";
+            $search_param = "%{$search}%";
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+        }
+        
+        $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+        // --- 2. GET DATA (All matching records, not paginated) ---
+        $stmt = $pdo->prepare("
+            SELECT f.*
+            FROM feedback f
+            {$where_clause}
+            ORDER BY f.created_at DESC
+        ");
+        $stmt->execute($params);
+        $feedback_items = $stmt->fetchAll();
+
+        // --- 3. GENERATE PDF ---
+        require_once '../vendor/autoload.php';
+        
+        // Use Landscape ('L') to fit more columns
+        $pdf = new \TCPDF('L', PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false); 
+        
+        $pdf->SetCreator('PWD Portal');
+        $pdf->SetAuthor($admin['full_name']);
+        $pdf->SetTitle('Feedback Report - ' . date('Y-m-d'));
+        $pdf->SetSubject('Filtered Feedback Report');
+        
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        
+        $pdf->SetMargins(10, 10, 10);
+        $pdf->SetAutoPageBreak(TRUE, 10);
+        
+        $pdf->AddPage();
+        
+        // Title
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->Cell(0, 10, 'Feedback Report', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'Generated: ' . date('F j, Y g:i A'), 0, 1, 'C');
+        $pdf->Ln(5);
+        
+        // Summary
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 8, 'Report Overview', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->Cell(35, 6, 'Total Messages:', 0, 0, 'L');
+        $pdf->Cell(0, 6, count($feedback_items), 0, 1, 'L');
+        if ($status_filter) {
+            $pdf->Cell(35, 6, 'Status Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, ucfirst($status_filter), 0, 1, 'L');
+        }
+        if ($rating_filter) {
+            $pdf->Cell(35, 6, 'Rating Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, $rating_filter . ' Stars', 0, 1, 'L');
+        }
+        $pdf->Ln(5);
+        
+        // Data Table (Landscape width ~277mm)
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->SetFillColor(44, 90, 160);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->Cell(50, 7, 'From', 1, 0, 'L', true);
+        $pdf->Cell(50, 7, 'Email', 1, 0, 'L', true);
+        $pdf->Cell(77, 7, 'Subject', 1, 0, 'L', true);
+        $pdf->Cell(20, 7, 'Rating', 1, 0, 'C', true);
+        $pdf->Cell(30, 7, 'Status', 1, 0, 'C', true);
+        $pdf->Cell(50, 7, 'Date', 1, 1, 'L', true);
+        
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFillColor(248, 250, 252);
+        $fill = false;
+
+        if (empty($feedback_items)) {
+             $pdf->Cell(277, 10, 'No feedback found matching the criteria.', 1, 1, 'C', $fill);
+        } else {
+            foreach ($feedback_items as $item) {
+                $pdf->Cell(50, 6, htmlspecialchars_decode($item['name']), 1, 0, 'L', $fill);
+                $pdf->Cell(50, 6, htmlspecialchars_decode($item['email']), 1, 0, 'L', $fill);
+                $pdf->Cell(77, 6, htmlspecialchars_decode($item['subject']), 1, 0, 'L', $fill);
+                $pdf->Cell(20, 6, $item['rating'] ? ' ' . $item['rating'] . '/5' : 'N/A', 1, 0, 'C', $fill);
+                $pdf->Cell(30, 6, ucfirst($item['status']), 1, 0, 'C', $fill);
+                $pdf->Cell(50, 6, formatDateTime($item['created_at']), 1, 1, 'L', $fill);
+                $fill = !$fill;
+            }
+        }
+        
+        // --- 4. LOG AND OUTPUT ---
+        logAdminActivity($pdo, 'export', 'feedback', 'pdf_report', null, [
+            'filter_count' => count($feedback_items),
+            'filters' => ['status' => $status_filter, 'rating' => $rating_filter, 'search' => $search]
+        ]);
+        
+        ob_end_clean(); 
+        
+        $filename = 'feedback_report_' . date('Y-m-d') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+
+        $pdf->Output($filename, 'D');
+        exit();
+        
+    } catch (Exception $e) {
+        ob_end_clean(); 
+        error_log("Feedback PDF export error: " . $e->getMessage());
+        // Use adminJsonResponse if available, otherwise die
+        if (function_exists('adminJsonResponse')) {
+            adminJsonResponse(['error' => 'Export failed: ' . $e->getMessage()], 500);
+        } else {
+            die("Export failed: " . $e->getMessage());
+        }
+    }
+}
+
+// --- ADD THIS 'ELSE IF' BLOCK ---
+else if (isset($_GET['export']) && $_GET['export'] == 'csv') {
+    requirePermission($pdo, 'feedback.view');
+    
+    try {
+        // --- 1. COPY FILTER LOGIC (Same as PDF) ---
+        $status_filter = $_GET['status'] ?? '';
+        $rating_filter = $_GET['rating'] ?? '';
+        $search = $_GET['search'] ?? '';
+        
+        $where_conditions = [];
+        $params = [];
+        
+        if ($status_filter) {
+            $where_conditions[] = "f.status = ?";
+            $params[] = $status_filter;
+        }
+        if ($rating_filter) {
+            $where_conditions[] = "f.rating = ?";
+            $params[] = $rating_filter;
+        }
+        if ($search) {
+            $where_conditions[] = "(f.name LIKE ? OR f.email LIKE ? OR f.subject LIKE ? OR f.message LIKE ?)";
+            $search_param = "%{$search}%";
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            $params[] = $search_param;
+        }
+        
+        $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+
+        // --- 2. GET DATA (All matching records, same as PDF) ---
+        $stmt = $pdo->prepare("
+            SELECT f.*
+            FROM feedback f
+            {$where_clause}
+            ORDER BY f.created_at DESC
+        ");
+        $stmt->execute($params);
+        $feedback_items = $stmt->fetchAll();
+
+        // --- 3. GENERATE CSV ---
+        $filename = 'feedback_report_' . date('Y-m-d') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        header('Pragma: public');
+        
+        $output = fopen('php://output', 'w');
+        
+        // Add CSV Header
+        fputcsv($output, ['Name', 'Email', 'Subject', 'Message', 'Rating', 'Status', 'Date']);
+        
+        // Add Data
+        foreach ($feedback_items as $item) {
+            fputcsv($output, [
+                htmlspecialchars_decode($item['name']),
+                htmlspecialchars_decode($item['email']),
+                htmlspecialchars_decode($item['subject']),
+                htmlspecialchars_decode($item['message']), // Add message column
+                $item['rating'] ? '="' . $item['rating'] . '/5"' : 'N/A',
+                ucfirst($item['status']),
+                formatDateTime($item['created_at']) // Use your existing function
+            ]);
+        }
+        
+        fclose($output);
+        
+        // --- 4. LOG ---
+        logAdminActivity($pdo, 'export', 'feedback', 'csv_report', null, [
+            'filter_count' => count($feedback_items),
+            'filters' => ['status' => $status_filter, 'rating' => $rating_filter, 'search' => $search]
+        ]);
+        
+        exit();
+        
+    } catch (Exception $e) {
+        error_log("Feedback CSV export error: " . $e->getMessage());
+        die("Export failed: " . $e->getMessage());
+    }
+}
+
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -209,8 +436,11 @@ function formatDateTime($datetime) {
                 <p>Manage user feedback and support requests</p>
             </div>
             <div class="page-actions">
-                <button class="btn btn-outline" onclick="exportFeedback()">
-                    <i class="fas fa-download"></i> Export
+                <button class="btn btn-outline" onclick="exportFeedbackCSV()">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="btn btn-outline" onclick="exportFeedbackPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
                 </button>
                 <button class="btn btn-primary" onclick="refreshFeedback()">
                     <i class="fas fa-sync-alt"></i> Refresh
@@ -927,44 +1157,42 @@ function formatDateTime($datetime) {
             }
         });
         
-        // Export feedback
-        function exportFeedback() {
+       // Export feedback as CSV (server-side, all filtered data)
+        function exportFeedbackCSV() {
             const status = document.getElementById('status').value;
             const rating = document.getElementById('rating').value;
             const search = document.getElementById('search').value;
             
             const params = new URLSearchParams();
+            params.append('export', 'csv'); // <-- Set to 'csv'
+            
+            // Add filters to params
             if (status) params.append('status', status);
             if (rating) params.append('rating', rating);
             if (search) params.append('search', search);
-            params.append('export', '1');
             
-            // Create a simple CSV export
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Name,Email,Subject,Message,Rating,Status,Date\n";
-            
-            document.querySelectorAll('.feedback-item').forEach(item => {
-                const name = item.querySelector('.feedback-sender strong').textContent;
-                const email = item.querySelector('.feedback-email').textContent.replace('✉ ', '');
-                const subject = item.querySelector('.feedback-subject').textContent.trim();
-                const message = (item.querySelector('.full-message') || item.querySelector('.feedback-message')).textContent.trim();
-                const ratingElement = item.querySelector('.rating-value');
-                const rating = ratingElement ? ratingElement.textContent.match(/$$(\d+)\/5$$/)?.[1] || '' : '';
-                const status = item.querySelector('.status-badge').textContent.trim();
-                const date = item.querySelector('.feedback-date').textContent.replace('🕐 ', '');
-                
-                csvContent += `"${name}","${email}","${subject}","${message.replace(/"/g, '""')}","${rating}","${status}","${date}"\n`;
-            });
-            
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `feedback_export_${new Date().toISOString().split('T')[0]}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // Trigger server-side download
+            window.location.href = `feedback.php?${params.toString()}`;
         }
         
+        // Export feedback as PDF (server-side, all filtered data)
+        function exportFeedbackPDF() {
+            const status = document.getElementById('status').value;
+            const rating = document.getElementById('rating').value;
+            const search = document.getElementById('search').value;
+            
+            const params = new URLSearchParams();
+            params.append('export', 'pdf');
+            
+            // Add filters to params
+            if (status) params.append('status', status);
+            if (rating) params.append('rating', rating);
+            if (search) params.append('search', search);
+            
+            // Trigger server-side download
+            window.location.href = `feedback.php?${params.toString()}`;
+        }
+
         // Refresh feedback
         function refreshFeedback() {
             location.reload();
