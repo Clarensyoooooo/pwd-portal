@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 
 // Only check view permission, not strict requirement
 $canView = hasPermission($pdo, 'users.view');

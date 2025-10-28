@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../config.php';
 
 // Now include the admin config for admin-specific functions
 require_once __DIR__ . '/../config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 
 header('Content-Type: application/json');
 

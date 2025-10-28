@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 require_once 'spatial_functions.php';
 
 $admin = getCurrentAdmin($pdo);

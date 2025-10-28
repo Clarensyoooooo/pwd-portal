@@ -495,37 +495,45 @@ if (!empty($_POST['website_url'])) {
         
         $appointment_id = $pdo->lastInsertId();
         
-        // Send SMS verification
-        sendSMSVerification($phone, $sms_code);
-        // Send SMS verification
-sendSMSVerification($phone, $sms_code);
+        $pdo->commit(); // Commit the database changes FIRST.
 
-// ✅ ADD THIS ENTIRE BLOCK (using $_POST variables)
-$emailSubject = "Your Appointment Verification Code – PWD Portal";
-$emailBody = "
-    <h2>Appointment Verification</h2>
-    <p>Hi {$_POST['first_name']} {$_POST['last_name']},</p>
-    <p>Your verification code is:</p>
-    <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
-    <p>Reference Number: <strong>{$reference_number}</strong></p>
-    <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-    <p>This is a copy of the verification code sent to your email address.</p>
-    <br>
-    <p>– PDAO Helps, City of Sto. Tomas</p>
-";
-// Send the email
-sendResendEmail($_POST['email'], $emailSubject, $emailBody);
-// ✅ END OF BLOCK
-        
-        // Update SMS sent status
-        $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");
-        $stmt->execute([$appointment_id]);
-        
-        $pdo->commit();
+        // --- START FAULT-TOLERANT NOTIFICATIONS ---
+
+        // Send SMS verification
+        try {
+            sendSMSVerification($phone, $sms_code);
+            // Update SMS sent status
+            $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");
+            $stmt->execute([$appointment_id]);
+        } catch (Exception $sms_error) {
+            // Log SMS error but don't stop the script
+            error_log("handleNewApplication SMS Error: " . $sms_error->getMessage());
+        }
+
+        // Send Email confirmation
+        try {
+            $emailSubject = "Your Appointment Verification Code – PWD Portal";
+            $emailBody = "
+                <h2>Appointment Verification</h2>
+                <p>Hi {$_POST['first_name']} {$_POST['last_name']},</p>
+                <p>Your verification code is:</p>
+                <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
+                <p>Reference Number: <strong>{$reference_number}</strong></p>
+                <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
+                <p>This is a copy of the verification code sent to your email address.</p>
+                <br>
+                <p>– PDAO Helps, City of Sto. Tomas</p>
+            ";
+            sendResendEmail($_POST['email'], $emailSubject, $emailBody);
+        } catch (Exception $email_error) {
+            // Log Email error but don't stop the script
+            error_log("handleNewApplication Email Error: " . $email_error->getMessage());
+        }
+        // --- END FAULT-TOLERANT NOTIFICATIONS ---
         
         jsonResponse([
             'success' => true,
-            'message' => 'Application submitted successfully! Email verification sent to ' . $email,
+            'message' => 'Application submitted successfully! A verification code has been sent to your email.',
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,

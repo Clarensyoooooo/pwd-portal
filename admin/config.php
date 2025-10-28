@@ -7,11 +7,50 @@ function isAdminLoggedIn() {
     return isset($_SESSION['admin_user_id']);
 }
 
-function requireAdminLogin() {
+/**
+ * Requires admin login and checks for a single active session.
+ * This function will now log out any "old" sessions if a new one is started.
+ *
+ * @param PDO $pdo The database connection object.
+ */
+function requireAdminLogin($pdo) {
     if (!isAdminLoggedIn()) {
         header('Location: login.php');
         exit();
     }
+
+    // --- START: Single-Session Check ---
+    
+    // Check if the active session ID is even set in our session
+    if (!isset($_SESSION['active_session_id'])) {
+        session_destroy();
+        header('Location: login.php?error=session_expired');
+        exit();
+    }
+
+    try {
+        // Fetch the *only* valid session ID from the database
+        $stmt = $pdo->prepare("SELECT active_session_id FROM admin_users WHERE id = ?");
+        $stmt->execute([$_SESSION['admin_user_id']]);
+        $db_session_id = $stmt->fetchColumn();
+
+        // Compare the session ID in our cookie with the one in the DB
+        if (!$db_session_id || $db_session_id !== $_SESSION['active_session_id']) {
+            // If they don't match, this is an old/invalid session.
+            // A new login has occurred elsewhere.
+            session_destroy();
+            // Redirect with a message explaining why they were logged out
+            header('Location: login.php?error=multi_session');
+            exit();
+        }
+    } catch (PDOException $e) {
+        // If the DB check fails, log out for safety.
+        error_log("Session check database error: " . $e->getMessage());
+        session_destroy();
+        header('Location: login.php?error=db_error');
+        exit();
+    }
+    // --- END: Single-Session Check ---
 }
 
 function getCurrentAdmin($pdo) {

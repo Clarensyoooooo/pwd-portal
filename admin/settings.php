@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 
 $admin = getCurrentAdmin($pdo);
 $success_message = '';

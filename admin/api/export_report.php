@@ -1,6 +1,6 @@
 <?php
 require_once '../config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 requirePermission($pdo, 'reports.export');
 
 $report_type = $_GET['type'] ?? 'analytics';

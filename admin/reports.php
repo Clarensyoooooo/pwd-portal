@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 requirePermission($pdo, 'reports.view');
 
 $admin = getCurrentAdmin($pdo);

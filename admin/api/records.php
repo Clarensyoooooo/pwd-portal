@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-requireAdminLogin();
+requireAdminLogin($pdo);
 requirePermission($pdo, 'records.view');
 
 $admin = getCurrentAdmin($pdo);

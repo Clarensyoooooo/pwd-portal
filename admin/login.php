@@ -20,14 +20,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $admin = $stmt->fetch();
             
             if ($admin && password_verify($password, $admin['password_hash'])) {
+                
+                // --- START: SINGLE SESSION LOGIC ---
+                
+                // 1. Regenerate session ID for security and to get a new ID
+                session_regenerate_id(true); 
+                
+                // 2. Get the new, current session ID
+                $current_session_id = session_id();
+    
+                // 3. Set the session variables
                 $_SESSION['admin_user_id'] = $admin['id'];
                 $_SESSION['admin_username'] = $admin['username'];
                 $_SESSION['admin_name'] = $admin['full_name'];
                 $_SESSION['admin_role'] = $admin['role_name'];
+                $_SESSION['active_session_id'] = $current_session_id; // Store for checking
+
+                // 4. Update the database with the new active session ID AND last_login
+                // This invalidates all other sessions for this user.
+                $stmt = $pdo->prepare("
+                    UPDATE admin_users 
+                    SET active_session_id = ?, last_login = NOW() 
+                    WHERE id = ?
+                ");
+                $stmt->execute([$current_session_id, $admin['id']]);
                 
-                // Update last login
-                $stmt = $pdo->prepare("UPDATE admin_users SET last_login = NOW() WHERE id = ?");
-                $stmt->execute([$admin['id']]);
+                // --- END: SINGLE SESSION LOGIC ---
                 
                 // Log activity
                 logAdminActivity($pdo, 'login', 'auth');
@@ -35,9 +53,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: index.php');
                 exit();
             } else {
-                $error = 'Invalid username or password';
+                // Add a specific error for inactive accounts
+                if ($admin && !$admin['is_active']) {
+                    $error = 'Your account is inactive. Please contact an administrator.';
+                } else {
+                    $error = 'Invalid username or password';
+                }
             }
         } catch (PDOException $e) {
+            error_log("Login Error: " . $e->getMessage());
             $error = 'Login failed. Please try again.';
         }
     }

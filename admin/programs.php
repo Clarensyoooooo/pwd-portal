@@ -3,7 +3,7 @@ require_once 'config.php';
 require_once 'includes/header.php';
 require_once 'includes/sidebar.php';
 
-requireAdminLogin();
+requireAdminLogin($pdo);
 
 ?>
 
