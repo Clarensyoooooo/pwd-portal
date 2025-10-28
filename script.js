@@ -1456,6 +1456,10 @@ function toggleFAQ(element) {
   }
 }
 
+function openModal(modalId) {
+  document.getElementById(modalId).style.display = "block"
+}
+
 // Utility functions
 function closeModal(modalId) {
   document.getElementById(modalId).style.display = "none"
@@ -1731,5 +1735,170 @@ async function checkEmailAvailabilityForNewApplicant(email, inputElement) {
   } catch (error) {
     console.error("Error checking email:", error)
     return true
+  }
+}
+
+function openCommunityLoginModal() {
+  openModal("communityLoginModal")
+}
+
+function switchCommunityTab(tab) {
+    // Hide all tabs by setting display to none
+    document.getElementById("communityLoginTab").style.display = "none";
+    document.getElementById("communityRegisterTab").style.display = "none";
+    
+    // Remove active class from tabs and buttons
+    document.getElementById("communityLoginTab").classList.remove("active");
+    document.getElementById("communityRegisterTab").classList.remove("active");
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.classList.remove("active");
+    });
+
+    // Show selected tab
+    if (tab === "login") {
+        document.getElementById("communityLoginTab").style.display = "block"; // Show Login tab
+        document.getElementById("communityLoginTab").classList.add("active");
+        document.querySelectorAll(".tab-btn")[0].classList.add("active");
+    } else {
+        document.getElementById("communityRegisterTab").style.display = "block"; // Show Register tab
+        document.getElementById("communityRegisterTab").classList.add("active");
+        document.querySelectorAll(".tab-btn")[1].classList.add("active");
+    }
+}
+
+async function verifyPWDRecord() {
+  const pwdRecordNumber = document.getElementById("pwdRecordNumber").value.trim()
+
+  if (!pwdRecordNumber) {
+    showNotification("Please enter your PWD record number", "error")
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append("action", "verify_pwd_record")
+    formData.append("pwd_record_number", pwdRecordNumber)
+
+    const response = await fetch("community/auth.php", {
+      method: "POST",
+      body: formData,
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      const record = result.record
+
+      // Display verified information
+      document.getElementById("verifiedName").textContent = record.first_name + " " + record.last_name
+      document.getElementById("verifiedEmail").textContent = record.email
+      document.getElementById("verifiedStatus").textContent =
+        record.pwd_id_status.charAt(0).toUpperCase() + record.pwd_id_status.slice(1)
+      document.getElementById("verifiedPWDRecordId").value = record.id
+
+      // Show password fields
+      document.getElementById("pwdRecordInfo").style.display = "block"
+      document.getElementById("pwdRecordNumber").disabled = true
+
+      showNotification("PWD record verified successfully!", "success")
+    } else {
+      showNotification(result.error || "Verification failed", "error")
+    }
+  } catch (error) {
+    console.error("Error verifying PWD record:", error)
+    showNotification("Error verifying PWD record", "error")
+  }
+}
+
+async function handleCommunityLogin(event) {
+  event.preventDefault()
+
+  const email = document.getElementById("communityEmail").value.trim()
+  const password = document.getElementById("communityPassword").value
+
+  if (!email || !password) {
+    showNotification("Please enter email and password", "error")
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append("action", "login_community")
+    formData.append("email", email)
+    formData.append("password", password)
+
+    const response = await fetch("community/auth.php", {
+      method: "POST",
+      body: formData,
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      showNotification("Login successful! Redirecting...", "success")
+      setTimeout(() => {
+        window.location.href = "community/dashboard.php"
+      }, 1500)
+    } else {
+      showNotification(result.error || "Login failed", "error")
+    }
+  } catch (error) {
+    console.error("Error logging in:", error)
+    showNotification("Error logging in", "error")
+  }
+}
+
+async function handleCommunityRegister(event) {
+  event.preventDefault()
+
+  const pwdRecordId = document.getElementById("verifiedPWDRecordId").value
+  const password = document.getElementById("communityNewPassword").value
+  const confirmPassword = document.getElementById("communityConfirmPassword").value
+
+  if (!pwdRecordId) {
+    showNotification("Please verify your PWD record first", "error")
+    return
+  }
+
+  if (!password || !confirmPassword) {
+    showNotification("Please enter and confirm your password", "error")
+    return
+  }
+
+  if (password !== confirmPassword) {
+    showNotification("Passwords do not match", "error")
+    return
+  }
+
+  if (password.length < 8) {
+    showNotification("Password must be at least 8 characters", "error")
+    return
+  }
+
+  try {
+    const formData = new FormData()
+    formData.append("action", "register_community")
+    formData.append("pwd_record_id", pwdRecordId)
+    formData.append("password", password)
+    formData.append("confirm_password", confirmPassword)
+
+    const response = await fetch("community/auth.php", {
+      method: "POST",
+      body: formData,
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      showNotification("Account created successfully! Redirecting...", "success")
+      setTimeout(() => {
+        window.location.href = "community/dashboard.php"
+      }, 1500)
+    } else {
+      showNotification(result.error || "Registration failed", "error")
+    }
+  } catch (error) {
+    console.error("Error registering:", error)
+    showNotification("Error creating account", "error")
   }
 }

@@ -56,6 +56,8 @@ require_once 'config.php';
                     <li><a href="#organizations">Organizations</a></li>
                     <li><a href="#about">About Us</a></li>
                     <li><a href="#contact">Contact</a></li>
+                    <!-- Added community login/register buttons -->
+                    <li><a href="#" onclick="openCommunityLoginModal()" class="nav-link-btn"><i class="fas fa-sign-in-alt"></i> Community Login</a></li>
                 </ul>
                 <div class="mobile-menu-toggle">
                     <span></span>
@@ -961,6 +963,65 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
             </div>
             <div id="programModalContent" class="program-modal-body">
                 <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Added Community Login Modal -->
+    <div id="communityLoginModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Community Member Login</h2>
+                <span class="close" onclick="closeModal('communityLoginModal')">&times;</span>
+            </div>
+            <div class="community-login-tabs">
+                <button class="tab-btn active" onclick="switchCommunityTab('login')">Login</button>
+                <button class="tab-btn" onclick="switchCommunityTab('register')">Create Account</button>
+            </div>
+
+            <!-- Login Tab -->
+            <div id="communityLoginTab" class="community-tab active">
+                <form id="communityLoginForm" onsubmit="handleCommunityLogin(event)">
+                    <div class="form-group">
+                        <label for="communityEmail">Email Address *</label>
+                        <input type="email" id="communityEmail" name="email" required placeholder="Enter your email">
+                    </div>
+                    <div class="form-group">
+                        <label for="communityPassword">Password *</label>
+                        <input type="password" id="communityPassword" name="password" required placeholder="Enter your password">
+                    </div>
+                    <button type="submit" class="btn-primary btn-block">Login to Community</button>
+                </form>
+            </div>
+
+            <!-- Register Tab -->
+            <div id="communityRegisterTab" class="community-tab" style="display: none;">
+                <form id="communityRegisterForm" onsubmit="handleCommunityRegister(event)">
+                    <div class="form-group">
+                        <label for="pwdRecordNumber">PWD Record Number *</label>
+                        <input type="text" id="pwdRecordNumber" name="pwd_record_number" required placeholder="e.g., PWD-2024-001">
+                        <small>Enter your PWD record number to verify your identity</small>
+                    </div>
+                    <button type="button" class="btn-secondary btn-block" onclick="verifyPWDRecord()">Verify Record</button>
+
+                    <div id="pwdRecordInfo" style="display: none; margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 6px;">
+                        <h4>Verified Information</h4>
+                        <p><strong>Name:</strong> <span id="verifiedName"></span></p>
+                        <p><strong>Email:</strong> <span id="verifiedEmail"></span></p>
+                        <p><strong>Status:</strong> <span id="verifiedStatus"></span></p>
+
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label for="communityNewPassword">Create Password *</label>
+                            <input type="password" id="communityNewPassword" name="password" required placeholder="At least 8 characters">
+                        </div>
+                        <div class="form-group">
+                            <label for="communityConfirmPassword">Confirm Password *</label>
+                            <input type="password" id="communityConfirmPassword" name="confirm_password" required placeholder="Confirm your password">
+                        </div>
+                        <input type="hidden" id="verifiedPWDRecordId" name="pwd_record_id">
+                        <button type="submit" class="btn-primary btn-block">Create Community Account</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

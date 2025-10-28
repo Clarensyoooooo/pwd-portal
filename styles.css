@@ -2271,3 +2271,86 @@ body {
     font-size: 1.5rem;
   }
 }
+
+
+/* Added community login modal styles */
+.community-login-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #eee;
+}
+
+.tab-btn {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #666;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.tab-btn.active {
+  color: #2c5aa0;
+  border-bottom-color: #2c5aa0;
+}
+
+.tab-btn:hover {
+  color: #2c5aa0;
+}
+
+.community-tab {
+  display: none;
+}
+
+.community-tab.active {
+  display: block;
+}
+
+.community-tab .form-group {
+  margin-bottom: 15px;
+}
+
+.community-tab small {
+  display: block;
+  color: #999;
+  font-size: 0.85em;
+  margin-top: 4px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+#pwdRecordInfo {
+  border: 1px solid #b3d9ff;
+  background: #f0f8ff;
+}
+
+#pwdRecordInfo h4 {
+  color: #2c5aa0;
+  margin-top: 0;
+}
+
+#pwdRecordInfo p {
+  margin: 8px 0;
+  color: #333;
+}
+
+#pwdRecordInfo strong {
+  color: #2c5aa0;
+}
+
+.nav-link-btn {
+  background: #2c5aa0 !important;
+  color: white !important;
+  padding: 8px 16px !important;
+  border-radius: 5px !important;
+  transition: all 0.3s !important;
+}
+
+.nav-link-btn:hover {
+  background: #1e3a8a !important;
+}

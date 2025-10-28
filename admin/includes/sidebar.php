@@ -90,6 +90,15 @@
             <li class="nav-item">
                 <a href="users.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : ''; ?>">
                     <i class="fas fa-users"></i>
+                    <span>Staff Management</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (hasPermission($pdo, 'community.view')): ?>
+            <li class="nav-item">
+                <a href="manage_community_users.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_community_users.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-users-cog"></i>
                     <span>User Management</span>
                 </a>
             </li>
