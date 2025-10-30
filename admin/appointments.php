@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Manila');
 require_once 'config.php';
 requireAdminLogin($pdo);
 requirePermission($pdo, 'appointments.view');
@@ -408,7 +409,7 @@ function canStartInterview($appointment) {
 
 // Helper function to check if renewal/update can be marked as completed
 function canMarkCompleted($appointment) {
-    return in_array($appointment['appointment_type'], ['renewal', 'update_information'])
+    return in_array($appointment['appointment_type'], ['renewal', 'update_information', 'update'])
         && $appointment['status'] === 'confirmed';
 }
 

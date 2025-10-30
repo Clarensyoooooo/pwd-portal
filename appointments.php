@@ -630,7 +630,7 @@ function handleSMSVerification() {
         }
         
         if ($appointment['sms_verified_at']) {
-            jsonResponse(['error' => 'SMS already verified'], 400);
+            jsonResponse(['error' => 'Email already verified'], 400);
         }
         
         // Update verification status and confirm appointment
@@ -643,11 +643,11 @@ function handleSMSVerification() {
         
         jsonResponse([
             'success' => true,
-            'message' => 'SMS verified successfully! Your appointment is now confirmed.'
+            'message' => 'Email verified successfully! Your appointment is now confirmed.'
         ]);
         
     } catch (PDOException $e) {
-        jsonResponse(['error' => 'SMS verification failed: ' . $e->getMessage()], 500);
+        jsonResponse(['error' => 'Email verification failed: ' . $e->getMessage()], 500);
     }
 }
 ?>
