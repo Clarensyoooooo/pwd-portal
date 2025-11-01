@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Manila');
 require_once 'config.php';
 requireAdminLogin($pdo);
 requirePermission($pdo, 'reports.view');
@@ -201,7 +202,14 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['employment_distribution'] = $stmt->fetchAll();
     
-    $date_format = $time_period == 'yearly' ? '%Y' : ($time_period == 'quarterly' ? '%Y-Q%q' : '%Y-%m');
+    $date_format = '%Y-%m'; // Default to monthly
+    if ($time_period == 'daily') {
+        $date_format = '%Y-%m-%d';
+    } elseif ($time_period == 'yearly') {
+        $date_format = '%Y';
+    } elseif ($time_period == 'quarterly') {
+        $date_format = '%Y-Q%q';
+    }
     $stmt = $pdo->prepare("
         SELECT 
             DATE_FORMAT(created_at, '{$date_format}') as period,
@@ -1298,6 +1306,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
                     <div class="form-group">
                         <label for="time_period">Time Period</label>
                         <select name="time_period" id="time_period" class="form-control">
+                            <option value="daily" <?php echo $time_period == 'daily' ? 'selected' : ''; ?>>Daily</option>
                             <option value="monthly" <?php echo $time_period == 'monthly' ? 'selected' : ''; ?>>Monthly</option>
                             <option value="quarterly" <?php echo $time_period == 'quarterly' ? 'selected' : ''; ?>>Quarterly</option>
                             <option value="yearly" <?php echo $time_period == 'yearly' ? 'selected' : ''; ?>>Yearly</option>

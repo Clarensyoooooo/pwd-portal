@@ -12,65 +12,107 @@ if (isset($_GET['export']) && $_GET['export'] == 'pdf') {
 
     try {
         // --- 1. COPY FILTER LOGIC (from your CSV export) ---
-        $status_filter = $_GET['status'] ?? '';
-        $barangay_filter = $_GET['barangay'] ?? '';
-        $disability_filter = $_GET['disability_type'] ?? '';
-        $gender_filter = $_GET['gender'] ?? '';
-        $age_group_filter = $_GET['age_group'] ?? '';
-        $employment_filter = $_GET['employment_status'] ?? '';
-        $search = $_GET['search'] ?? '';
-        
-        $where_conditions = [];
-        $params = [];
-        
-        if ($status_filter) {
-            if ($status_filter === 'expired') {
-                $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
-            } else {
-                $where_conditions[] = "pr.status = ?";
-                $params[] = $status_filter;
-            }
-        }
-        if ($barangay_filter) {
-            $where_conditions[] = "pr.barangay = ?";
-            $params[] = $barangay_filter;
-        }
-        if ($disability_filter) {
-            $where_conditions[] = "pr.disability_type = ?";
-            $params[] = $disability_filter;
-        }
-        if ($gender_filter) {
-            $where_conditions[] = "pr.gender = ?";
-            $params[] = $gender_filter;
-        }
-        if ($employment_filter) {
-            $where_conditions[] = "pr.employment_status = ?";
-            $params[] = $employment_filter;
-        }
-        if ($age_group_filter) {
-            switch ($age_group_filter) {
-                case 'children':
-                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
-                    break;
-                case 'adults':
-                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
-                    break;
-                case 'seniors':
-                    $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
-                    break;
-            }
-        }
-        if ($search) {
-            $where_conditions[] = "(pr.first_name LIKE ? OR pr.last_name LIKE ? OR pr.pwd_id_number LIKE ? OR pr.email_address LIKE ? OR pr.phone_number LIKE ?)";
-            $search_param = "%{$search}%";
-            $params[] = $search_param;
-            $params[] = $search_param;
-            $params[] = $search_param;
-            $params[] = $search_param;
-            $params[] = $search_param;
-        }
-        
-        $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+       // Get records with enhanced filters
+$status_filter = $_GET['status'] ?? '';
+$barangay_filter = $_GET['barangay'] ?? '';
+$disability_filter = $_GET['disability_type'] ?? '';
+$gender_filter = $_GET['gender'] ?? '';
+$age_group_filter = $_GET['age_group'] ?? '';
+$employment_filter = $_GET['employment_status'] ?? '';
+$location_filter = $_GET['location'] ?? ''; // <-- 1. Get the new filter
+$search = $_GET['search'] ?? '';
+$page = max(1, intval($_GET['page'] ?? 1));
+$per_page = 20;
+$offset = ($page - 1) * $per_page;
+
+// --- INITIALIZE ARRAYS ONCE ---
+$where_conditions = [];
+$params = [];
+
+if ($status_filter) {
+    if ($status_filter === 'expired') {
+        $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
+    } else {
+        $where_conditions[] = "pr.status = ?";
+        $params[] = $status_filter;
+    }
+}
+
+if ($barangay_filter) {
+    $where_conditions[] = "pr.barangay = ?";
+    $params[] = $barangay_filter;
+}
+
+if ($disability_filter) {
+    $where_conditions[] = "pr.disability_type = ?";
+    $params[] = $disability_filter;
+}
+
+if ($gender_filter) {
+    $where_conditions[] = "pr.gender = ?";
+    $params[] = $gender_filter;
+}
+
+if ($employment_filter) {
+    $where_conditions[] = "pr.employment_status = ?";
+    $params[] = $employment_filter;
+}
+
+if ($age_group_filter) {
+    switch ($age_group_filter) {
+        case 'children':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
+            break;
+        case 'adults':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
+            break;
+        case 'seniors':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
+            break;
+    }
+}
+
+// --- 2. ADD YOUR NEW FILTER LOGIC HERE ---
+if ($location_filter === 'mapped') {
+    $where_conditions[] = "pr.latitude IS NOT NULL AND pr.longitude IS NOT NULL";
+} elseif ($location_filter === 'missing') {
+    $where_conditions[] = "(pr.latitude IS NULL OR pr.longitude IS NULL)";
+}
+// --- END OF NEW FILTER LOGIC ---
+
+
+if ($search) {
+    // --- 3. REMOVE THE LINES THAT RESET THE ARRAYS ---
+    // $where_conditions = [];  <-- DELETE THIS
+    // $params = [];           <-- DELETE THIS
+            
+    $full_name_search = "CONCAT_WS(' ', pr.first_name, pr.middle_name, pr.last_name)";
+    
+    $where_conditions[] = "(
+        pr.first_name LIKE ?
+        OR pr.last_name LIKE ?
+        OR {$full_name_search} LIKE ?
+        OR pr.pwd_id_number LIKE ?
+        OR pr.email_address LIKE ?
+        OR pr.phone_number LIKE ?
+        OR pr.barangay LIKE ?
+        OR pr.disability_type LIKE ?
+    )";
+    
+    $search_param = "%{$search}%";
+    
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+}
+
+// This will now correctly include ALL filters
+$where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 
         // --- 2. GET DATA (from your CSV export) ---
         $stmt = $pdo->prepare("
@@ -217,72 +259,107 @@ if (isset($_GET['export']) && $_GET['export'] == '1') {
     requirePermission($pdo, 'records.export');
     
     // Get filter parameters
-    $status_filter = $_GET['status'] ?? '';
-    $barangay_filter = $_GET['barangay'] ?? '';
-    $disability_filter = $_GET['disability_type'] ?? '';
-    $gender_filter = $_GET['gender'] ?? '';
-    $age_group_filter = $_GET['age_group'] ?? '';
-    $employment_filter = $_GET['employment_status'] ?? '';
-    $search = $_GET['search'] ?? '';
-    
-    // Build WHERE conditions
-    $where_conditions = [];
-    $params = [];
-    
-   if ($status_filter) {
-        if ($status_filter === 'expired') {
-            $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
-        } else {
-            $where_conditions[] = "pr.status = ?";
-            $params[] = $status_filter;
-        }
+    // Get records with enhanced filters
+$status_filter = $_GET['status'] ?? '';
+$barangay_filter = $_GET['barangay'] ?? '';
+$disability_filter = $_GET['disability_type'] ?? '';
+$gender_filter = $_GET['gender'] ?? '';
+$age_group_filter = $_GET['age_group'] ?? '';
+$employment_filter = $_GET['employment_status'] ?? '';
+$location_filter = $_GET['location'] ?? ''; // <-- 1. Get the new filter
+$search = $_GET['search'] ?? '';
+$page = max(1, intval($_GET['page'] ?? 1));
+$per_page = 20;
+$offset = ($page - 1) * $per_page;
+
+// --- INITIALIZE ARRAYS ONCE ---
+$where_conditions = [];
+$params = [];
+
+if ($status_filter) {
+    if ($status_filter === 'expired') {
+        $where_conditions[] = "pr.status = 'issued' AND pr.expiry_date < CURDATE()";
+    } else {
+        $where_conditions[] = "pr.status = ?";
+        $params[] = $status_filter;
     }
-    
-    if ($barangay_filter) {
-        $where_conditions[] = "pr.barangay = ?";
-        $params[] = $barangay_filter;
+}
+
+if ($barangay_filter) {
+    $where_conditions[] = "pr.barangay = ?";
+    $params[] = $barangay_filter;
+}
+
+if ($disability_filter) {
+    $where_conditions[] = "pr.disability_type = ?";
+    $params[] = $disability_filter;
+}
+
+if ($gender_filter) {
+    $where_conditions[] = "pr.gender = ?";
+    $params[] = $gender_filter;
+}
+
+if ($employment_filter) {
+    $where_conditions[] = "pr.employment_status = ?";
+    $params[] = $employment_filter;
+}
+
+if ($age_group_filter) {
+    switch ($age_group_filter) {
+        case 'children':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
+            break;
+        case 'adults':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
+            break;
+        case 'seniors':
+            $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
+            break;
     }
+}
+
+// --- 2. ADD YOUR NEW FILTER LOGIC HERE ---
+if ($location_filter === 'mapped') {
+    $where_conditions[] = "pr.latitude IS NOT NULL AND pr.longitude IS NOT NULL";
+} elseif ($location_filter === 'missing') {
+    $where_conditions[] = "(pr.latitude IS NULL OR pr.longitude IS NULL)";
+}
+// --- END OF NEW FILTER LOGIC ---
+
+
+if ($search) {
+    // --- 3. REMOVE THE LINES THAT RESET THE ARRAYS ---
+    // $where_conditions = [];  <-- DELETE THIS
+    // $params = [];           <-- DELETE THIS
+            
+    $full_name_search = "CONCAT_WS(' ', pr.first_name, pr.middle_name, pr.last_name)";
     
-    if ($disability_filter) {
-        $where_conditions[] = "pr.disability_type = ?";
-        $params[] = $disability_filter;
-    }
+    $where_conditions[] = "(
+        pr.first_name LIKE ?
+        OR pr.last_name LIKE ?
+        OR {$full_name_search} LIKE ?
+        OR pr.pwd_id_number LIKE ?
+        OR pr.email_address LIKE ?
+        OR pr.phone_number LIKE ?
+        OR pr.barangay LIKE ?
+        OR pr.disability_type LIKE ?
+    )";
     
-    if ($gender_filter) {
-        $where_conditions[] = "pr.gender = ?";
-        $params[] = $gender_filter;
-    }
+    $search_param = "%{$search}%";
     
-    if ($employment_filter) {
-        $where_conditions[] = "pr.employment_status = ?";
-        $params[] = $employment_filter;
-    }
-    
-    if ($age_group_filter) {
-        switch ($age_group_filter) {
-            case 'children':
-                $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) < 18";
-                break;
-            case 'adults':
-                $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) BETWEEN 18 AND 59";
-                break;
-            case 'seniors':
-                $where_conditions[] = "TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) >= 60";
-                break;
-        }
-    }
-    
-    if ($search) {
-        $where_conditions[] = "(pr.first_name LIKE ? OR pr.last_name LIKE ? OR pr.pwd_id_number LIKE ? OR pr.email_address LIKE ? OR pr.phone_number LIKE ?)";
-        $search_param = "%{$search}%";
-        $params[] = $search_param;
-        $params[] = $search_param;
-        $params[] = $search_param;
-        $params[] = $search_param;
-        $params[] = $search_param;
-    }
-    
-    $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+}
+
+// This will now correctly include ALL filters
+$where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
     
     // Set headers for CSV download
     header('Content-Type: text/csv; charset=utf-8');
@@ -446,17 +523,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get records with enhanced filters
+// Get records with enhanced filters
 $status_filter = $_GET['status'] ?? '';
 $barangay_filter = $_GET['barangay'] ?? '';
 $disability_filter = $_GET['disability_type'] ?? '';
 $gender_filter = $_GET['gender'] ?? '';
 $age_group_filter = $_GET['age_group'] ?? '';
 $employment_filter = $_GET['employment_status'] ?? '';
+$location_filter = $_GET['location'] ?? ''; // <-- 1. Get the new filter
 $search = $_GET['search'] ?? '';
 $page = max(1, intval($_GET['page'] ?? 1));
 $per_page = 20;
 $offset = ($page - 1) * $per_page;
 
+// --- INITIALIZE ARRAYS ONCE ---
 $where_conditions = [];
 $params = [];
 
@@ -503,9 +583,38 @@ if ($age_group_filter) {
     }
 }
 
+// --- 2. ADD YOUR NEW FILTER LOGIC HERE ---
+if ($location_filter === 'mapped') {
+    $where_conditions[] = "pr.latitude IS NOT NULL AND pr.longitude IS NOT NULL";
+} elseif ($location_filter === 'missing') {
+    $where_conditions[] = "(pr.latitude IS NULL OR pr.longitude IS NULL)";
+}
+// --- END OF NEW FILTER LOGIC ---
+
+
 if ($search) {
-    $where_conditions[] = "(pr.first_name LIKE ? OR pr.last_name LIKE ? OR pr.pwd_id_number LIKE ? OR pr.email_address LIKE ? OR pr.phone_number LIKE ?)";
+    // --- 3. REMOVE THE LINES THAT RESET THE ARRAYS ---
+    // $where_conditions = [];  <-- DELETE THIS
+    // $params = [];           <-- DELETE THIS
+            
+    $full_name_search = "CONCAT_WS(' ', pr.first_name, pr.middle_name, pr.last_name)";
+    
+    $where_conditions[] = "(
+        pr.first_name LIKE ?
+        OR pr.last_name LIKE ?
+        OR {$full_name_search} LIKE ?
+        OR pr.pwd_id_number LIKE ?
+        OR pr.email_address LIKE ?
+        OR pr.phone_number LIKE ?
+        OR pr.barangay LIKE ?
+        OR pr.disability_type LIKE ?
+    )";
+    
     $search_param = "%{$search}%";
+    
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
     $params[] = $search_param;
@@ -513,6 +622,7 @@ if ($search) {
     $params[] = $search_param;
 }
 
+// This will now correctly include ALL filters
 $where_clause = $where_conditions ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
 
 // Get total count
@@ -748,11 +858,14 @@ function handleGetRecordDetails() {
     try {
         $stmt = $pdo->prepare("
             SELECT pr.*, au1.full_name as created_by_name, au2.full_name as validated_by_name, au3.full_name as issued_by_name,
-                   TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age
+                   TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age,
+                   ir.documents_verified -- <-- ADD THIS LINE
             FROM pwd_records pr
             LEFT JOIN admin_users au1 ON pr.created_by = au1.id
             LEFT JOIN admin_users au2 ON pr.validated_by = au2.id
             LEFT JOIN admin_users au3 ON pr.issued_by = au3.id
+            -- ADD THIS JOIN (It links the PWD record back to its original interview)
+            LEFT JOIN interview_records ir ON pr.appointment_id = ir.appointment_id 
             WHERE pr.id = ?
         ");
         $stmt->execute([$record_id]);
@@ -777,29 +890,411 @@ function handleCreateDirectRecord() {
     requirePermission($pdo, 'records.create');
     
     try {
-        $pdo->beginTransaction();
-        
-         // Generate a more robust unique PWD ID
-        $year = date('Y');
-        // This creates a short, random, and highly unique identifier
-        $unique_part = substr(strtoupper(bin2hex(random_bytes(4))), 0, 6); 
-        $pwd_id = "PWD-{$year}-" . $unique_part;
-        // --- END OF NEW CODE ---
-        
-        // Get coordinates if provided
-        $latitude = !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null;
-        $longitude = !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null;
-        
-        // Validate required fields
-        if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['barangay'])) {
-            throw new Exception('Required fields are missing');
+        // --- 1. VALIDATION BLOCK (Copied from interview.php) ---
+        $errors = [];
+
+        // Field: first_name (Required, Text)
+        $first_name = trim($_POST['first_name'] ?? '');
+        if (empty($first_name)) {
+            $errors[] = 'First Name is required.';
+        } elseif (strlen($first_name) > 100) {
+            $errors[] = 'First Name is too long (max 100 chars).';
+        }
+
+        // Field: last_name (Required, Text)
+        $last_name = trim($_POST['last_name'] ?? '');
+        if (empty($last_name)) {
+            $errors[] = 'Last Name is required.';
+        } elseif (strlen($last_name) > 100) {
+            $errors[] = 'Last Name is too long (max 100 chars).';
+        }
+
+        // Field: middle_name (Optional, Text)
+        $middle_name = trim($_POST['middle_name'] ?? '');
+        if (empty($middle_name)) {
+            $middle_name = null; // Set to NULL if empty
+        } elseif (strlen($middle_name) > 100) {
+            $errors[] = 'Middle Name is too long (max 100 chars).';
+        }
+
+        // Field: suffix (Optional, Whitelist)
+        $allowed_suffixes = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV']; // '' is for "None"
+        $suffix = trim($_POST['suffix'] ?? '');
+        if (!in_array($suffix, $allowed_suffixes)) {
+            $errors[] = 'Invalid Suffix selected.';
+        }
+        if (empty($suffix)) {
+            $suffix = null; // Set to NULL if "None"
+        }
+
+        // Field: date_of_birth (Required, Date, Past)
+        $dob_string = trim($_POST['date_of_birth'] ?? '');
+        if (empty($dob_string)) {
+            $errors[] = 'Date of Birth is required.';
+        } else {
+            $date_format = 'Y-m-d';
+            $d = DateTime::createFromFormat($date_format, $dob_string);
+            // Check if format is correct AND it's a real date (e.g., no 2025-02-31)
+            if (!$d || $d->format($date_format) !== $dob_string) {
+                $errors[] = 'Invalid Date of Birth format. Please use YYYY-MM-DD.';
+            } elseif ($d > new DateTime()) {
+                // Check if the date is in the future
+                $errors[] = 'Date of Birth cannot be in the future.';
+            }
+        }
+
+        // Field: place_of_birth (Optional, Text)
+        $place_of_birth = trim($_POST['place_of_birth'] ?? '');
+        if (empty($place_of_birth)) {
+            $place_of_birth = null;
+        } elseif (strlen($place_of_birth) > 255) {
+            $errors[] = 'Place of Birth is too long (max 255 chars).';
+        }
+
+        // Field: gender (Required, Whitelist)
+        $allowed_genders = ['Male', 'Female', 'Other'];
+        $gender = trim($_POST['gender'] ?? '');
+        if (empty($gender)) {
+            $errors[] = 'Gender is required.';
+        } elseif (!in_array($gender, $allowed_genders)) {
+            $errors[] = 'Invalid Gender selected.';
         }
         
-        // Create PWD record directly (no appointment_id) - FIXED parameter count
+        // Field: civil_status (Required, Whitelist)
+        $allowed_civil_statuses = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
+        $civil_status = trim($_POST['civil_status'] ?? '');
+        if (empty($civil_status)) {
+            $errors[] = 'Civil Status is required.';
+        } elseif (!in_array($civil_status, $allowed_civil_statuses)) {
+            $errors[] = 'Invalid Civil Status selected.';
+        }
+
+        // --- 1b. VALIDATION BLOCK (Address Information) ---
+
+        // Field: address_line1 (Required, Text)
+        $address_line1 = trim($_POST['address_line1'] ?? '');
+        if (empty($address_line1)) {
+            $errors[] = 'Address Line 1 is required.';
+        } elseif (strlen($address_line1) > 255) {
+            $errors[] = 'Address Line 1 is too long (max 255 chars).';
+        }
+
+        // Field: address_line2 (Optional, Text)
+        $address_line2 = trim($_POST['address_line2'] ?? '');
+        if (empty($address_line2)) {
+            $address_line2 = null;
+        } elseif (strlen($address_line2) > 255) {
+            $errors[] = 'Address Line 2 is too long (max 255 chars).';
+        }
+
+        // Fields: barangay_id OR barangay_manual (One is required)
+        $selected_barangay_id = $_POST['barangay_id'] ?? '';
+        $barangay_manual = trim($_POST['barangay_manual'] ?? '');
+        $barangay_name = ''; // This will hold our final, clean value
+        $barangay_info = null;
+
+        if (!empty($selected_barangay_id)) {
+            // User selected from dropdown, this is preferred.
+            $barangay_stmt = $pdo->prepare("SELECT * FROM barangay_boundaries WHERE id = ?");
+            $barangay_stmt->execute([$selected_barangay_id]);
+            $barangay_info = $barangay_stmt->fetch();
+            
+            if (!$barangay_info) {
+                $errors[] = 'Invalid Barangay selected.';
+            } else {
+                $barangay_name = $barangay_info['barangay_name'];
+            }
+        } elseif (!empty($barangay_manual)) {
+            // User entered manually
+            $barangay_name = $barangay_manual;
+            if (strlen($barangay_name) > 100) {
+                 $errors[] = 'Barangay (Manual Entry) is too long (max 100 chars).';
+            }
+        } else {
+            // Neither was provided
+            $barangay_name = trim($_POST['barangay'] ?? ''); // Fallback for manual entry in create modal
+            if(empty($barangay_name)) {
+                $errors[] = 'Barangay is required. Please select from the list or enter manually.';
+            }
+        }
+
+        // Fields: city_municipality & province (Required, Text)
+        $city_municipality = $barangay_info['city_municipality'] ?? $_POST['city_municipality'] ?? 'Santo Tomas City';
+        $province = $barangay_info['province'] ?? $_POST['province'] ?? 'Batangas';
+        
+        if (empty($city_municipality)) {
+            $errors[] = 'City/Municipality is required.';
+        }
+        if (empty($province)) {
+            $errors[] = 'Province is required.';
+        }
+
+        // Field: postal_code (Optional, 4-digit number)
+        $postal_code = trim($_POST['postal_code'] ?? '');
+        if (empty($postal_code)) {
+            $postal_code = null;
+        } elseif (!ctype_digit($postal_code) || strlen($postal_code) != 4) {
+            $errors[] = 'Postal Code must be a 4-digit number.';
+        }
+
+       // Fields: latitude & longitude (Optional for direct create)
+        $latitude_str = trim($_POST['latitude'] ?? '');
+        $longitude_str = trim($_POST['longitude'] ?? '');
+        $latitude = null;
+        $longitude = null;
+
+        if (!empty($latitude_str) && !empty($longitude_str)) {
+            if (!is_numeric($latitude_str) || !is_numeric($longitude_str)) {
+                $errors[] = 'Latitude and Longitude must be valid numbers (from map).';
+            } else {
+                $latitude = floatval($latitude_str);
+                $longitude = floatval($longitude_str);
+            }
+        }
+
+        // --- 1c. VALIDATION BLOCK (Contact Information) ---
+
+        // Field: phone_number (Required, Text)
+        $phone_number = trim($_POST['phone_number'] ?? '');
+        if (empty($phone_number)) {
+            $errors[] = 'Phone Number is required.';
+        } elseif (strlen($phone_number) > 20) {
+            $errors[] = 'Phone Number is too long (max 20 chars).';
+        }
+        
+        // Field: email_address (Optional, Email Format)
+        $email_address = trim($_POST['email_address'] ?? '');
+        if (empty($email_address)) {
+            $email_address = null;
+        } elseif (!filter_var($email_address, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Email Address is not in a valid format.';
+        } elseif (strlen($email_address) > 100) {
+             $errors[] = 'Email Address is too long (max 100 chars).';
+        }
+
+       // --- ADD THIS NEW BLOCK (replaces the old one) ---
+        // Field: email_address (Check for Duplicates, logic from appointments.php)
+        if (!empty($email_address)) {
+            
+            // 1. Check if email is in the master PWD records
+            $stmt = $pdo->prepare("SELECT id FROM pwd_records WHERE email_address = ?");
+            $stmt->execute([$email_address]);
+            if ($stmt->fetch()) {
+                $errors[] = 'This Email Address is already registered in the PWD master records.';
+            } else {
+                // 2. If not in master, check if it's in 'users' with a pending/confirmed appointment
+                $userStmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+                $userStmt->execute([$email_address]);
+                $user = $userStmt->fetch();
+
+                if ($user) {
+                    $apptStmt = $pdo->prepare("
+                        SELECT id FROM appointments 
+                        WHERE user_id = ? AND status IN ('pending', 'confirmed')
+                    ");
+                    $apptStmt->execute([$user['id']]);
+                    if ($apptStmt->fetch()) {
+                        $errors[] = 'This Email Address is tied to a pending/confirmed appointment. Please resolve that appointment first.';
+                    }
+                }
+            }
+        }
+        // --- END OF NEW BLOCK ---
+
+        // --- 1d. VALIDATION BLOCK (Disability Information) ---
+
+        // Field: disability_type (Required, Whitelist)
+        $allowed_disability_types = [
+            'Physical Disability', 'Visual Impairment', 'Hearing Impairment', 
+            'Intellectual Disability', 'Psychosocial Disability', 
+            'Multiple Disabilities', 'Other'
+        ];
+        $disability_type = trim($_POST['disability_type'] ?? '');
+        if (empty($disability_type)) {
+            $errors[] = 'Type of Disability is required.';
+        } elseif (!in_array($disability_type, $allowed_disability_types)) {
+            $errors[] = 'Invalid Type of Disability selected.';
+        }
+
+        // Field: disability_cause (Optional, Whitelist)
+        $allowed_disability_causes = ['', 'Congenital', 'Accident', 'Illness', 'Injury', 'Other']; // '' for "Select Cause"
+        $disability_cause = trim($_POST['disability_cause'] ?? '');
+        if (!in_array($disability_cause, $allowed_disability_causes)) {
+            $errors[] = 'Invalid Cause of Disability selected.';
+        }
+        if (empty($disability_cause)) {
+            $disability_cause = null;
+        }
+
+        // Field: disability_description (Optional, Textarea)
+        $disability_description = trim($_POST['disability_description'] ?? '');
+        if (empty($disability_description)) {
+            $disability_description = null;
+        } elseif (strlen($disability_description) > 1000) { // 1000 chars for a textarea
+            $errors[] = 'Disability Description is too long (max 1000 chars).';
+        }
+
+        // Field: assistive_device (Optional, Text)
+        $assistive_device = trim($_POST['assistive_device'] ?? '');
+        if (empty($assistive_device)) {
+            $assistive_device = null;
+        } elseif (strlen($assistive_device) > 255) {
+            $errors[] = 'Assistive Devices field is too long (max 255 chars).';
+        }
+
+        // --- 1e. VALIDATION BLOCK (Medical Information) ---
+
+        // Field: medical_condition (Optional, Textarea)
+        $medical_condition = trim($_POST['medical_condition'] ?? '');
+        if (empty($medical_condition)) {
+            $medical_condition = null;
+        } elseif (strlen($medical_condition) > 1000) {
+            $errors[] = 'Medical Condition description is too long (max 1000 chars).';
+        }
+
+        // Field: medication (Optional, Textarea)
+        $medication = trim($_POST['medication'] ?? '');
+        if (empty($medication)) {
+            $medication = null;
+        } elseif (strlen($medication) > 1000) {
+            $errors[] = 'Current Medications list is too long (max 1000 chars).';
+        }
+
+        // Field: attending_physician (Optional, Text)
+        $attending_physician = trim($_POST['attending_physician'] ?? '');
+        if (empty($attending_physician)) {
+            $attending_physician = null;
+        } elseif (strlen($attending_physician) > 100) {
+            $errors[] = 'Attending Physician name is too long (max 100 chars).';
+        }
+
+        // --- 1f. VALIDATION BLOCK (Emergency Contact) ---
+
+        // Field: emergency_contact_name (Optional, Text)
+        $emergency_contact_name = trim($_POST['emergency_contact_name'] ?? '');
+        if (empty($emergency_contact_name)) {
+            $emergency_contact_name = null;
+        } elseif (strlen($emergency_contact_name) > 100) {
+            $errors[] = 'Emergency Contact Name is too long (max 100 chars).';
+        }
+
+        // Field: emergency_contact_relationship (Optional, Whitelist)
+        $allowed_relationships = [
+            '', 'Spouse', 'Parent', 'Child', 'Sibling', 'Relative', 'Friend', 'Guardian', 'Other'
+        ];
+        $emergency_contact_relationship = trim($_POST['emergency_contact_relationship'] ?? '');
+        if (!in_array($emergency_contact_relationship, $allowed_relationships)) {
+            $errors[] = 'Invalid Emergency Contact Relationship selected.';
+        }
+        if (empty($emergency_contact_relationship)) {
+            $emergency_contact_relationship = null;
+        }
+        
+        // Field: emergency_contact_phone (Optional, Text)
+        $emergency_contact_phone = trim($_POST['emergency_contact_phone'] ?? '');
+        if (empty($emergency_contact_phone)) {
+            $emergency_contact_phone = null;
+        } elseif (strlen($emergency_contact_phone) > 20) {
+            $errors[] = 'Emergency Contact Phone is too long (max 20 chars).';
+        }
+
+        // Field: emergency_contact_address (Optional, Textarea)
+        $emergency_contact_address = trim($_POST['emergency_contact_address'] ?? '');
+        if (empty($emergency_contact_address)) {
+            $emergency_contact_address = null;
+        } elseif (strlen($emergency_contact_address) > 500) {
+            $errors[] = 'Emergency Contact Address is too long (max 500 chars).';
+        }
+
+        // --- 1g. VALIDATION BLOCK (Employment Information) ---
+
+        // Field: employment_status (Optional, Whitelist, has default)
+        $allowed_employment_statuses = ['Unemployed', 'Employed', 'Self-employed', 'Student', 'Retired'];
+        $employment_status = trim($_POST['employment_status'] ?? 'Unemployed'); 
+        if (!in_array($employment_status, $allowed_employment_statuses)) {
+            $errors[] = 'Invalid Employment Status selected.';
+        }
+
+        // Field: occupation (Optional, Text)
+        $occupation = trim($_POST['occupation'] ?? '');
+        if (empty($occupation)) {
+            $occupation = null;
+        } elseif (strlen($occupation) > 100) {
+            $errors[] = 'Occupation field is too long (max 100 chars).';
+        }
+        
+        // Field: employer_name (Optional, Text)
+        $employer_name = trim($_POST['employer_name'] ?? '');
+        if (empty($employer_name)) {
+            $employer_name = null;
+        } elseif (strlen($employer_name) > 100) {
+            $errors[] = 'Employer Name field is too long (max 100 chars).';
+        }
+
+        // Field: monthly_income (Optional, Numeric)
+        $monthly_income_str = trim($_POST['monthly_income'] ?? '');
+        $monthly_income = null;
+        if (!empty($monthly_income_str)) {
+            if (!is_numeric($monthly_income_str)) {
+                $errors[] = 'Monthly Income must be a valid number.';
+            } elseif (floatval($monthly_income_str) < 0) {
+                 $errors[] = 'Monthly Income cannot be negative.';
+            } else {
+                $monthly_income = floatval($monthly_income_str);
+            }
+        }
+
+        // --- 1h. VALIDATION BLOCK (Government IDs) ---
+
+        // Field: sss_number (Optional, Text)
+        $sss_number = trim($_POST['sss_number'] ?? '');
+        if (empty($sss_number)) {
+            $sss_number = null;
+        } elseif (strlen($sss_number) > 20) {
+            $errors[] = 'SSS Number is too long (max 20 chars).';
+        }
+        
+        // Field: philhealth_number (Optional, Text)
+        $philhealth_number = trim($_POST['philhealth_number'] ?? '');
+        if (empty($philhealth_number)) {
+            $philhealth_number = null;
+        } elseif (strlen($philhealth_number) > 20) {
+            $errors[] = 'PhilHealth Number is too long (max 20 chars).';
+        }
+
+        // Field: tin_number (Optional, Text)
+        $tin_number = trim($_POST['tin_number'] ?? '');
+        if (empty($tin_number)) {
+            $tin_number = null;
+        } elseif (strlen($tin_number) > 20) {
+            $errors[] = 'TIN Number is too long (max 20 chars).';
+        }
+
+        
+
+        // --- 2. CHECK FOR ERRORS ---
+        if (!empty($errors)) {
+            // If there are any errors, combine them and stop the function
+            throw new Exception(implode('<br>', $errors));
+        }
+
+        // --- 3. PROCEED WITH DATABASE LOGIC ---
+        
+        $pdo->beginTransaction();
+        
+        // Generate PWD ID
+        $year = date('Y');
+        $unique_part = substr(strtoupper(bin2hex(random_bytes(4))), 0, 6); 
+        $pwd_id = "PWD-{$year}-" . $unique_part;
+        
+        // Create PWD record
+        // This statement is adapted from interview.php
+        // 1. Removed `appointment_id`
+        // 2. Added new interview/document fields
         $stmt = $pdo->prepare("
             INSERT INTO pwd_records (
                 pwd_id_number, first_name, middle_name, last_name, suffix,
-                date_of_birth, place_of_birth, gender, civil_status,
+                date_of_birth, place_of_birth, gender, civil_status, barangay_id,
                 address_line1, address_line2, barangay, city_municipality, province, postal_code,
                 latitude, longitude,
                 phone_number, email_address,
@@ -809,50 +1304,62 @@ function handleCreateDirectRecord() {
                 employment_status, occupation, employer_name, monthly_income,
                 sss_number, philhealth_number, tin_number,
                 status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
-        // Prepare parameters array with exact count (39 parameters)
+        // Prepare parameters array with CLEANED variables
+        // This now has 43 parameters
         $params = [
+            // --- Personal Info (10) ---
             $pwd_id,                                               // 1
-            $_POST['first_name'],                                  // 2
-            $_POST['middle_name'] ?? null,                         // 3
-            $_POST['last_name'],                                   // 4
-            $_POST['suffix'] ?? null,                              // 5
-            $_POST['date_of_birth'],                               // 6
-            $_POST['place_of_birth'] ?? null,                      // 7
-            $_POST['gender'],                                      // 8
-            $_POST['civil_status'],                                // 9
-            $_POST['address_line1'],                               // 10
-            $_POST['address_line2'] ?? null,                       // 11
-            $_POST['barangay'],                                    // 12
-            $_POST['city_municipality'] ?? 'Santo Tomas City',     // 13
-            $_POST['province'] ?? 'Batangas',                      // 14
-            $_POST['postal_code'] ?? null,                         // 15
-            $latitude,                                             // 16
-            $longitude,                                            // 17
-            $_POST['phone_number'],                                // 18
-            $_POST['email_address'] ?? null,                       // 19
-            $_POST['disability_type'],                             // 20
-            $_POST['disability_cause'] ?? null,                    // 21
-            $_POST['disability_description'] ?? null,              // 22
-            $_POST['assistive_device'] ?? null,                    // 23
-            $_POST['medical_condition'] ?? null,                   // 24
-            $_POST['medication'] ?? null,                          // 25
-            $_POST['attending_physician'] ?? null,                 // 26
-            $_POST['emergency_contact_name'] ?? null,              // 27
-            $_POST['emergency_contact_relationship'] ?? null,      // 28
-            $_POST['emergency_contact_phone'] ?? null,             // 29
-            $_POST['emergency_contact_address'] ?? null,           // 30
-            $_POST['employment_status'] ?? 'Unemployed',           // 31
-            $_POST['occupation'] ?? null,                          // 32
-            $_POST['employer_name'] ?? null,                       // 33
-            !empty($_POST['monthly_income']) ? floatval($_POST['monthly_income']) : null, // 34
-            $_POST['sss_number'] ?? null,                          // 35
-            $_POST['philhealth_number'] ?? null,                   // 36
-            $_POST['tin_number'] ?? null,                          // 37
-            $_POST['record_status'] ?? 'draft',                    // 38 - Allow setting initial status
-            $_SESSION['admin_user_id']                             // 39
+            $first_name,                                           // 2 (Cleaned)
+            $middle_name,                                          // 3 (Cleaned)
+            $last_name,                                            // 4 (Cleaned)
+            $suffix,                                               // 5 (Cleaned)
+            $dob_string,                                           // 6 (Validated)
+            $place_of_birth,                                       // 7 (Cleaned)
+            $gender,                                               // 8 (Validated)
+            $civil_status,                                         // 9 (Validated)
+            $selected_barangay_id,                                 // 10
+            // --- Address Info (8) ---
+            $address_line1,                                        // 11
+            $address_line2,                                        // 12
+            $barangay_name,                                        // 13
+            $city_municipality,                                    // 14
+            $province,                                             // 15
+            $postal_code,                                          // 16
+            $latitude,                                             // 17
+            $longitude,                                            // 18
+            // --- Contact Info (2) ---
+            $phone_number,                                         // 19
+            $email_address,                                        // 20
+            // --- Disability Info (4) ---
+            $disability_type,                                      // 21
+            $disability_cause,                                     // 22
+            $disability_description,                               // 23
+            $assistive_device,                                     // 24
+            // --- Medical Info (3) ---
+            $medical_condition,                                    // 25
+            $medication,                                           // 26
+            $attending_physician,                                  // 27
+            // --- Emergency Contact (4) ---
+            $emergency_contact_name,                               // 28
+            $emergency_contact_relationship,                       // 29
+            $emergency_contact_phone,                              // 30
+            $emergency_contact_address,                            // 31
+            // --- Employment Info (4) ---
+            $employment_status,                                    // 32
+            $occupation,                                           // 33
+            $employer_name,                                        // 34
+            $monthly_income,                                       // 35
+            // --- Government IDs (3) ---
+            $sss_number,                                           // 36
+            $philhealth_number,                                    // 37
+            $tin_number,                                           // 38
+            // --- Record Status (2) ---
+            $_POST['record_status'] ?? 'draft',                    // 39 - Allow setting initial status
+            $_SESSION['admin_user_id'],                            // 40
+            
         ];
         
         $result = $stmt->execute($params);
@@ -878,8 +1385,11 @@ function handleCreateDirectRecord() {
         ]);
         
     } catch (Exception $e) {
-        $pdo->rollBack();
-        adminJsonResponse(['error' => 'Failed to create PWD record: ' . $e->getMessage()], 500);
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        // Send the validation errors back as a JSON response
+        adminJsonResponse(['error' => 'Failed to create PWD record:<br>' . $e->getMessage()], 500);
     }
 }
 
@@ -1003,14 +1513,29 @@ function handleDeactivateRecord() {
         
           
         <div class="stats-grid">
-            <?php
+           <?php
+            // OLD STATS QUERY (lines 811-820) IS REPLACED BY THIS
             $stats_query = "
                 SELECT 
                     COUNT(*) as total,
                     SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,
                     SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated,
-                    SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued,
-                    SUM(CASE WHEN expiry_date < CURDATE() AND status = 'issued' THEN 1 ELSE 0 END) as expired
+                    
+                    -- 'Active' is issued AND not expired
+                    SUM(CASE 
+                        WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 
+                        ELSE 0 
+                    END) as active,
+                    
+                    -- 'Expired' is issued AND past expiry date
+                    SUM(CASE 
+                        WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 
+                        ELSE 0 
+                    END) as expired,
+                    
+                    -- 'Inactive' is status = inactive
+                    SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive
+                    
                 FROM pwd_records
             ";
             $stats_result = $pdo->query($stats_query)->fetch();
@@ -1021,7 +1546,7 @@ function handleDeactivateRecord() {
                     <i class="fas fa-id-card"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['total']); ?></h3>
+                    <h3><?php echo number_format($stats_result['total'] ?? 0); ?></h3>
                     <p>Total Records</p>
                 </div>
             </div>
@@ -1031,7 +1556,7 @@ function handleDeactivateRecord() {
                     <i class="fas fa-edit"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['draft']); ?></h3>
+                    <h3><?php echo number_format($stats_result['draft'] ?? 0); ?></h3>
                     <p>Draft Records</p>
                 </div>
             </div>
@@ -1041,7 +1566,7 @@ function handleDeactivateRecord() {
                     <i class="fas fa-check-circle"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['validated']); ?></h3>
+                    <h3><?php echo number_format($stats_result['validated'] ?? 0); ?></h3>
                     <p>Validated Records</p>
                 </div>
             </div>
@@ -1051,8 +1576,28 @@ function handleDeactivateRecord() {
                     <i class="fas fa-id-badge"></i>
                 </div>
                 <div class="stat-content">
-                    <h3><?php echo number_format($stats_result['issued']); ?></h3>
-                    <p>IDs Issued</p>
+                    <h3><?php echo number_format($stats_result['active'] ?? 0); ?></h3>
+                    <p>Active IDs</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon expired">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['expired'] ?? 0); ?></h3>
+                    <p>Expired IDs</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon inactive">
+                    <i class="fas fa-ban"></i>
+                </div>
+                <div class="stat-content">
+                    <h3><?php echo number_format($stats_result['inactive'] ?? 0); ?></h3>
+                    <p>Inactive Records</p>
                 </div>
             </div>
         </div>
@@ -1072,6 +1617,15 @@ function handleDeactivateRecord() {
                     </select>
                 </div>
                 
+                <div class="filter-group">
+                    <label for="location_filter">Location Status</label>
+                    <select name="location" id="location_filter">
+                        <option value="">All Locations</option>
+                        <option value="mapped" <?php echo ($_GET['location'] ?? '') === 'mapped' ? 'selected' : ''; ?>>Has Location</option>
+                        <option value="missing" <?php echo ($_GET['location'] ?? '') === 'missing' ? 'selected' : ''; ?>>Missing Location</option>
+                    </select>
+                </div>
+
                 <div class="filter-group">
                     <label for="barangay">Barangay</label>
                     <select name="barangay" id="barangay">
@@ -1104,7 +1658,7 @@ function handleDeactivateRecord() {
                         <option value="">All Genders</option>
                         <option value="Male" <?php echo $gender_filter === 'Male' ? 'selected' : ''; ?>>Male</option>
                         <option value="Female" <?php echo $gender_filter === 'Female' ? 'selected' : ''; ?>>Female</option>
-                        <option value="Other" <?php echo $gender_filter === 'Other' ? 'selected' : ''; ?>>Other</option>
+                        
                     </select>
                 </div>
                 
@@ -1301,11 +1855,14 @@ function handleDeactivateRecord() {
                                             </button>
                                         <?php endif; ?>
                                         
-                                        <?php if (hasPermission($pdo, 'records.delete')): ?>
-                                            <button class="btn btn-sm btn-danger" onclick="deleteRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')" title="Delete">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        <?php endif; ?>
+                                        <!--
+<?php if (hasPermission($pdo, 'records.delete')): ?>
+<button class="btn btn-sm btn-danger" onclick="deleteRecord(<?php echo $record['id']; ?>, '<?php echo htmlspecialchars($record['pwd_id_number']); ?>')" title="Delete">
+    <i class="fas fa-trash"></i>
+</button>
+<?php endif; ?>
+-->
+
                                     </div>
                                 </td>
                             </tr>
@@ -1436,10 +1993,10 @@ function handleDeactivateRecord() {
                         </div>
                     </div>
                     
-                     Geographic Location for Edit 
+                      
                     <div class="form-section">
                         <div class="section-header">
-                            <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
+                            <h4><i class="fas fa-map"></i> Geographic Location*</h4>
                             <p class="section-description">Click on the map to update the exact location</p>
                         </div>
                         
@@ -1456,6 +2013,10 @@ function handleDeactivateRecord() {
                                            step="0.000001" placeholder="121.0000" readonly>
                                 </div>
                                 <div class="location-actions">
+                                    <button type="button" class="btn btn-outline btn-sm expand-map-btn" 
+            onclick="toggleMapExpand('edit')">
+        <i class="fas fa-expand-arrows-alt"></i> Expand Map
+    </button>
                                     <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocationEdit()">
                                         <i class="fas fa-crosshairs"></i> Use Current Location
                                     </button>
@@ -1612,7 +2173,7 @@ function handleDeactivateRecord() {
             </div>
         </div>
     </div>
-    
+
     <div id="createRecordModal" class="modal">
         <div class="modal-content extra-large-modal">
             <div class="modal-header">
@@ -1620,369 +2181,441 @@ function handleDeactivateRecord() {
                 <button class="modal-close" onclick="closeModal('createRecordModal')">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="create-record-info">
-                    <div class="info-banner">
-                        <i class="fas fa-info-circle"></i>
-                        <div>
-                            <strong>Direct Record Creation</strong>
-                            <p>Create PWD records directly without requiring an appointment or interview. Perfect for existing PWD ID holders or bulk data entry.</p>
-                        </div>
-                    </div>
-                </div>
                 
+                <div class="interview-tabs">
+                    <button class="tab-btn active" data-tab="pwd-record-tab">
+                        <i class="fas fa-id-card"></i> PWD Record
+                    </button>
+                    <button class="tab-btn" data-tab="interview-notes-tab">
+                        <i class="fas fa-clipboard-list"></i> Interview Notes
+                    </button>
+                </div>
+
                 <form id="createRecordForm">
                     <input type="hidden" name="action" value="create_direct_record">
-                    
-                     Personal Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-user"></i> Personal Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createFirstName">First Name *</label>
-                                <input type="text" id="createFirstName" name="first_name" class="form-input" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="createMiddleName">Middle Name</label>
-                                <input type="text" id="createMiddleName" name="middle_name" class="form-input">
-                            </div>
-                            <div class="form-group">
-                                <label for="createLastName">Last Name *</label>
-                                <input type="text" id="createLastName" name="last_name" class="form-input" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="createSuffix">Suffix</label>
-                                <select id="createSuffix" name="suffix" class="form-select">
-                                    <option value="">None</option>
-                                    <option value="Jr.">Jr.</option>
-                                    <option value="Sr.">Sr.</option>
-                                    <option value="II">II</option>
-                                    <option value="III">III</option>
-                                    <option value="IV">IV</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="createDateOfBirth">Date of Birth *</label>
-                                <input type="date" id="createDateOfBirth" name="date_of_birth" class="form-input" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="createPlaceOfBirth">Place of Birth</label>
-                                <input type="text" id="createPlaceOfBirth" name="place_of_birth" class="form-input" placeholder="City, Province">
-                            </div>
-                            <div class="form-group">
-                                <label for="createGender">Gender *</label>
-                                <select id="createGender" name="gender" class="form-select" required>
-                                    <option value="">Select Gender</option>
-                                    <option value="Male">Male</option>
-                                    <option value="Female">Female</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="createCivilStatus">Civil Status *</label>
-                                <select id="createCivilStatus" name="civil_status" class="form-select" required>
-                                    <option value="">Select Status</option>
-                                    <option value="Single">Single</option>
-                                    <option value="Married">Married</option>
-                                    <option value="Widowed">Widowed</option>
-                                    <option value="Separated">Separated</option>
-                                    <option value="Divorced">Divorced</option>
-                                </select>
+
+                    <div id="pwd-record-tab" class="tab-content active">
+                        <div class="create-record-info">
+                            <div class="info-banner">
+                                <i class="fas fa-info-circle"></i>
+                                <div>
+                                    <strong>Direct Record Creation</strong>
+                                    <p>Create PWD records directly. Fill in all required fields marked with *</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                     Address Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group full-width">
-                                <label for="createAddress1">Address Line 1 *</label>
-                                <input type="text" id="createAddress1" name="address_line1" class="form-input" required placeholder="House/Unit Number, Street Name">
+
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-user"></i> Personal Information</h4>
                             </div>
-                            <div class="form-group full-width">
-                                <label for="createAddress2">Address Line 2</label>
-                                <input type="text" id="createAddress2" name="address_line2" class="form-input" placeholder="Building, Subdivision, etc.">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="createBarangayId">Barangay *</label>
-                                <select id="createBarangayId" name="barangay_id" class="form-select" onchange="updateCreateCityProvince()">
-                                    <option value="">Select Barangay</option>
-                                    <?php 
-                                    foreach ($barangay_boundaries as $barangay): 
-                                        // FIX: Check for null, empty, or "Unknown City"
-                                        $city = $barangay['city_municipality'];
-                                        $province = $barangay['province'];
-                                        
-                                        if (empty($city) || $city === 'Unknown City') {
-                                            $city = 'Santo Tomas City';
-                                        }
-                                        if (empty($province) || $province === 'Unknown Province') {
-                                            $province = 'Batangas';
-                                        }
-                                    ?>
-                                        <option value="<?php echo $barangay['id']; ?>" 
-                                                data-name="<?php echo htmlspecialchars($barangay['barangay_name']); ?>"
-                                                data-city="<?php echo htmlspecialchars($city); ?>"
-                                                data-province="<?php echo htmlspecialchars($province); ?>">
-                                            <?php echo htmlspecialchars($barangay['barangay_name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            
-                            <div class="form-group" id="createManualBarangay" style="display: none;">
-                                <label for="createBarangayManual">Barangay (Manual Entry)</label>
-                                <input type="text" id="createBarangayManual" name="barangay_manual" class="form-input" placeholder="Enter barangay name manually">
-                            </div>
-                            
-                            <input type="hidden" id="createBarangayName" name="barangay">
-                            
-                            <div class="form-group">
-                                <label for="createCity">City/Municipality</label>
-                                <input type="text" id="createCity" name="city_municipality" class="form-input" value="Santo Tomas City" readonly>
-                            </div>
-                            <div class="form-group">
-                                <label for="createProvince">Province</label>
-                                <input type="text" id="createProvince" name="province" class="form-input" value="Batangas" readonly>
-                            </div>
-                            <div class="form-group">
-                                <label for="createPostalCode">Postal Code</label>
-                                <input type="text" id="createPostalCode" name="postal_code" class="form-input" pattern="[0-9]{4}" placeholder="4234" value="4234">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createFirstName">First Name *</label>
+                                    <input type="text" id="createFirstName" name="first_name" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createMiddleName">Middle Name</label>
+                                    <input type="text" id="createMiddleName" name="middle_name" class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createLastName">Last Name *</label>
+                                    <input type="text" id="createLastName" name="last_name" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createSuffix">Suffix</label>
+                                    <select id="createSuffix" name="suffix" class="form-select">
+                                        <option value="">None</option>
+                                        <option value="Jr.">Jr.</option>
+                                        <option value="Sr.">Sr.</option>
+                                        <option value="II">II</option>
+                                        <option value="III">III</option>
+                                        <option value="IV">IV</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createDateOfBirth">Date of Birth *</label>
+                                    <input type="date" id="createDateOfBirth" name="date_of_birth" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createPlaceOfBirth">Place of Birth</label>
+                                    <input type="text" id="createPlaceOfBirth" name="place_of_birth" class="form-input" placeholder="City, Province">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createGender">Gender *</label>
+                                    <select id="createGender" name="gender" class="form-select" required>
+                                        <option value="">Select Gender</option>
+                                        <option value="Male">Male</option>
+                                        <option value="Female">Female</option>
+                                        <!-- <option value="Other">Other</option> -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createCivilStatus">Civil Status *</label>
+                                    <select id="createCivilStatus" name="civil_status" class="form-select" required>
+                                        <option value="">Select Status</option>
+                                        <option value="Single">Single</option>
+                                        <option value="Married">Married</option>
+                                        <option value="Widowed">Widowed</option>
+                                        <option value="Separated">Separated</option>
+                                        <option value="Divorced">Divorced</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         
-                       
-                    </div>
-                    
-                     Geographic Location 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
-                            <p class="section-description">Click on the map to set the exact location for GIS mapping feature</p>
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-map-marker-alt"></i> Address Information</h4>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group full-width">
+                                    <label for="createAddress1">Address Line 1 *</label>
+                                    <input type="text" id="createAddress1" name="address_line1" class="form-input" required placeholder="House/Unit Number, Street Name">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="createAddress2">Address Line 2</label>
+                                    <input type="text" id="createAddress2" name="address_line2" class="form-input" placeholder="Building, Subdivision, etc.">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="createBarangayId">Barangay *</label>
+                                    <select id="createBarangayId" name="barangay_id" class="form-select" onchange="updateCreateCityProvince()">
+                                        <option value="">Select Barangay</option>
+                                        <?php 
+                                        foreach ($barangay_boundaries as $barangay): 
+                                            $city = $barangay['city_municipality'];
+                                            $province = $barangay['province'];
+                                            
+                                            if (empty($city) || $city === 'Unknown City') {
+                                                $city = 'Santo Tomas City';
+                                            }
+                                            if (empty($province) || $province === 'Unknown Province') {
+                                                $province = 'Batangas';
+                                            }
+                                        ?>
+                                            <option value="<?php echo $barangay['id']; ?>" 
+                                                    data-name="<?php echo htmlspecialchars($barangay['barangay_name']); ?>"
+                                                    data-city="<?php echo htmlspecialchars($city); ?>"
+                                                    data-province="<?php echo htmlspecialchars($province); ?>">
+                                                <?php echo htmlspecialchars($barangay['barangay_name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group" id="createManualBarangay" style="display: none;">
+                                    <label for="createBarangayManual">Barangay (Manual Entry)</label>
+                                    <input type="text" id="createBarangayManual" name="barangay_manual" class="form-input" placeholder="Enter barangay name manually">
+                                </div>
+                                
+                                <input type="hidden" id="createBarangayName" name="barangay">
+                                
+                                <div class="form-group">
+                                    <label for="createCity">City/Municipality</label>
+                                    <input type="text" id="createCity" name="city_municipality" class="form-input" value="Santo Tomas City" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createProvince">Province</label>
+                                    <input type="text" id="createProvince" name="province" class="form-input" value="Batangas" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createPostalCode">Postal Code</label>
+                                    <input type="text" id="createPostalCode" name="postal_code" class="form-input" pattern="[0-9]{4}" placeholder="4234" value="4234">
+                                </div>
+                            </div>
                         </div>
                         
-                        <div class="location-container">
-                            <div class="location-inputs">
-                                <div class="form-group">
-                                    <label for="createLatitude">Latitude</label>
-                                    <input type="number" id="createLatitude" name="latitude" class="form-input" 
-                                           step="0.000001" placeholder="14.0000" readonly>
-                                </div>
-                                <div class="form-group">
-                                    <label for="createLongitude">Longitude</label>
-                                    <input type="number" id="createLongitude" name="longitude" class="form-input" 
-                                           step="0.000001" placeholder="121.0000" readonly>
-                                </div>
-                                <div class="location-actions">
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocationCreate()">
-                                        <i class="fas fa-crosshairs"></i> Use Current Location
-                                    </button>
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="clearLocationCreate()">
-                                        <i class="fas fa-times"></i> Clear Location
-                                    </button>
-                                </div>
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-map"></i> Geographic Location*</h4>
+                                <p class="section-description">Click on the map to set the exact location for GIS mapping feature</p>
                             </div>
                             
-                            <div class="map-container">
-                                <div id="createLocationMap" class="location-map"></div>
-                                <div class="map-instructions">
-                                    <i class="fas fa-mouse-pointer"></i>
-                                    <span>Click anywhere on the map to set the exact location</span>
+                            <div class="location-container">
+                                <div class="location-inputs">
+                                    <div class="form-group">
+                                        <label for="createLatitude">Latitude</label>
+                                        <input type="number" id="createLatitude" name="latitude" class="form-input" 
+                                               step="0.000001" placeholder="14.0000" readonly>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="createLongitude">Longitude</label>
+                                        <input type="number" id="createLongitude" name="longitude" class="form-input" 
+                                               step="0.000001" placeholder="121.0000" readonly>
+                                    </div>
+                                    <div class="location-actions">
+                                        <button type="button" class="btn btn-outline btn-sm expand-map-btn" 
+                onclick="toggleMapExpand('create')">
+            <i class="fas fa-expand-arrows-alt"></i> Expand Map
+        </button>
+                                        <button type="button" class="btn btn-outline btn-sm" onclick="getCurrentLocationCreate()">
+                                            <i class="fas fa-crosshairs"></i> Use Current Location
+                                        </button>
+                                        <button type="button" class="btn btn-outline btn-sm" onclick="clearLocationCreate()">
+                                            <i class="fas fa-times"></i> Clear Location
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="map-container">
+                                    <div id="createLocationMap" class="location-map"></div>
+                                    <div class="map-instructions">
+                                        <i class="fas fa-mouse-pointer"></i>
+                                        <span>Click anywhere on the map to set the exact location</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    
-                     Contact Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-phone"></i> Contact Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createPhone">Phone Number *</label>
-                                <input type="tel" id="createPhone" name="phone_number" class="form-input" required placeholder="+63 912 345 6789">
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-phone"></i> Contact Information</h4>
                             </div>
-                            <div class="form-group">
-                                <label for="createEmail">Email Address</label>
-                                <input type="email" id="createEmail" name="email_address" class="form-input" placeholder="email@example.com">
-                            </div>
-                        </div>
-                    </div>
-                    
-                     Disability Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createDisabilityType">Type of Disability *</label>
-                                <select id="createDisabilityType" name="disability_type" class="form-select" required>
-                                    <option value="">Select Disability Type</option>
-                                    <option value="Physical Disability">Physical Disability</option>
-                                    <option value="Visual Impairment">Visual Impairment</option>
-                                    <option value="Hearing Impairment">Hearing Impairment</option>
-                                    <option value="Intellectual Disability">Intellectual Disability</option>
-                                    <option value="Psychosocial Disability">Psychosocial Disability</option>
-                                    <option value="Multiple Disabilities">Multiple Disabilities</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="createDisabilityCause">Cause of Disability</label>
-                                <select id="createDisabilityCause" name="disability_cause" class="form-select">
-                                    <option value="">Select Cause</option>
-                                    <option value="Congenital">Congenital</option>
-                                    <option value="Accident">Accident</option>
-                                    <option value="Illness">Illness</option>
-                                    <option value="Injury">Injury</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div class="form-group full-width">
-                                <label for="createDisabilityDescription">Disability Description</label>
-                                <textarea id="createDisabilityDescription" name="disability_description" rows="3" class="form-textarea" placeholder="Detailed description of the disability..."></textarea>
-                            </div>
-                            <div class="form-group full-width">
-                                <label for="createAssistiveDevice">Assistive Devices Used</label>
-                                <input type="text" id="createAssistiveDevice" name="assistive_device" class="form-input" placeholder="Wheelchair, hearing aid, white cane, etc.">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createPhone">Phone Number *</label>
+                                    <input type="tel" id="createPhone" name="phone_number" class="form-input" required placeholder="+63 912 345 6789">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createEmail">Email Address</label>
+                                    <input type="email" id="createEmail" name="email_address" class="form-input" placeholder="email@example.com">
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                     Medical Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa- stethoscope"></i> Medical Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group full-width">
-                                <label for="createMedicalCondition">Medical Condition</label>
-                                <textarea id="createMedicalCondition" name="medical_condition" rows="3" class="form-textarea" placeholder="Current medical conditions and diagnoses..."></textarea>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-wheelchair"></i> Disability Information</h4>
                             </div>
-                            <div class="form-group full-width">
-                                <label for="createMedication">Current Medications</label>
-                                <textarea id="createMedication" name="medication" rows="2" class="form-textarea" placeholder="List current medications and dosages..."></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label for="createAttendingPhysician">Attending Physician</label>
-                                <input type="text" id="createAttendingPhysician" name="attending_physician" class="form-input" placeholder="Dr. Juan Dela Cruz">
-                            </div>
-                        </div>
-                    </div>
-                    
-                     Emergency Contact 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createEmergencyContactName">Contact Name</label>
-                                <input type="text" id="createEmergencyContactName" name="emergency_contact_name" class="form-input" placeholder="Full name of emergency contact">
-                            </div>
-                            <div class="form-group">
-                                <label for="createEmergencyContactRelationship">Relationship</label>
-                                <select id="createEmergencyContactRelationship" name="emergency_contact_relationship" class="form-select">
-                                    <option value="">Select Relationship</option>
-                                    <option value="Spouse">Spouse</option>
-                                    <option value="Parent">Parent</option>
-                                    <option value="Child">Child</option>
-                                    <option value="Sibling">Sibling</option>
-                                    <option value="Relative">Relative</option>
-                                    <option value="Friend">Friend</option>
-                                    <option value="Guardian">Guardian</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="createEmergencyContactPhone">Contact Phone</label>
-                                <input type="tel" id="createEmergencyContactPhone" name="emergency_contact_phone" class="form-input" placeholder="+63 912 345 6789">
-                            </div>
-                            <div class="form-group full-width">
-                                <label for="createEmergencyContactAddress">Contact Address</label>
-                                <textarea id="createEmergencyContactAddress" name="emergency_contact_address" rows="2" class="form-textarea" placeholder="Complete address of emergency contact..."></textarea>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createDisabilityType">Type of Disability *</label>
+                                    <select id="createDisabilityType" name="disability_type" class="form-select" required>
+                                        <option value="">Select Disability Type</option>
+                                        <option value="Physical Disability">Physical Disability</option>
+                                        <option value="Visual Impairment">Visual Impairment</option>
+                                        <option value="Hearing Impairment">Hearing Impairment</option>
+                                        <option value="Intellectual Disability">Intellectual Disability</option>
+                                        <option value="Psychosocial Disability">Psychosocial Disability</option>
+                                        <option value="Multiple Disabilities">Multiple Disabilities</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createDisabilityCause">Cause of Disability</label>
+                                    <select id="createDisabilityCause" name="disability_cause" class="form-select">
+                                        <option value="">Select Cause</option>
+                                        <option value="Congenital">Congenital</option>
+                                        <option value="Accident">Accident</option>
+                                        <option value="Illness">Illness</option>
+                                        <option value="Injury">Injury</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="createDisabilityDescription">Disability Description</label>
+                                    <textarea id="createDisabilityDescription" name="disability_description" rows="3" class="form-textarea" placeholder="Detailed description of the disability..."></textarea>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="createAssistiveDevice">Assistive Devices Used</label>
+                                    <input type="text" id="createAssistiveDevice" name="assistive_device" class="form-input" placeholder="Wheelchair, hearing aid, white cane, etc.">
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                     Employment Information 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createEmploymentStatus">Employment Status</label>
-                                <select id="createEmploymentStatus" name="employment_status" class="form-select">
-                                    <option value="Unemployed">Unemployed</option>
-                                    <option value="Employed">Employed</option>
-                                    <option value="Self-employed">Self-employed</option>
-                                    <option value="Student">Student</option>
-                                    <option value="Retired">Retired</option>
-                                </select>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa- stethoscope"></i> Medical Information</h4>
                             </div>
-                            <div class="form-group">
-                                <label for="createOccupation">Occupation</label>
-                                <input type="text" id="createOccupation" name="occupation" class="form-input" placeholder="Job title or profession">
-                            </div>
-                            <div class="form-group">
-                                <label for="createEmployer">Employer Name</label>
-                                <input type="text" id="createEmployer" name="employer_name" class="form-input" placeholder="Company or organization name">
-                            </div>
-                            <div class="form-group">
-                                <label for="createIncome">Monthly Income (PHP)</label>
-                                <input type="number" id="createIncome" name="monthly_income" class="form-input" min="0" step="0.01" placeholder="0.00">
+                            <div class="form-grid">
+                                <div class="form-group full-width">
+                                    <label for="createMedicalCondition">Medical Condition</label>
+                                    <textarea id="createMedicalCondition" name="medical_condition" rows="3" class="form-textarea" placeholder="Current medical conditions and diagnoses..."></textarea>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="createMedication">Current Medications</label>
+                                    <textarea id="createMedication" name="medication" rows="2" class="form-textarea" placeholder="List current medications and dosages..."></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createAttendingPhysician">Attending Physician</label>
+                                    <input type="text" id="createAttendingPhysician" name="attending_physician" class="form-input" placeholder="Dr. Juan Dela Cruz">
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                     Government IDs 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-id-card-alt"></i> Government IDs</h4>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createSssNumber">SSS Number</label>
-                                <input type="text" id="createSssNumber" name="sss_number" class="form-input" placeholder="XX-XXXXXXX-X">
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-phone-alt"></i> Emergency Contact</h4>
                             </div>
-                            <div class="form-group">
-                                <label for="createPhilhealthNumber">PhilHealth Number</label>
-                                <input type="text" id="createPhilhealthNumber" name="philhealth_number" class="form-input" placeholder="XX-XXXXXXXXX-X">
-                            </div>
-                            <div class="form-group">
-                                <label for="createTinNumber">TIN Number</label>
-                                <input type="text" id="createTinNumber" name="tin_number" class="form-input" placeholder="XXX-XXX-XXX-XXX">
-                            </div>
-                        </div>
-                    </div>
-                    
-                     Record Status 
-                    <div class="form-section">
-                        <div class="section-header">
-                            <h4><i class="fas fa-flag"></i> Record Status</h4>
-                            <p class="section-description">Set the initial status for this record</p>
-                        </div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="createRecordStatus">Initial Status</label>
-                                <select id="createRecordStatus" name="record_status" class="form-select">
-                                    <option value="draft">Draft - Needs validation</option>
-                                    <option value="validated">Validated - Ready for ID issuance</option>
-                                    <option value="issued">Issued - ID already issued (for existing holders)</option>
-                                </select>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createEmergencyContactName">Contact Name</label>
+                                    <input type="text" id="createEmergencyContactName" name="emergency_contact_name" class="form-input" placeholder="Full name of emergency contact">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createEmergencyContactRelationship">Relationship</label>
+                                    <select id="createEmergencyContactRelationship" name="emergency_contact_relationship" class="form-select">
+                                        <option value="">Select Relationship</option>
+                                        <option value="Spouse">Spouse</option>
+                                        <option value="Parent">Parent</option>
+                                        <option value="Child">Child</option>
+                                        <option value="Sibling">Sibling</option>
+                                        <option value="Relative">Relative</option>
+                                        <option value="Friend">Friend</option>
+                                        <option value="Guardian">Guardian</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createEmergencyContactPhone">Contact Phone</label>
+                                    <input type="tel" id="createEmergencyContactPhone" name="emergency_contact_phone" class="form-input" placeholder="+63 912 345 6789">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="createEmergencyContactAddress">Contact Address</label>
+                                    <textarea id="createEmergencyContactAddress" name="emergency_contact_address" rows="2" class="form-textarea" placeholder="Complete address of emergency contact..."></textarea>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="form-actions">
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-briefcase"></i> Employment Information</h4>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createEmploymentStatus">Employment Status</label>
+                                    <select id="createEmploymentStatus" name="employment_status" class="form-select">
+                                        <option value="Unemployed">Unemployed</option>
+                                        <option value="Employed">Employed</option>
+                                        <option value="Self-employed">Self-employed</option>
+                                        <option value="Student">Student</option>
+                                        <option value="Retired">Retired</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="createOccupation">Occupation</label>
+                                    <input type="text" id="createOccupation" name="occupation" class="form-input" placeholder="Job title or profession">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createEmployer">Employer Name</label>
+                                    <input type="text" id="createEmployer" name="employer_name" class="form-input" placeholder="Company or organization name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createIncome">Monthly Income (PHP)</label>
+                                    <input type="number" id="createIncome" name="monthly_income" class="form-input" min="0" step="0.01" placeholder="0.00">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-id-card-alt"></i> Government IDs</h4>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createSssNumber">SSS Number</label>
+                                    <input type="text" id="createSssNumber" name="sss_number" class="form-input" placeholder="XX-XXXXXXX-X">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createPhilhealthNumber">PhilHealth Number</label>
+                                    <input type="text" id="createPhilhealthNumber" name="philhealth_number" class="form-input" placeholder="XX-XXXXXXXXX-X">
+                                </div>
+                                <div class="form-group">
+                                    <label for="createTinNumber">TIN Number</label>
+                                    <input type="text" id="createTinNumber" name="tin_number" class="form-input" placeholder="XXX-XXX-XXX-XXX">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h4><i class="fas fa-flag"></i> Record Status</h4>
+                                <p class="section-description">Set the initial status for this record</p>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="createRecordStatus">Initial Status</label>
+                                    <select id="createRecordStatus" name="record_status" class="form-select">
+                                        <option value="draft">Draft - Needs validation</option>
+                                        <option value="validated">Validated - Ready for ID issuance</option>
+                                        <option value="issued">Issued - ID already issued (for existing holders)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div> <div id="interview-notes-tab" class="tab-content">
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h3><i class="fas fa-clipboard-check"></i> Document Verification</h3>
+                                <p class="section-description">Check off all documents that have been verified (Optional)</p>
+                            </div>
+                            
+                            <div class="document-checklist">
+                                <?php 
+                                $required_docs = [
+                                    'medical_certificate' => ['Medical Certificate', 'Medical assessment from licensed physician'],
+                                    'barangay_certificate' => ['Barangay Certificate', 'Certificate of residency from barangay'],
+                                    'id_pictures' => ['2x2 ID Pictures', 'Recent passport-size photographs'],
+                                    'valid_id' => ['Valid Government ID', 'Any government-issued identification'],
+                                    'birth_certificate' => ['Birth Certificate', 'PSA-issued birth certificate'],
+                                    'disability_assessment' => ['Disability Assessment Report', 'Professional disability evaluation'],
+                                    'income_certificate' => ['Certificate of Indigency', 'If applicable for financial assistance']
+                                ];
+                                ?>
+                                
+                                <?php foreach ($required_docs as $key => $doc_info): ?>
+                                    <div class="document-item">
+                                        <label class="document-label">
+                                            <input type="checkbox" name="documents_verified[]" value="<?php echo $key; ?>">
+                                            <div class="document-content">
+                                                <div class="document-title"><?php echo $doc_info[0]; ?></div>
+                                                <div class="document-description"><?php echo $doc_info[1]; ?></div>
+                                            </div>
+                                            <div class="document-status">
+                                                <i class="fas fa-check-circle"></i>
+                                            </div>
+                                        </label>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h3><i class="fas fa-notes-medical"></i> Interview Notes</h3>
+                                <p class="section-description">Record observations, questions asked, and applicant responses (Optional)</p>
+                            </div>
+                            <div class="form-group">
+                                <textarea name="interview_notes" rows="6" class="form-textarea" 
+                                          placeholder="Document any conversation, observations, or relevant details..."></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h3><i class="fas fa-user-check"></i> Eligibility Assessment</h3>
+                                <p class="section-description">Evaluate the applicant's eligibility (Optional)</p>
+                            </div>
+                            <div class="form-group">
+                                <textarea name="eligibility_assessment" rows="4" class="form-textarea" 
+                                          placeholder="Assess eligibility based on disability type, documentation, etc..."></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <h3><i class="fas fa-lightbulb"></i> Recommendations</h3>
+                                <p class="section-description">Provide recommendations for services or next steps (Optional)</p>
+                            </div>
+                            <div class="form-group">
+                                <textarea name="recommendations" rows="4" class="form-textarea" 
+                                          placeholder="Recommend appropriate services, accommodations, or referrals..."></textarea>
+                            </div>
+                        </div>
+
+                    </div> <div class="form-actions">
                         <button type="submit" class="btn btn-success btn-lg">
                             <i class="fas fa-plus-circle"></i> Create PWD Record
                         </button>
@@ -1996,14 +2629,59 @@ function handleDeactivateRecord() {
                 </form>
             </div>
         </div>
+    
+    
     </div>
     
     <script src="assets/admin.js"></script>
     <script>
+
+
+                                    let editLocationMarker;
+        
+        // --- ADD THIS NEW FUNCTION ---
+        // Tab switching for create/edit modals
+        function setupModalTabs(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+
+            const tabBtns = modal.querySelectorAll('.tab-btn');
+            const tabContents = modal.querySelectorAll('.tab-content');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const tabId = btn.getAttribute('data-tab');
+
+                    // Remove active class from all buttons and content
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabContents.forEach(c => c.classList.remove('active'));
+
+                    // Add active class to clicked button and target content
+                    btn.classList.add('active');
+                    modal.querySelector('#' + tabId).classList.add('active');
+
+                    // Refresh maps if they are in the newly active tab
+                    if (tabId === 'pwd-record-tab') {
+                        if (createLocationMap) setTimeout(() => createLocationMap.invalidateSize(), 100);
+                        if (editLocationMap) setTimeout(() => editLocationMap.invalidateSize(), 100);
+                    }
+                });
+            });
+        }
+        // --- END OF NEW FUNCTION ---
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize tab functionality for the create modal
+            setupModalTabs('createRecordModal');
+        });
+
+
         let createLocationMap;
         let createLocationMarker;
         let editLocationMap;
-        let editLocationMarker;
+        
         
         // Initialize the page
         document.addEventListener('DOMContentLoaded', function() {
@@ -2153,6 +2831,56 @@ function handleDeactivateRecord() {
             
             showNotification('Location cleared', 'info');
         }
+
+        // --- REPLACE THE OLD FUNCTION WITH THIS ---
+        function toggleMapExpand(type) {
+            let container, button, mapInstance, actionsContainer;
+
+            if (type === 'create') {
+                container = document.getElementById('createLocationMap').parentElement; // .map-container
+                // Find the actions div
+                actionsContainer = document.getElementById('createRecordForm').querySelector('.location-actions');
+                mapInstance = createLocationMap;
+                // Find the button, wherever it is
+                button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
+                
+            } else if (type === 'edit') {
+                container = document.getElementById('editLocationMap').parentElement; // .map-container
+                // Find the actions div
+                actionsContainer = document.getElementById('editRecordForm').querySelector('.location-actions');
+                mapInstance = editLocationMap;
+                // Find the button, wherever it is
+                button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
+            
+            } else {
+                return;
+            }
+            
+            if (!button) {
+                console.error('Could not find expand map button');
+                return;
+            }
+
+            const isExpanded = container.classList.toggle('map-expanded');
+
+            if (isExpanded) {
+                // Move button inside expanded container
+                container.appendChild(button); 
+                button.innerHTML = '<i class="fas fa-compress-arrows-alt"></i> Compress Map';
+            } else {
+                // Move button back to actions list
+                actionsContainer.prepend(button);
+                button.innerHTML = '<i class="fas fa-expand-arrows-alt"></i> Expand Map';
+            }
+
+            // IMPORTANT: Tell Leaflet to recalculate its size
+            setTimeout(() => {
+                if (mapInstance) {
+                    mapInstance.invalidateSize();
+                }
+            }, 100); // Small delay to let CSS animations finish
+        }
+        // --- END OF REPLACEMENT ---
         
         // Update city and province based on barangay selection for create
         function updateCreateCityProvince() {
@@ -2236,6 +2964,28 @@ function handleDeactivateRecord() {
             const modalTitle = document.getElementById('recordModalTitle');
             
             modalTitle.textContent = `PWD Record: ${record.pwd_id_number}`;
+
+            // --- ADD THIS ENTIRE BLOCK ---
+            
+            // Parse documents verified
+            let documentsVerified = [];
+            try {
+                documentsVerified = record.documents_verified ? JSON.parse(record.documents_verified) : [];
+            } catch (e) {
+                documentsVerified = [];
+            }
+            
+            const documentLabels = {
+                'medical_certificate': 'Medical Certificate',
+                'barangay_certificate': 'Barangay Certificate',
+                'id_pictures': '2x2 ID Pictures',
+                'valid_id': 'Valid Government ID',
+                'birth_certificate': 'Birth Certificate',
+                'disability_assessment': 'Disability Assessment Report',
+                'income_certificate': 'Certificate of Indigency'
+            };
+            
+            // --- END OF BLOCK TO ADD ---
             
             // --- NEW FIX: Clean up city/province data ---
             let city = record.city_municipality;
@@ -2329,6 +3079,19 @@ function handleDeactivateRecord() {
                                 </div>
                             </div>
                         </div>
+                        ${documentsVerified.length > 0 ? `
+                        <div class="detail-section">
+                            <h4><i class="fas fa-clipboard-check"></i> Documents Verified</h4>
+                            <div class="documents-list">
+                                ${documentsVerified.map(doc => `
+                                    <div class="document-verified">
+                                        <i class="fas fa-check-circle"></i>
+                                        <span>${documentLabels[doc] || doc}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
                         
                         <div class="detail-section">
                             <h4><i class="fas fa-phone"></i> Contact Information</h4>
@@ -2579,6 +3342,7 @@ function handleDeactivateRecord() {
             const ageGroup = document.getElementById('age_group').value;
             const employment = document.getElementById('employment_status').value;
             const search = document.getElementById('search').value;
+            const location_filter = document.getElementById('location_filter').value; // <-- ADD THIS LINE
             
             // Add filters to params
             if (status) params.append('status', status);
@@ -2588,6 +3352,7 @@ function handleDeactivateRecord() {
             if (ageGroup) params.append('age_group', ageGroup);
             if (employment) params.append('employment_status', employment);
             if (search) params.append('search', search);
+            if (location_filter) params.append('location', location_filter); // <-- ADD THIS LINE
             
             // Trigger download
             window.location.href = `records.php?${params.toString()}`;
@@ -2683,6 +3448,7 @@ function handleDeactivateRecord() {
             const ageGroup = document.getElementById('age_group').value;
             const employment = document.getElementById('employment_status').value;
             const search = document.getElementById('search').value;
+            const location_filter = document.getElementById('location_filter').value; // <-- ADD THIS LINE
             
             // Add filters to params
             if (status) params.append('status', status);
@@ -2692,6 +3458,7 @@ function handleDeactivateRecord() {
             if (ageGroup) params.append('age_group', ageGroup);
             if (employment) params.append('employment_status', employment);
             if (search) params.append('search', search);
+            if (location_filter) params.append('location', location_filter); // <-- ADD THIS LINE
             
             // Trigger download
             window.location.href = `records.php?${params.toString()}`;
@@ -2829,6 +3596,114 @@ function handleDeactivateRecord() {
     </script>
     
     <style>
+
+.interview-tabs {
+            display: flex;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            margin: -24px -24px 24px -24px; /* Adjust to fit modal padding */
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 20px 24px;
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            position: relative;
+        }
+        
+        .tab-btn:hover {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: #2563eb;
+            border-bottom: 3px solid #2563eb;
+        }
+
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+
+        .document-checklist {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        
+        .document-item {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .document-item.verified {
+            border-color: #10b981;
+            background: #ecfdf5;
+        }
+        
+        .document-label {
+            display: flex;
+            align-items: center;
+            padding: 16px;
+            cursor: pointer;
+            gap: 16px;
+        }
+        
+        .document-label input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #10b981;
+            flex-shrink: 0;
+        }
+
+        .document-label input[type="checkbox"]:checked + .document-content + .document-status {
+             opacity: 1;
+        }
+
+        .document-label input[type="checkbox"]:checked ~ .document-item {
+            border-color: #10b981;
+            background: #ecfdf5;
+        }
+        
+        .document-content {
+            flex: 1;
+        }
+        
+        .document-title {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+        
+        .document-description {
+            font-size: 0.8rem;
+            color: #6b7280;
+        }
+        
+        .document-status {
+            color: #10b981;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        /* --- END OF NEW STYLES --- */
+
         .employment-badge {
             font-size: 0.75rem;
             padding: 2px 6px;
@@ -3229,6 +4104,81 @@ function handleDeactivateRecord() {
             flex-wrap: wrap;
             gap: 6px;
         }
+
+        /* --- ADD THIS NEW CSS --- */
+        .map-container.map-expanded {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            z-index: 10001; /* Higher than modal z-index */
+            padding: 20px;
+            width: 100vw; 
+            height: 100vh;
+        }
+        
+        .map-container.map-expanded .location-map {
+            height: 100%;
+            border: none;
+        }
+
+        /* Button when expanded */
+        .map-container.map-expanded .expand-map-btn {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            z-index: 10002;
+            background: white;
+        }
+        /* --- END OF NEW CSS --- */
+
+        /* ADD THIS to your <style> block at the bottom */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-icon.expired {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .stat-icon.inactive {
+            background: #e5e7eb;
+            color: #4b5563;
+        }
+
+        .document-verified {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #d1fae5;
+    border-radius: 6px;
+    color: #065f46;
+    font-size: 0.9rem;
+}
+
+.document-verified i {
+    color: #10b981;
+}
+
+/* Hide the confusing tabs in the 'Create Record' modal */
+#createRecordModal .interview-tabs {
+    display: none;
+}
+
+#createRecordModal #interview-notes-tab {
+    display: none;
+}
+
+/* Ensure the main form is always visible */
+#createRecordModal #pwd-record-tab {
+    display: block !important;
+}
     </style>
 </body>
 </html>

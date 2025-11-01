@@ -48,19 +48,59 @@ function handleQuickRefresh() {
     try {
         requirePermission($pdo, 'gis.import');
         
-        // Use the same logic as debug spatial - manual count and assign
-        $results = manualCountAndAssign($pdo);
+        // --- START of logic copied from debug_spatial.php ---
         
-        // Also update barangay PWD counts
-        $stmt = $pdo->prepare("
-            UPDATE barangay_boundaries 
-            SET pwd_count = (
-                SELECT COUNT(*) 
-                FROM pwd_records 
-                WHERE barangay_id = barangay_boundaries.id
-            )
-        ");
-        $stmt->execute();
+        // Get all PWD records with coordinates
+        $stmt = $pdo->query("SELECT id, latitude, longitude FROM pwd_records WHERE latitude IS NOT NULL AND longitude IS NOT NULL");
+        $pwd_records = $stmt->fetchAll();
+        
+        // Get all barangay boundaries
+        $stmt = $pdo->query("SELECT id, barangay_name, geojson_data FROM barangay_boundaries WHERE geojson_data IS NOT NULL");
+        $barangays = $stmt->fetchAll();
+        
+        $assigned_count = 0;
+        $total_processed = 0;
+        
+        // Reset all barangay assignments
+        $pdo->exec("UPDATE pwd_records SET barangay_id = NULL");
+        $pdo->exec("UPDATE barangay_boundaries SET pwd_count = 0");
+        
+        foreach ($pwd_records as $record) {
+            $total_processed++;
+            $assigned_barangay = null;
+            
+            foreach ($barangays as $barangay) {
+                if (isPointInBarangay($record['latitude'], $record['longitude'], $barangay['geojson_data'])) {
+                    $assigned_barangay = $barangay['id'];
+                    break;
+                }
+            }
+            
+            // Update the PWD record with barangay assignment
+            if ($assigned_barangay) {
+                $update_stmt = $pdo->prepare("UPDATE pwd_records SET barangay_id = ? WHERE id = ?");
+                $update_stmt->execute([$assigned_barangay, $record['id']]);
+                $assigned_count++;
+            }
+        }
+        
+        // Update PWD counts for all barangays
+        foreach ($barangays as $barangay) {
+            $count_stmt = $pdo->prepare("SELECT COUNT(*) as count FROM pwd_records WHERE barangay_id = ?");
+            $count_stmt->execute([$barangay['id']]);
+            $count = $count_stmt->fetch()['count'];
+            
+            $update_stmt = $pdo->prepare("UPDATE barangay_boundaries SET pwd_count = ? WHERE id = ?");
+            $update_stmt->execute([$count, $barangay['id']]);
+        }
+        
+        // --- END of logic from debug_spatial.php ---
+
+        // Store results for the AJAX response
+        $results = [
+            'processed' => $total_processed,
+            'assigned' => $assigned_count
+        ];
         
         logAdminActivity($pdo, 'update', 'gis', 'quick_refresh', null, $results);
         
@@ -234,115 +274,111 @@ function handleExportMapReport() {
         requirePermission($pdo, 'reports.export');
         
         $filters = $_POST['filters'] ?? [];
-        $visible_location_ids = $_POST['visible_locations'] ?? [];
         
         // --- DATA PREPARATION ---
         
-        // Build query based on filters (for $records)
+        // Build query based on filters
         $where_clauses = ['1=1'];
         $params = [];
         
-        if (!empty($filters['disability_type'])) {
-            $where_clauses[] = 'disability_type = ?';
-            $params[] = $filters['disability_type'];
+        // Read filters from the POST data
+        $disability_filter = $filters['disability_type'] ?? '';
+        $status_filter = $filters['status'] ?? '';
+        $barangay_id_filter = $filters['barangay_id'] ?? '';
+        
+        if (!empty($disability_filter)) {
+            $where_clauses[] = 'p.disability_type = ?';
+            $params[] = $disability_filter;
         }
         
-        if (!empty($filters['status'])) {
-            $where_clauses[] = 'status = ?';
-            $params[] = $filters['status'];
+        if (!empty($status_filter)) {
+            if ($status_filter === 'expired') {
+                $where_clauses[] = "(p.status = 'issued' AND p.expiry_date < CURDATE())";
+            } else if ($status_filter === 'issued') {
+                $where_clauses[] = "(p.status = 'issued' AND (p.expiry_date IS NULL OR p.expiry_date >= CURDATE()))";
+            } else {
+                $where_clauses[] = 'p.status = ?';
+                $params[] = $status_filter;
+            }
         }
         
-        if (!is_array($visible_location_ids)) {
-            $visible_location_ids = [];
+        if (!empty($barangay_id_filter)) {
+            $where_clauses[] = 'p.barangay_id = ?';
+            $params[] = $barangay_id_filter;
         }
-
-        if (!empty($visible_location_ids)) {
-            $visible_location_ids = array_map('intval', $visible_location_ids); 
-            $placeholders = str_repeat('?,', count($visible_location_ids) - 1) . '?';
-            $where_clauses[] = "id IN ($placeholders)";
-            $params = array_merge($params, $visible_location_ids);
-        } else {
-            // No locations visible, force query to return nothing
-            $where_clauses[] = "1 = 0";
-        }
+        
+        // Ensure we only get geolocated records for a *map* report
+        $where_clauses[] = "p.latitude IS NOT NULL AND p.longitude IS NOT NULL";
         
         $where_sql = implode(' AND ', $where_clauses);
         
         // Get detailed data
         $stmt = $pdo->prepare("
             SELECT 
-                pwd_id_number, first_name, last_name, disability_type,
-                address_line1, barangay, city_municipality, province,
-                status, created_at
-            FROM pwd_records 
+                p.pwd_id_number, p.first_name, p.last_name, p.disability_type,
+                p.address_line1, p.barangay, p.city_municipality, p.province,
+                p.status, p.created_at, p.expiry_date
+            FROM pwd_records p 
             WHERE $where_sql
-            ORDER BY barangay, last_name, first_name
+            ORDER BY p.barangay, p.last_name, p.first_name
         ");
         $stmt->execute($params);
         $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // --- NEW: PREPARE STATS QUERIES ---
-        // We will use the same $visible_location_ids to get stats
+        // --- PREPARE STATS QUERIES ---
+        // We use the exact same $where_sql and $params for all stats
         
-        $disabilityStats = [];
-        $ageStats = [];
-        $barangay_summary = [];
+        // Get Barangay summary
+        $stmt = $pdo->prepare("
+            SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
+            FROM barangay_boundaries b
+            JOIN pwd_records p ON b.id = p.barangay_id
+            WHERE $where_sql
+            GROUP BY b.id, b.barangay_name, b.city_municipality
+            HAVING count > 0
+            ORDER BY count DESC
+        ");
+        $stmt->execute($params);
+        $barangay_summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        if (!empty($visible_location_ids)) {
-            $placeholders_stats = str_repeat('?,', count($visible_location_ids) - 1) . '?';
-            $params_stats = $visible_location_ids;
+        // Get Disability Type stats
+        $stmt = $pdo->prepare("
+            SELECT p.disability_type, COUNT(*) as count
+            FROM pwd_records p
+            WHERE $where_sql 
+              AND p.disability_type IS NOT NULL AND p.disability_type != ''
+            GROUP BY p.disability_type
+            ORDER BY count DESC
+        ");
+        $stmt->execute($params);
+        $disabilityStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get Barangay summary
-            $stmt = $pdo->prepare("
-                SELECT b.barangay_name, b.city_municipality, COUNT(p.id) as count
-                FROM barangay_boundaries b
-                LEFT JOIN pwd_records p ON b.id = p.barangay_id
-                WHERE p.id IN ($placeholders_stats)
-                GROUP BY b.id, b.barangay_name, b.city_municipality
-                HAVING count > 0
-                ORDER BY count DESC
-            ");
-            $stmt->execute($params_stats);
-            $barangay_summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Get Disability Type stats
-            $stmt = $pdo->prepare("
-                SELECT disability_type, COUNT(*) as count
-                FROM pwd_records 
-                WHERE id IN ($placeholders_stats) 
-                  AND disability_type IS NOT NULL AND disability_type != ''
-                GROUP BY disability_type
-                ORDER BY count DESC
-            ");
-            $stmt->execute($params_stats);
-            $disabilityStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Get Age Distribution stats
-            $stmt = $pdo->prepare("
-                SELECT 
-                    CASE 
-                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 THEN 'Under 18'
-                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 18 AND 30 THEN '18-30'
-                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 31 AND 50 THEN '31-50'
-                        WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 51 AND 65 THEN '51-65'
-                        ELSE 'Over 65'
-                    END as age_group,
-                    COUNT(*) as count
-                FROM pwd_records 
-                WHERE id IN ($placeholders_stats) AND date_of_birth IS NOT NULL
-                GROUP BY age_group
-                ORDER BY 
-                    CASE age_group
-                        WHEN 'Under 18' THEN 1
-                        WHEN '18-30' THEN 2
-                        WHEN '31-50' THEN 3
-                        WHEN '51-65' THEN 4
-                        WHEN 'Over 65' THEN 5
-                    END
-            ");
-            $stmt->execute($params_stats);
-            $ageStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        }
+        // Get Age Distribution stats
+        $stmt = $pdo->prepare("
+            SELECT 
+                CASE 
+                    WHEN TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) < 18 THEN 'Under 18'
+                    WHEN TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) BETWEEN 18 AND 30 THEN '18-30'
+                    WHEN TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) BETWEEN 31 AND 50 THEN '31-50'
+                    WHEN TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) BETWEEN 51 AND 65 THEN '51-65'
+                    ELSE 'Over 65'
+                END as age_group,
+                COUNT(*) as count
+            FROM pwd_records p
+            WHERE $where_sql AND p.date_of_birth IS NOT NULL
+            GROUP BY age_group
+            ORDER BY 
+                CASE age_group
+                    WHEN 'Under 18' THEN 1
+                    WHEN '18-30' THEN 2
+                    WHEN '31-50' THEN 3
+                    WHEN '51-65' THEN 4
+                    WHEN 'Over 65' THEN 5
+                END
+        ");
+        $stmt->execute($params);
+        $ageStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
 
         // --- PDF GENERATION ---
         
@@ -376,25 +412,34 @@ function handleExportMapReport() {
         $pdf->Cell(0, 8, 'Overview', 0, 1, 'L');
         $pdf->SetFont('helvetica', '', 10);
         
-        $pdf->Cell(90, 6, 'Total Community Members:', 0, 0, 'L');
+        $pdf->Cell(90, 6, 'Total Community Members (Geolocated):', 0, 0, 'L');
         $pdf->Cell(0, 6, count($records), 0, 1, 'L');
         
-        $pdf->Cell(90, 6, 'Barangays Covered:', 0, 0, 'L');
+        $pdf->Cell(90, 6, 'Barangays Covered (in this filter):', 0, 0, 'L');
         $pdf->Cell(0, 6, count($barangay_summary), 0, 1, 'L');
         
-        if (!empty($filters['disability_type'])) {
+        if (!empty($disability_filter)) {
             $pdf->Cell(90, 6, 'Disability Type Filter:', 0, 0, 'L');
-            $pdf->Cell(0, 6, $filters['disability_type'], 0, 1, 'L');
+            $pdf->Cell(0, 6, $disability_filter, 0, 1, 'L');
         }
         
-        if (!empty($filters['status'])) {
+        if (!empty($status_filter)) {
             $pdf->Cell(90, 6, 'Status Filter:', 0, 0, 'L');
-            $pdf->Cell(0, 6, ucfirst($filters['status']), 0, 1, 'L');
+            $pdf->Cell(0, 6, ucfirst($status_filter), 0, 1, 'L');
+        }
+        
+        if (!empty($barangay_id_filter)) {
+            $brgy_name_stmt = $pdo->prepare("SELECT barangay_name FROM barangay_boundaries WHERE id = ?");
+            $brgy_name_stmt->execute([$barangay_id_filter]);
+            $brgy_name = $brgy_name_stmt->fetchColumn();
+            
+            $pdf->Cell(90, 6, 'Barangay Filter:', 0, 0, 'L');
+            $pdf->Cell(0, 6, $brgy_name ?: "ID $barangay_id_filter", 0, 1, 'L');
         }
         
         $pdf->Ln(5);
         
-        // --- NEW: SERVICE-DRIVEN SUMMARY SECTION ---
+        // --- SERVICE-DRIVEN SUMMARY SECTION ---
         
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 8, 'Service-Driven Summary', 0, 1, 'L');
@@ -465,8 +510,6 @@ function handleExportMapReport() {
         
         if (!empty($barangay_summary)) {
             foreach ($barangay_summary as $row) {
-                // --- FIX for 'Unknown City' ---
-                // We just print the barangay name now, since the city is in the title
                 $pdf->Cell(120, 6, $row['barangay_name'], 1, 0, 'L', $fill);
                 $pdf->Cell(60, 6, $row['count'], 1, 1, 'C', $fill);
                 $fill = !$fill;
@@ -495,6 +538,7 @@ function handleExportMapReport() {
     } catch (Exception $e) {
         ob_end_clean(); 
         error_log("Map report export error: " . $e->getMessage());
+        // Return a JSON error instead of dying
         adminJsonResponse(['error' => 'Export failed: ' . $e->getMessage()], 500);
     }
 }
@@ -1460,7 +1504,7 @@ $last_import = $pdo->query("
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
-    <?php include 'includes/sidebar.php'; ?>
+   
     
     <main class="main-content">
         <div class="page-header">
@@ -1497,7 +1541,7 @@ $last_import = $pdo->query("
                     <button class="btn btn-outline btn-sm" onclick="exportMapReport()" data-tooltip="Export map data as PDF report">
                         <i class="fas fa-file-export"></i> Export Report
                     </button>
-                    <button class="btn btn-outline btn-sm" onclick="toggleSidebar()" data-tooltip="Show/hide filters and controls">
+                    <button class="btn btn-outline btn-sm" onclick="toggleMapFilterSidebar()" data-tooltip="Show/hide filters and controls">
                         <i class="fas fa-sliders-h"></i> Filters
                     </button>
                     <button class="btn btn-outline btn-sm" onclick="showStatsModal()" data-tooltip="View detailed statistics and analytics">
@@ -2038,7 +2082,7 @@ function loadBarangayBoundaries() {
             const barangayId = document.getElementById('barangayFilter').value;
             
             if (!barangayId) {
-                clearBarangaySelection();
+                clearBarangaySelection(); // This will call filterMarkers()
                 return;
             }
             
@@ -2055,14 +2099,8 @@ function loadBarangayBoundaries() {
             // Highlight the selected barangay
             highlightBarangay(selectedBarangayId);
             
-            // Filter PWD locations to only show those in this barangay
-    filteredLocations = allPWDLocations.filter(location => {
-        // Filter locations that have a matching barangay_id
-        return location.barangay_id === selectedBarangayId;
-    });
-            
-            // Reload markers
-            loadMarkers();
+            // Filter PWD locations (this will now respect the other filters)
+            filterMarkers(); 
             
             // Zoom to the barangay bounds
             zoomToBarangay(selectedBarangayId);
@@ -2141,39 +2179,38 @@ function zoomToBarangay(barangayId) {
     }
 }
 
-        function clearBarangaySelection() {
-    console.log('Clearing barangay selection');
-    
-    selectedBarangayId = null;
-    highlightedBarangayLayer = null;
-    
-    // Reset the dropdown
-    document.getElementById('barangayFilter').value = '';
-    
-    // Reset all barangay styles
-    barangayLayers.forEach(geoJsonLayer => {
-        const barangay = barangayBoundaries.find(b => b.id === geoJsonLayer.barangayId);
-        if (barangay) {
-            geoJsonLayer.eachLayer(function(layer) {
-                if (layer.setStyle) {
-                    layer.setStyle(getBarangayStyle(barangay));
+       function clearBarangaySelection() {
+            console.log('Clearing barangay selection');
+            
+            selectedBarangayId = null;
+            highlightedBarangayLayer = null;
+            
+            // Reset the dropdown
+            document.getElementById('barangayFilter').value = '';
+            
+            // Reset all barangay styles
+            barangayLayers.forEach(geoJsonLayer => {
+                const barangay = barangayBoundaries.find(b => b.id === geoJsonLayer.barangayId);
+                if (barangay) {
+                    geoJsonLayer.eachLayer(function(layer) {
+                        if (layer.setStyle) {
+                            layer.setStyle(getBarangayStyle(barangay));
+                        }
+                    });
                 }
             });
+            
+            // Reset filters and reload all markers (respecting other filters)
+            filterMarkers(); 
+            
+            // Reset map view
+            centerMap();
+            
+            // Hide clear button
+            document.getElementById('clearBarangayBtn').style.display = 'none';
+            
+            showToast('Selection cleared', 'info', 2000);
         }
-    });
-    
-    // Reset filters and reload all markers
-    filteredLocations = [...allPWDLocations];
-    loadMarkers();
-    
-    // Reset map view
-    centerMap();
-    
-    // Hide clear button
-    document.getElementById('clearBarangayBtn').style.display = 'none';
-    
-    showToast('Selection cleared', 'info', 2000);
-}
 
         function loadMarkers() {
             clearMarkers();
@@ -2275,16 +2312,18 @@ function zoomToBarangay(barangayId) {
         }
         
         function filterMarkers() {
+            // Read ALL filters
             const disabilityFilter = document.getElementById('disabilityFilter').value;
             const statusFilter = document.getElementById('statusFilter').value;
+            const barangayIdFilter = selectedBarangayId; // Use the global variable
             
             filteredLocations = allPWDLocations.filter(location => {
+                // Check Disability
                 const matchesDisability = !disabilityFilter || location.disability_type === disabilityFilter;
                 
-                let matchesStatus = true;
-                // Check if the record is expired
+                // Check Status
                 const isExpired = location.status === 'issued' && location.expiry_date && new Date(location.expiry_date) < new Date();
-
+                let matchesStatus = true;
                 if (statusFilter) {
                     if (statusFilter === 'expired') {
                         matchesStatus = isExpired;
@@ -2297,10 +2336,18 @@ function zoomToBarangay(barangayId) {
                     }
                 }
                 
-                return matchesDisability && matchesStatus;
+                // Check Barangay
+                const matchesBarangay = !barangayIdFilter || location.barangay_id === barangayIdFilter;
+                
+                // Only include if it matches ALL filters
+                return matchesDisability && matchesStatus && matchesBarangay;
             });
             
+            // Reload markers with the fully filtered list
             loadMarkers();
+            
+            // Update the "Visible" count
+            updateVisibleMarkers();
         }
         
         
@@ -2369,7 +2416,7 @@ function zoomToBarangay(barangayId) {
             setTimeout(() => map.invalidateSize(), 100);
         }
         
-        function toggleSidebar() {
+        function toggleMapFilterSidebar() {
             sidebarVisible = !sidebarVisible;
             const sidebar = document.getElementById('mapSidebar');
             
@@ -3181,54 +3228,29 @@ function zoomToBarangay(barangayId) {
         function exportMapReport() {
             showLoading('Preparing map report for export...');
             
-            // Use FormData to correctly build the POST request for PHP
             const formData = new FormData();
             formData.append('action', 'export_map_report');
             
-            // Append filters in a way PHP will understand as an array
+            // Send ALL filters to the server
             formData.append('filters[disability_type]', document.getElementById('disabilityFilter').value);
             formData.append('filters[status]', document.getElementById('statusFilter').value);
+            formData.append('filters[barangay_id]', document.getElementById('barangayFilter').value); // <-- ADDED THIS
 
-            // Append visible location IDs in a way PHP will understand as an array
-            filteredLocations.forEach(loc => {
-                formData.append('visible_locations[]', loc.id);
-            });
+            // We no longer send 'visible_locations[]'. 
+            // This solves the max_input_vars error and the inconsistency.
             
-            // The 'stats' object from your original JS isn't used by the PHP function,
-            // so we don't need to send it.
-
             fetch('map.php', {
                 method: 'POST',
-                body: formData // FormData sets its own Content-Type header
+                body: formData 
             })
             .then(response => {
                 if (!response.ok) {
-                    // If we get a 4xx or 5xx error, try to read the text
                     return response.text().then(text => {
                         let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
                         try {
-                            // Check if the server sent a JSON error
                             const errData = JSON.parse(text);
                             if (errData.error) errorMsg = errData.error;
                         } catch (e) {
-                            // Not JSON, just use the text (might be an HTML error page)
-                            errorMsg = text.substring(0, 200) + '...';
-                        }
-                        throw new Error(errorMsg);
-                    });
-                }
-
-                // Check if the server actually sent a PDF
-                const contentType = response.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/pdf")) {
-                    // Not a PDF. It's probably a JSON error or PHP warning.
-                    return response.text().then(text => {
-                        let errorMsg = 'Export failed: Server did not return a PDF.';
-                        try {
-                            const errData = JSON.parse(text);
-                            if (errData.error) errorMsg = errData.error;
-                        } catch(e) {
-                            // Check for common PHP error text
                             const htmlErrorMatch = text.match(/<b>(Warning|Error|Notice)<\/b>:\s*(.*?)\s*in/i);
                             if (htmlErrorMatch && htmlErrorMatch[2]) {
                                 errorMsg = htmlErrorMatch[2];
@@ -3239,8 +3261,21 @@ function zoomToBarangay(barangayId) {
                         throw new Error(errorMsg);
                     });
                 }
+
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/pdf")) {
+                    return response.text().then(text => {
+                        let errorMsg = 'Export failed: Server did not return a PDF.';
+                        try {
+                            const errData = JSON.parse(text);
+                            if (errData.error) errorMsg = errData.error;
+                        } catch(e) {
+                             errorMsg = 'Unknown error. Check server logs.';
+                        }
+                        throw new Error(errorMsg);
+                    });
+                }
                 
-                // If we're here, response is OK and it's a PDF
                 return response.blob();
             })
             .then(blob => {
@@ -3259,7 +3294,6 @@ function zoomToBarangay(barangayId) {
             .catch(error => {
                 hideLoading();
                 console.error('Export error:', error);
-                // Show a longer toast for errors
                 showToast('Export failed: ' + error.message, 'error', 8000); 
             });
         }

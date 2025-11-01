@@ -16,68 +16,90 @@ connection = pymysql.connect(
     cursorclass=pymysql.cursors.DictCursor
 )
 
-# Use Filipino localization for names - should prioritize Filipino names
+# Use Filipino localization for names
 fake = Faker("en_PH")
 
 # Barangay names and counts
 barangay_counts = {
-    "Barangay 1": 42, "Barangay 2": 83, "Barangay 3": 47, "Barangay 4": 84,
-    "San Agustin": 52, "San Antonio": 344, "San Bartolome": 159, "San Felix": 132,
-    "San Fernando": 33, "San Francisco": 92, "San Isidro Norte": 61, "San Isidro Sur": 65,
-    "San Joaquin": 72, "San Jose": 75, "San Juan": 75, "San Luis": 64, "San Miguel": 358,
-    "San Pablo": 159, "San Pedro": 164, "San Rafael": 234, "San Roque": 272,
-    "San Vicente": 481, "Santa Ana": 44, "Santa Anastacia": 214, "Santa Clara": 86,
-    "Santa Cruz": 41, "Santa Elena": 38, "Santa Maria": 333, "Santiago": 135,
+    "Barangay 1": 42, 
+    "Barangay 2": 83, 
+    "Barangay 3": 47, 
+    "Barangay 4": 84,
+    "San Agustin": 52, 
+    "San Antonio": 344, 
+    "San Bartolome": 159, 
+    "San Felix": 113,
+    "San Fernando": 32, 
+    "San Francisco": 92, 
+    "San Isidro Norte": 61, 
+    "San Isidro Sur": 65,
+    "San Joaquin": 72, 
+    "San Jose": 75, 
+    "San Juan": 75, 
+    "San Luis": 64, 
+    "San Miguel": 358,
+    "San Pablo": 159, 
+    "San Pedro": 164, 
+    "San Rafael": 234, 
+    "San Roque": 272,
+    "San Vicente": 481, 
+    "Santa Ana": 44, 
+    "Santa Anastacia": 214, 
+    "Santa Clara": 86,
+    "Santa Cruz": 41, 
+    "Santa Elena": 38, 
+    "Santa Maria": 333, 
+    "Santiago": 135,
     "Santa Teresita": 71
 }
 
 # --- *** DIVERSIFICATION START *** ---
 
 # Weighted choices for Gender
-genders = ["Female", "Male", "Other"]
-gender_weights = [0.50, 0.48, 0.02] # Example: Slightly more Female, few Other
+genders = ["Female", "Male"]
+gender_weights = [0.50, 0.48] 
 
-# Weighted choices for Civil Status (Adjust weights as needed)
+# Weighted choices for Civil Status
 civil_statuses = ['Single', 'Married', 'Widowed', 'Separated']
-civil_status_weights = [0.40, 0.45, 0.10, 0.05] # Example: More Single/Married
+civil_status_weights = [0.40, 0.45, 0.10, 0.05] 
 
-# Weighted choices for Disability Type (Adjust weights based on desired distribution)
+# Weighted choices for Disability Type
 disability_types = [
     "Physical Disability", "Visual Impairment", "Hearing Impairment",
     "Intellectual Disability", "Psychosocial Disability", "Multiple Disabilities"
 ]
-disability_weights = [0.30, 0.20, 0.15, 0.15, 0.10, 0.10] # Example weights
+disability_weights = [0.30, 0.20, 0.15, 0.15, 0.10, 0.10] 
 
 # Weighted choices for Employment Status
 employment_statuses = ['Unemployed', 'Employed', 'Self-employed', 'Student', 'Retired']
-employment_weights = [0.40, 0.25, 0.15, 0.10, 0.10] # Example: More Unemployed
+employment_weights = [0.40, 0.25, 0.15, 0.10, 0.10] 
 
+# --- *** START OF FIX 1 *** ---
 # Weighted choices for Record Status (ID Status)
-record_statuses = ['validated', 'issued', 'pending_validation', 'inactive', 'expired']
-record_status_weights = [0.50, 0.30, 0.10, 0.05, 0.05] # Example: Mostly validated/issued
+# Replaced 'pending_validation' with 'draft' to match your application's logic.
+# Added 'expired' which will be handled by date logic below.
+record_statuses = ['validated', 'issued', 'draft', 'inactive', 'expired']
+record_status_weights = [0.40, 0.30, 0.15, 0.10, 0.05] # 15% draft, 40% validated, 30% issued
+# --- *** END OF FIX 1 *** ---
 
 # Weighted Age Ranges (min_age, max_age)
 age_ranges = [(1, 17), (18, 30), (31, 45), (46, 60), (61, 90)]
-age_weights = [0.15, 0.25, 0.30, 0.20, 0.10] # Example: More adults 18-60
+age_weights = [0.15, 0.25, 0.30, 0.20, 0.10] 
 
 def get_weighted_dob():
     chosen_range = random.choices(age_ranges, weights=age_weights, k=1)[0]
     min_age, max_age = chosen_range
-    # Calculate birth year range based on current year
     today = date.today()
     latest_birth_year = today.year - min_age
     earliest_birth_year = today.year - max_age
 
-    # Generate a random birth date within the chosen age range
-    # Ensure earliest year is not before a reasonable limit, e.g., 1900
-    earliest_birth_year = max(earliest_birth_year, today.year - 95) # Limit max age slightly beyond 90 if needed
-    if earliest_birth_year > latest_birth_year: # Avoid invalid range if min/max age overlap weirdly near boundaries
+    earliest_birth_year = max(earliest_birth_year, today.year - 95) 
+    if earliest_birth_year > latest_birth_year:
         earliest_birth_year = latest_birth_year
 
-    # Generate DOB. Ensure start_date is not before a reasonable minimum.
     try:
         start_date = date(earliest_birth_year, today.month, today.day)
-    except ValueError: # Handle leap year day issues
+    except ValueError: 
          start_date = date(earliest_birth_year, today.month, today.day -1)
 
     try:
@@ -85,12 +107,10 @@ def get_weighted_dob():
     except ValueError:
        end_date = date(latest_birth_year, today.month, today.day -1)
 
-    # Ensure start_date is not after end_date
     if start_date > end_date:
         start_date = end_date
 
     return fake.date_between(start_date=start_date, end_date=end_date)
-
 
 # --- *** DIVERSIFICATION END *** ---
 
@@ -125,52 +145,86 @@ try:
                 lat, lon = None, None
                 if polygon:
                     minx, miny, maxx, maxy = polygon.bounds
-                    for _ in range(10): # Try 10 times
+                    for _ in range(10): 
                        point = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
-                       # Check if polygon contains the point; buffer(0) can fix self-intersection issues
                        if polygon.buffer(0).contains(point):
                            lat, lon = point.y, point.x
                            generated_coords_count += 1
                            break
-                    # No warning spam if point not found
-                    # if lat is None: print(f"⚠️ No point for {brgy_key} rec {i+1}")
 
-                # --- *** Use weighted choices for generation *** ---
                 first_name = fake.first_name()
-                middle_name = fake.last_name() # Placeholder
+                middle_name = fake.last_name() 
                 last_name = fake.last_name()
-                dob = get_weighted_dob() # Use weighted age function
+                dob = get_weighted_dob() 
                 gender = random.choices(genders, weights=gender_weights, k=1)[0]
                 civil_status = random.choices(civil_statuses, weights=civil_status_weights, k=1)[0]
                 pwd_id = fake.unique.bothify(text='PWD-??######')
                 disability = random.choices(disability_types, weights=disability_weights, k=1)[0]
                 employment_status = random.choices(employment_statuses, weights=employment_weights, k=1)[0]
-                record_status = random.choices(record_statuses, weights=record_status_weights, k=1)[0]
-                # --- *** End weighted choices *** ---
+                record_status_choice = random.choices(record_statuses, weights=record_status_weights, k=1)[0]
 
                 address_line1 = fake.street_address()
-                city = "Sto. Tomas"
+                city = "Santo Tomas City" # Fixed to match your new default
                 province = "Batangas"
+                
+                # --- *** START OF FIX 2: Add realistic dates based on status *** ---
+                validation_date = None
+                issue_date = None
+                expiry_date = None
+                db_status = record_status_choice # This will be 'draft', 'validated', or 'inactive'
+                
+                if record_status_choice == 'validated':
+                    # Record is validated but not issued
+                    validation_date = fake.date_time_between(start_date="-30d", end_date="-1d")
+                
+                elif record_status_choice == 'issued':
+                    # This is an ACTIVE issued ID
+                    issue_date = fake.date_time_between(start_date="-3y", end_date="-1d") # Issued sometime in last 3 years
+                    expiry_date = issue_date.date() + datetime.timedelta(days=random.randint(4*365, 5*365)) # Active for 4-5 more years
+                    validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5)) 
+                    db_status = 'issued' # Status in DB is 'issued'
+                
+                elif record_status_choice == 'expired':
+                    # This is an EXPIRED issued ID
+                    expiry_date = fake.date_time_between(start_date="-3y", end_date="-1d").date() # Expired sometime in last 3 years
+                    issue_date = expiry_date - datetime.timedelta(days=5*365) # Issued 5 years before it expired
+                    validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
+                    db_status = 'issued' # CRITICAL: Status in DB is 'issued', report logic calculates 'expired'
+                
+                elif record_status_choice == 'inactive':
+                    # Inactive records were likely 'issued' at some point
+                    issue_date = fake.date_time_between(start_date="-4y", end_date="-1y")
+                    expiry_date = issue_date.date() + datetime.timedelta(days=5*365) # Was valid
+                    validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
+                    db_status = 'inactive' # Status in DB is 'inactive'
+                
+                # 'draft' status has no dates, which is correct
+                # --- *** END OF FIX 2 *** ---
 
-                # --- *** MODIFIED INSERT STATEMENT *** ---
-                # Added employment_status column
+                # --- *** START OF FIX 3: MODIFIED INSERT STATEMENT *** ---
+                # Added validation_date, issue_date, expiry_date
                 sql = """
                     INSERT INTO pwd_records (
                         pwd_id_number, first_name, middle_name, last_name, date_of_birth,
                         gender, civil_status, address_line1, barangay, city_municipality,
                         province, latitude, longitude, disability_type, employment_status,
-                        created_by, status, barangay_id
+                        created_by, status, barangay_id,
+                        validation_date, issue_date, expiry_date 
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 values = (
                     pwd_id, first_name, middle_name, last_name, dob,
                     gender, civil_status, address_line1, brgy_key, city,
-                    province, lat, lon, disability, employment_status, # Added employment_status
-                    admin_user_id, record_status, # Use weighted status
-                    barangay_id
+                    province, lat, lon, disability, employment_status,
+                    admin_user_id, 
+                    db_status, # Use the final status (draft, validated, issued, inactive)
+                    barangay_id,
+                    validation_date, # Add new date
+                    issue_date,      # Add new date
+                    expiry_date      # Add new date
                 )
-                # --- *** END MODIFIED INSERT *** ---
+                # --- *** END OF FIX 3 *** ---
 
                 cursor.execute(sql, values)
 

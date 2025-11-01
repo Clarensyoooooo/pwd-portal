@@ -1,5 +1,6 @@
 // Enhanced script.js for PWD Portal Appointment System (No Authentication)
 
+
 // Global variables
 let currentAppointment = null
 let currentUserData = null
@@ -879,107 +880,192 @@ async function handleNewApplication(event) {
   }
 }
 
+// In script.js
+
 async function trackAppointment() {
-  const trackingNumber = document.getElementById("trackingNumber").value.trim()
+  const trackingNumber = document.getElementById("trackingNumber").value.trim();
 
   if (!trackingNumber) {
-    showNotification("Please enter a reference number", "error")
-    return
+    showNotification("Please enter a reference number", "error");
+    return;
   }
 
-  // Show loading state
-  const button = event?.target || document.querySelector(".btn-track")
-  const originalText = button.textContent
-  button.textContent = "Tracking..."
-  button.disabled = true
+  const button = event?.target || document.querySelector(".btn-track");
+  const originalText = button.textContent;
+  button.textContent = "Tracking...";
+  button.disabled = true;
 
   try {
-    const formData = new FormData()
-    formData.append("action", "track_appointment")
-    formData.append("reference_number", trackingNumber)
+    const formData = new FormData();
+    formData.append("action", "track_appointment");
+    formData.append("reference_number", trackingNumber);
 
-    const response = await fetch("appointments.php", {
+    const response = await fetch("appointments.php", { //
       method: "POST",
       body: formData,
-    })
+    });
+    
+    // Check if the server responded with an error (like 404 or 500)
+    if (!response.ok) { //
+      
+      // --- START OF CHANGES ---
 
-    const result = await response.json()
+      // If the status is 404, it's our "Appointment not found" error
+      if (response.status === 404) {
+        const result = await response.json(); // Try to read the JSON error
+        showNotification(result.error || "Appointment not found", "error");
+        hideAppointmentDetails();
+        return; // Stop execution here
+      } else {
+        // For other errors (500, etc.), throw the server error
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+      // --- END OF CHANGES ---
+    }
+
+    // This code now only runs if response.ok is TRUE
+    const result = await response.json();
 
     if (result.success) {
-      currentAppointment = result.appointment
-      displayAppointmentDetails(result.appointment)
-      showNotification("Appointment found!", "success")
+      currentAppointment = result.appointment;
+      displayAppointmentDetails(result.appointment);
+      showNotification("Appointment found!", "success");
     } else {
-      showNotification(result.error, "error")
-      hideAppointmentDetails()
+      // This will catch any other { success: false } errors
+      showNotification(result.error, "error");
+      hideAppointmentDetails();
     }
   } catch (error) {
-    showNotification("Tracking failed. Please try again.", "error")
-    hideAppointmentDetails()
+    // This will now only show for true server/network failures
+    console.error("Tracking function failed:", error); 
+    showNotification(`Tracking failed. ${error.message}`, "error"); //
+    hideAppointmentDetails();
   } finally {
-    button.textContent = originalText
-    button.disabled = false
+    button.textContent = originalText;
+    button.disabled = false;
   }
 }
 
 function displayAppointmentDetails(appointment) {
-  const appointmentSection = document.getElementById("appointmentStatusSection")
-  const noTrackingMessage = document.getElementById("noTrackingMessage")
+  const appointmentSection = document.getElementById("appointmentStatusSection");
+  const noTrackingMessage = document.getElementById("noTrackingMessage");
 
   // Hide no tracking message and show appointment details
-  noTrackingMessage.style.display = "none"
-  appointmentSection.style.display = "block"
+  noTrackingMessage.style.display = "none";
+  appointmentSection.style.display = "block";
 
-  // Update status progress
-  updateStatusProgress(appointment)
+  // Update status progress (NOW HANDLES ALL STATUSES)
+  updateStatusProgress(appointment);
 
-  // Update appointment details card
-  updateAppointmentDetailsCard(appointment)
+  // Update appointment details card (NOW SHOWS STATUS)
+  updateAppointmentDetailsCard(appointment);
 
-  // Show SMS verification if needed
-  updateSMSVerificationSection(appointment)
+  // Show SMS verification if needed (NOW HIDES ON TERMINAL STATUS)
+  updateSMSVerificationSection(appointment);
 
-  // Update final confirmation
-  updateFinalConfirmation(appointment)
+  // Update final confirmation/status box (NOW SHOWS COMPLETED/CANCELLED)
+  updateFinalConfirmation(appointment);
 
-  // Update timeline
-  updateAppointmentTimeline(appointment)
+  // Update timeline (NOW SHOWS COMPLETED/CANCELLED)
+  updateAppointmentTimeline(appointment);
 
   // Animate appearance
-  appointmentSection.style.opacity = "0"
-  appointmentSection.style.transform = "translateY(20px)"
+  appointmentSection.style.opacity = "0";
+  appointmentSection.style.transform = "translateY(20px)";
 
   setTimeout(() => {
-    appointmentSection.style.transition = "all 0.5s ease"
-    appointmentSection.style.opacity = "1"
-    appointmentSection.style.transform = "translateY(0)"
-  }, 100)
+    appointmentSection.style.transition = "all 0.5s ease";
+    appointmentSection.style.opacity = "1";
+    appointmentSection.style.transform = "translateY(0)";
+  }, 100);
 }
 
-function updateStatusProgress(appointment) {
-  const statusProgress = document.getElementById("statusProgress")
+function displayAppointmentDetails(appointment) {
+  const appointmentSection = document.getElementById("appointmentStatusSection");
+  const noTrackingMessage = document.getElementById("noTrackingMessage");
 
+  // Hide no tracking message and show appointment details
+  noTrackingMessage.style.display = "none";
+  appointmentSection.style.display = "block";
+
+  // Update status progress (NOW HANDLES ALL STATUSES)
+  updateStatusProgress(appointment);
+
+  // Update appointment details card (NOW SHOWS STATUS)
+  updateAppointmentDetailsCard(appointment);
+
+  // Show SMS verification if needed (NOW HIDES ON TERMINAL STATUS)
+  updateSMSVerificationSection(appointment);
+
+  // Update final confirmation/status box (NOW SHOWS COMPLETED/CANCELLED)
+  updateFinalConfirmation(appointment);
+
+  // Update timeline (NOW SHOWS COMPLETED/CANCELLED)
+  updateAppointmentTimeline(appointment);
+
+  // Animate appearance
+  appointmentSection.style.opacity = "0";
+  appointmentSection.style.transform = "translateY(20px)";
+
+  setTimeout(() => {
+    appointmentSection.style.transition = "all 0.5s ease";
+    appointmentSection.style.opacity = "1";
+    appointmentSection.style.transform = "translateY(0)";
+  }, 100);
+}
+
+// Add this function to script.js
+function updateStatusProgress(appointment) {
+  const statusProgress = document.getElementById("statusProgress");
+  const status = appointment.status;
+
+  // Handle special terminal statuses (Cancelled / No Show) first
+  if (status === "cancelled" || status === "no_show") {
+    const reason = status === "cancelled" ? "Cancelled" : "No Show";
+    const reasonDesc = status === "cancelled" 
+      ? (appointment.notes || "This appointment has been cancelled.")
+      : "The appointment was missed and marked as 'No Show'.";
+    
+    // Display a special status box instead of the progress bar
+    statusProgress.innerHTML = `
+      <div class.style="text-align: center; padding: 20px; border-radius: 8px; background: ${status === 'cancelled' ? '#fff1f2' : '#fffbeb'}; border: 1px solid ${status === 'cancelled' ? '#fecdd3' : '#fde68a'};">
+        <i class="fas ${status === 'cancelled' ? 'fa-times-circle' : 'fa-calendar-times'}" style="font-size: 2rem; margin-bottom: 10px; color: ${status === 'cancelled' ? '#e11d48' : '#d97706'};"></i>
+        <h4 style="color: ${status === 'cancelled' ? '#e11d48' : '#d97706'}; margin-bottom: 5px;">Appointment ${reason}</h4>
+        <p style="color: #666;">${reasonDesc.replace('Cancelled: ', '')}</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Define the standard 4 steps
   const steps = [
     {
       id: "step1",
-      title: "Appointment Details Submitted",
+      title: "Appointment Submitted",
       description: "You selected a date and provided your info.",
-      completed: true,
+      completed: true, // Always completed if we found the appointment
     },
     {
       id: "step2",
-      title: "Email Verification Sent",
-      description: "A 6-digit confirmation code was sent to your email.",
-      completed: appointment.sms_verification_sent,
+      title: "Email Verification",
+      description: "Your appointment is pending email verification.",
+      completed: appointment.sms_verified_at != null || ['confirmed', 'completed'].includes(status),
     },
     {
       id: "step3",
       title: "Appointment Confirmed",
-      description: "Your appointment has been booked. Please show up on-site as scheduled.",
-      completed: appointment.status === "confirmed" || appointment.status === "completed",
+      description: "Your appointment has been booked.",
+      completed: ['confirmed', 'completed'].includes(status),
     },
-  ]
+    {
+      id: "step4",
+      title: "Appointment Completed",
+      description: "Your appointment is complete.",
+      completed: status === "completed",
+    },
+  ];
 
+  // Build the normal progress steps
   statusProgress.innerHTML = steps
     .map(
       (step) => `
@@ -994,17 +1080,47 @@ function updateStatusProgress(appointment) {
     </div>
   `,
     )
-    .join("")
+    .join("");
 }
 
 function updateAppointmentDetailsCard(appointment) {
-  const detailsCard = document.getElementById("appointmentDetailsCard")
+  const detailsCard = document.getElementById("appointmentDetailsCard");
 
-  const appointmentDate = appointment.actual_date || appointment.preferred_date
-  const appointmentTime = appointment.actual_time || appointment.preferred_time
+  const appointmentDate = appointment.actual_date || appointment.preferred_date;
+  const appointmentTime = appointment.actual_time || appointment.preferred_time;
+
+  // Create a user-friendly status message
+  let friendlyStatus = "Unknown";
+  let statusClass = "status-info"; // for styling
+  switch (appointment.status) {
+    case "pending":
+      friendlyStatus = "Pending Verification";
+      statusClass = "status-warning";
+      break;
+    case "confirmed":
+      friendlyStatus = "Confirmed";
+      statusClass = "status-success";
+      break;
+    case "completed":
+      friendlyStatus = "Completed";
+      statusClass = "status-success-dark";
+      break;
+    case "cancelled":
+      friendlyStatus = "Cancelled";
+      statusClass = "status-danger";
+      break;
+    case "no_show":
+      friendlyStatus = "No Show";
+      statusClass = "status-danger";
+      break;
+  }
 
   detailsCard.innerHTML = `
     <div class="details-grid">
+      <div class="detail-item">
+        <span class="detail-label">Current Status:</span>
+        <span class="detail-value"><strong class="${statusClass}">${friendlyStatus}</strong></span>
+      </div>
       <div class="detail-item">
         <span class="detail-label">Applicant:</span>
         <span class="detail-value">${appointment.applicant_name}</span>
@@ -1012,6 +1128,10 @@ function updateAppointmentDetailsCard(appointment) {
       <div class="detail-item">
         <span class="detail-label">Email:</span>
         <span class="detail-value">${appointment.email}</span>
+      </div>
+       <div class="detail-item">
+        <span class="detail-label">Phone:</span>
+        <span class="detail-value">${appointment.contact_number}</span>
       </div>
       <div class="detail-item">
         <span class="detail-label">Date Submitted:</span>
@@ -1021,23 +1141,22 @@ function updateAppointmentDetailsCard(appointment) {
         <span class="detail-label">Appointment:</span>
         <span class="detail-value">${formatDate(appointmentDate)} ${formatTime(appointmentTime)}</span>
       </div>
-      <div class="detail-item full-width">
-        <span class="detail-label">Next Steps:</span>
-        <span class="detail-value">Bring all required documents to your scheduled appointment on ${formatDate(appointmentDate)}</span>
-      </div>
     </div>
-  `
+  `;
 }
 
 function updateSMSVerificationSection(appointment) {
-  const smsSection = document.getElementById("smsVerificationSection")
-
-  if (appointment.sms_verification_sent && !appointment.sms_verified_at) {
-    smsSection.style.display = "block"
+  const smsSection = document.getElementById("smsVerificationSection");
+  
+  // Show verification ONLY if it was sent, not yet verified, AND the appointment is still pending.
+  if (appointment.sms_verification_sent && !appointment.sms_verified_at && appointment.status === 'pending') {
+    smsSection.style.display = "block";
   } else {
-    smsSection.style.display = "none"
+    smsSection.style.display = "none";
   }
 }
+
+
 
 async function verifySMS() {
   const verificationCode = document.getElementById("smsVerificationCode").value.trim()
@@ -1073,17 +1192,25 @@ async function verifySMS() {
   }
 }
 
-function updateFinalConfirmation(appointment) {
-  const finalConfirmation = document.getElementById("finalConfirmation")
 
-  if (appointment.status === "confirmed" || appointment.status === "completed") {
-    finalConfirmation.style.display = "block"
+
+function updateFinalConfirmation(appointment) {
+  const finalConfirmation = document.getElementById("finalConfirmation");
+
+  // Clear previous content
+  finalConfirmation.innerHTML = "";
+  finalConfirmation.style.display = "none";
+  finalConfirmation.className = "final-confirmation"; // Reset classes
+
+  if (appointment.status === "confirmed") {
+    finalConfirmation.style.display = "block";
+    finalConfirmation.classList.add("status-confirmed");
     finalConfirmation.innerHTML = `
       <div class="confirmation-content">
         <i class="fas fa-check-circle"></i>
         <div class="confirmation-text">
           <h4>Appointment Confirmed</h4>
-          <p>Your appointment has been successfully confirmed. Please arrive 15 minutes before your scheduled time and bring all required documents.</p>
+          <p>Your appointment is successfully confirmed. Please arrive 15 minutes before your scheduled time and bring all required documents.</p>
         </div>
       </div>
       <div class="confirmation-footer">
@@ -1093,52 +1220,128 @@ function updateFinalConfirmation(appointment) {
           <i class="fas fa-download"></i> Save Details
         </button>
       </div>
-    `
-  } else {
-    finalConfirmation.style.display = "none"
+    `;
+  } else if (appointment.status === "completed") {
+    finalConfirmation.style.display = "block";
+    finalConfirmation.classList.add("status-completed-box"); // New class
+    finalConfirmation.innerHTML = `
+      <div class="confirmation-content">
+        <i class="fas fa-calendar-check"></i>
+        <div class="confirmation-text">
+          <h4>Appointment Completed</h4>
+          <p>Thank you for visiting. Your appointment on ${formatDate(appointment.completed_at || appointment.actual_date)} is marked as complete.</p>
+        </div>
+      </div>
+    `;
+  } else if (appointment.status === "cancelled") {
+    finalConfirmation.style.display = "block";
+    finalConfirmation.classList.add("status-cancelled-box"); // New class
+    finalConfirmation.innerHTML = `
+      <div class="confirmation-content">
+        <i class="fas fa-times-circle"></i>
+        <div class="confirmation-text">
+          <h4>Appointment Cancelled</h4>
+          <p>This appointment has been cancelled. ${appointment.notes ? `<strong>Reason:</strong> ${appointment.notes.replace('Cancelled: ', '')}` : ''}</p>
+        </div>
+      </div>
+    `;
+  } else if (appointment.status === "no_show") {
+    finalConfirmation.style.display = "block";
+    finalConfirmation.classList.add("status-no-show-box"); // New class
+    finalConfirmation.innerHTML = `
+      <div class="confirmation-content">
+        <i class="fas fa-calendar-times"></i>
+        <div class="confirmation-text">
+          <h4>Appointment Missed</h4>
+          <p>This appointment was marked as "No Show". Please book a new appointment.</p>
+        </div>
+      </div>
+    `;
   }
 }
 
+// In script.js, replace the old updateAppointmentTimeline function with this:
 function updateAppointmentTimeline(appointment) {
-  const timeline = document.getElementById("appointmentTimeline")
+  const timeline = document.getElementById("appointmentTimeline");
 
-  const timelineItems = []
+  const timelineItems = [];
 
-  // Always show submitted
+  // 1. Submitted
   timelineItems.push({
     title: "Appointment Details Submitted",
     date: appointment.created_at,
     description: "You selected a date and provided your information.",
-    completed: true,
-  })
+    status: 'completed' // Use 'completed' for all past steps
+  });
 
-  // Show SMS sent if applicable
+  // 2. Email Sent
   if (appointment.sms_verification_sent) {
     timelineItems.push({
       title: "Email Verification Sent",
-      date: appointment.created_at,
+      date: appointment.created_at, // Assuming sent at the same time
       description: "A 6-digit confirmation code was sent to your email.",
-      completed: true,
-    })
+      status: 'completed'
+    });
+  }
+  
+  // 3. Email Verified
+  if (appointment.sms_verified_at) {
+    timelineItems.push({
+      title: "Email Verified",
+      date: appointment.sms_verified_at,
+      description: "You successfully verified your email.",
+      status: 'completed'
+    });
   }
 
-  // Show confirmed if applicable
+  // 4. Confirmed
   if (appointment.confirmed_at) {
     timelineItems.push({
       title: "Appointment Confirmed",
       date: appointment.confirmed_at,
-      description: "Your appointment is now booked. Please show up on-site as scheduled.",
-      completed: true,
-    })
+      description: "Your appointment was booked.",
+      status: 'completed'
+    });
+  }
+  
+  // 5. Cancelled
+  if (appointment.status === 'cancelled') {
+     timelineItems.push({
+      title: "Appointment Cancelled",
+      date: appointment.updated_at, // Use updated_at as proxy for cancelled time
+      description: appointment.notes ? appointment.notes.replace('Cancelled: ', '') : "The appointment was cancelled.",
+      status: 'cancelled' // Specific status
+    });
+  }
+  
+  // 6. Completed
+  if (appointment.completed_at) {
+     timelineItems.push({
+      title: "Appointment Completed",
+      date: appointment.completed_at,
+      description: "You attended your appointment.",
+      status: 'completed' // Use 'completed' status
+    });
+  }
+  
+  // 7. No Show
+  if (appointment.status === 'no_show') {
+     timelineItems.push({
+      title: "Appointment Missed (No Show)",
+      date: appointment.updated_at, // Use updated_at as proxy
+      description: "The scheduled appointment was missed.",
+      status: 'no_show' // Specific status
+    });
   }
 
+  // This HTML generation is now updated to use the new status classes
   timeline.innerHTML = `
     <h4>Appointment Timeline</h4>
     <div class="timeline-items">
       ${timelineItems
         .map(
           (item) => `
-        <div class="timeline-item ${item.completed ? "completed" : ""}">
+        <div class="timeline-item status-${item.status}">
           <div class="timeline-dot"></div>
           <div class="timeline-content">
             <h5>${item.title}</h5>
@@ -1150,7 +1353,7 @@ function updateAppointmentTimeline(appointment) {
         )
         .join("")}
     </div>
-  `
+  `;
 }
 
 function hideAppointmentDetails() {
@@ -1496,19 +1699,16 @@ function formatTime(timeString) {
 
 function formatDateTime(dateTimeString) {
   const date = new Date(dateTimeString)
-  return (
-    date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }) +
-    ", " +
-    date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-  )
+
+  const dateOptions = {
+    month: "long", // You can use "long" (e.g., October) or "short" (e.g., Oct)
+    day: "numeric",
+    year: "numeric",
+    timeZone: 'Asia/Manila'
+  };
+
+  // This now only returns the date string
+  return date.toLocaleDateString("en-US", dateOptions);
 }
 
 function showNotification(message, type = "info") {

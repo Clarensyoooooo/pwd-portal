@@ -132,8 +132,7 @@ $safe_percent = function($numerator, $denominator) {
         <div class="chart-container">
             <canvas id="ageGroupChart"></canvas>
         </div>
-        <div class="chart-legend" id="ageGroupLegend"></div>
-    </div>
+        </div>
     
     <div class="analytics-card">
         <h3><i class="fas fa-venus-mars"></i> Gender Distribution</h3>
@@ -148,8 +147,7 @@ $safe_percent = function($numerator, $denominator) {
         <div class="chart-container">
             <canvas id="disabilityChart"></canvas>
         </div>
-        <div class="chart-legend" id="disabilityLegend"></div>
-    </div>
+        </div>
 
     <div class="analytics-card">
         <h3><i class="fas fa-id-card"></i> ID Status Distribution</h3>
@@ -164,8 +162,7 @@ $safe_percent = function($numerator, $denominator) {
         <div class="chart-container">
             <canvas id="employmentChart"></canvas>
         </div>
-        <div class="chart-legend" id="employmentLegend"></div>
-    </div>
+        </div>
     
     <div class="analytics-card" style="grid-column: 1 / -1;">
         <h3><i class="fas fa-chart-line"></i> Status Trends Over Time</h3>
@@ -347,43 +344,44 @@ function initializeAnalyticsCharts() {
     // --- END: Custom HTML Legend Plugin ---
 
 
-    // Age Group Donut Chart
+    // --- CHANGED: Age Group Chart (to Bar) ---
     destroyChart('ageGroupChart');
     const ageCtx = document.getElementById('ageGroupChart')?.getContext('2d');
     if (ageCtx) {
         chartInstances['ageGroupChart'] = new Chart(ageCtx, {
-            type: 'doughnut',
-            plugins: [htmlLegendPlugin], // Add plugin
+            type: 'bar', // CHANGED
             data: {
                 labels: <?php echo json_encode(array_column($age_groups, 'age_group')); ?>,
                 datasets: [{
+                    label: 'Count', // Added label for tooltip
                     data: <?php echo json_encode(array_column($age_groups, 'count')); ?>,
                     backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
+                    borderWidth: 0 // No border needed for bars
                 }]
             },
             options: {
+                indexAxis: 'y', // CHANGED: Makes it horizontal
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    htmlLegend: { containerID: 'ageGroupLegend' }, // Link to placeholder
-                    legend: { display: false }, // Hide default legend
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
-                            }
-                        }
+                    // htmlLegend: { containerID: 'ageGroupLegend' }, // REMOVED
+                    legend: { display: false }, // Hide legend, Y-axis is clear
+                    // tooltip: { ... } // REMOVED custom tooltip
+                },
+                scales: { // ADDED
+                    x: { 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Count' }
+                    },
+                    y: { 
+                        beginAtZero: true 
                     }
                 }
             }
         });
     }
     
-    // Gender Pie Chart
+    // --- UNCHANGED: Gender Pie Chart ---
     destroyChart('genderChart');
     const genderCtx = document.getElementById('genderChart')?.getContext('2d');
     if (genderCtx) {
@@ -419,43 +417,44 @@ function initializeAnalyticsCharts() {
         });
     }
     
-    // Disability Type Donut Chart
+    // --- CHANGED: Disability Type Chart (to Bar) ---
     destroyChart('disabilityChart');
     const disabilityCtx = document.getElementById('disabilityChart')?.getContext('2d');
     if (disabilityCtx) {
         chartInstances['disabilityChart'] = new Chart(disabilityCtx, {
-            type: 'doughnut',
-            plugins: [htmlLegendPlugin], // Add plugin
+            type: 'bar', // CHANGED
             data: {
                 labels: <?php echo json_encode(array_column($disability_distribution, 'disability_type')); ?>,
                 datasets: [{
+                    label: 'Count', // Added label for tooltip
                     data: <?php echo json_encode(array_column($disability_distribution, 'count')); ?>,
                     backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
+                    borderWidth: 0
                 }]
             },
             options: {
+                indexAxis: 'y', // CHANGED: Makes it horizontal
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    htmlLegend: { containerID: 'disabilityLegend' }, // Link to placeholder
-                    legend: { display: false }, // Hide default legend
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
-                            }
-                        }
+                    // htmlLegend: { containerID: 'disabilityLegend' }, // REMOVED
+                    legend: { display: false }, // Hide legend
+                    // tooltip: { ... } // REMOVED custom tooltip
+                },
+                scales: { // ADDED
+                    x: { 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Count' }
+                    },
+                    y: { 
+                        beginAtZero: true 
                     }
                 }
             }
         });
     }
 
-    // --- NEW: ID Status Pie Chart ---
+    // --- UNCHANGED: ID Status Pie Chart ---
     destroyChart('idStatusChart');
     const idStatusCtx = document.getElementById('idStatusChart')?.getContext('2d');
     if (idStatusCtx) {
@@ -491,36 +490,37 @@ function initializeAnalyticsCharts() {
         });
     }
 
-    // --- NEW: Employment Status Donut Chart ---
+    // --- CHANGED: Employment Status Chart (to Bar) ---
     destroyChart('employmentChart');
     const employmentCtx = document.getElementById('employmentChart')?.getContext('2d');
     if (employmentCtx) {
         chartInstances['employmentChart'] = new Chart(employmentCtx, {
-            type: 'doughnut',
-            plugins: [htmlLegendPlugin],
+            type: 'bar', // CHANGED
             data: {
                 labels: <?php echo json_encode(array_column($employment_distribution, 'employment_status')); ?>,
                 datasets: [{
+                    label: 'Count', // Added label for tooltip
                     data: <?php echo json_encode(array_column($employment_distribution, 'count')); ?>,
                     backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
+                    borderWidth: 0
                 }]
             },
             options: {
+                indexAxis: 'y', // CHANGED: Makes it horizontal
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    htmlLegend: { containerID: 'employmentLegend' },
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                return context.label + ': ' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
-                            }
-                        }
+                    // htmlLegend: { containerID: 'employmentLegend' }, // REMOVED
+                    legend: { display: false }, // Hide legend
+                    // tooltip: { ... } // REMOVED custom tooltip
+                },
+                scales: { // ADDED
+                    x: { 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Count' }
+                    },
+                    y: { 
+                        beginAtZero: true 
                     }
                 }
             }

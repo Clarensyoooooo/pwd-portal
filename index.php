@@ -29,10 +29,20 @@ require_once 'config.php';
             border-color: #ef4444 !important; /* Make error border prominent */
             box-shadow: 0 0 0 1px #ef4444;
         }
+
+        /* --- ADDED FOR SMOOTH & ACCURATE SCROLLING --- */
+        html {
+            scroll-behavior: smooth;
+            /* ADJUST THIS VALUE: 
+              This should be the height of your fixed navigation bar.
+              I've set it to 100px as a placeholder. 
+              You may need to make it larger or smaller to match perfectly.
+            */
+            scroll-padding-top: 100px; 
+        }
     </style>
 </head>
 <body>
-    <!-- Header -->
     <header class="header">
         <div class="top-bar">
             <div class="container">
@@ -45,8 +55,10 @@ require_once 'config.php';
         <nav class="navbar">
             <div class="container">
                 <div class="nav-brand">
-                    <img src="https://scontent.fpag2-1.fna.fbcdn.net/v/t39.30808-6/517703539_122107885826930992_4646467853699166888_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_ohc=ULWXeTTkiasQ7kNvwEcY-GP&_nc_oc=Adn_VUpk5YJV1uN7yOnvN2a--dDZ7AP0Du4RBdq__7E1zgxL6eQz9fGFpHCYDJIoiSM&_nc_zt=23&_nc_ht=scontent.fpag2-1.fna&_nc_gid=TiaJ00GZFdYkt-ZzIF-cVA&oh=00_Afdt7WT8vLrk-jW1aePbVmzhxRvCEUh1c-Fx3naBajmvwA&oe=68FE7C12" alt="PWD Logo" class="logo">
-                    <span class="brand-text">PDAO Helps</span>
+                    <a href="#home" style="text-decoration: none; color: inherit; display: flex; align-items: center;">
+                        <img src="https://scontent.fpag2-1.fna.fbcdn.net/v/t39.30808-6/517703539_122107885826930992_4646467853699166888_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_ohc=Yw_DNQ5vGH0Q7kNvwEsWhNq&_nc_oc=Adljo4KPlVphPW3G9CnkQRb0Z3aaHcgX8zQE_y5qK-hgqPkLh1WT0kh3sy3hKfhtwk0&_nc_zt=23&_nc_ht=scontent.fpag2-1.fna&_nc_gid=SUDbPVtLvofOOZMoOsPBgQ&oh=00_AfcFrGTtmNYVpAXXRwjD0P-qQF5oNRJlcrJJQJYCdYM4eQ&oe=690A91D2" alt="PWD Logo" class="logo">
+                        <span class="brand-text">PDAO Helps</span>
+                    </a>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#home">Home</a></li>
@@ -66,7 +78,6 @@ require_once 'config.php';
         </nav>
     </header>
 
-    <!-- Hero Section -->
     <section class="hero" id="home">
         <div class="container">
             <div class="hero-content">
@@ -80,7 +91,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </section>
 
-    <!-- PWD ID Application Process -->
     <section class="application-process" id="services">
         <div class="container">
             <h2>PWD ID Application Process</h2>
@@ -113,8 +123,7 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </section>
 
-    <!-- Track Appointment -->
-    <section class="track-appointment">
+    <section class="track-appointment" id="requirements">
         <div class="container">
             <div class="track-header">
                 <h2>Track Your Appointment</h2>
@@ -122,7 +131,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
             </div>
             
             <div class="tracking-layout">
-                <!-- Left Side - Requirements and Input -->
                 <div class="tracking-left">
                     <div class="tracking-input-section">
                         <h3>Appointment Reference Number</h3>
@@ -133,14 +141,15 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                         <p class="tracking-help">Ilagay ang iyong reference number upang masuri ang estado ng iyong appointment.</p>
                     </div>
 
-                    <div class="requirements-checklist" id="requirements">
+                    <div class="requirements-checklist">
                         <h3><i class="fas fa-clipboard-list"></i> PWD ID Requirements</h3>
                         <ul class="requirements-list">
-                            <li><i class="fas fa-circle"></i> Medical certificate from licensed physician</li>
-                            <li><i class="fas fa-circle"></i> Barangay certificate of residency</li>
-                            <li><i class="fas fa-circle"></i> 2 recent 1x1 ID pictures</li>
-                            <li><i class="fas fa-circle"></i> Valid government-issued ID</li>
-                            <li><i class="fas fa-circle"></i> Birth certificate</li>
+                            <li><i class="fas fa-circle"></i> 4pcs recent 1x1 ID pictures</li>
+                            <li><i class="fas fa-circle"></i> Birth certificate </li>
+                            <li><i class="fas fa-circle"></i> Certificate of Disability</li>
+                            <li><i class="fas fa-circle"></i> Blood typing</li>
+                            <li><i class="fas fa-circle"></i> Family Baseline</li>
+                            <li><i class="fas fa-circle"></i> Application Form</li>
                             <strong>For Guardians/Representatives:</strong>
                    <li> <p>Kung ikaw ay nag-a-apply para sa ibang tao, maaaring kailanganin mong magpasa ng patunay ng guardianship o isang notarized authorization letter.</p>
                             </li>
@@ -151,22 +160,16 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     </div>
                 </div>
 
-                <!-- Right Side - Appointment Status -->
                 <div class="tracking-right">
                     <div class="appointment-status-section" id="appointmentStatusSection" style="display: none;">
                         <h3>Appointment Status</h3>
                         
-                        <!-- Status Progress -->
                         <div class="status-progress" id="statusProgress">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
+                            </div>
 
-                        <!-- Appointment Details -->
                         <div class="appointment-details-card" id="appointmentDetailsCard">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
+                            </div>
 
-                        <!-- SMS Verification Section -->
                         <div class="sms-verification-section" id="smsVerificationSection" style="display: none;">
                             <h4>Email Verification Required</h4>
                             <p>Please enter the 6-digit code sent to your email:</p>
@@ -176,18 +179,13 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                             </div>
                         </div>
 
-                        <!-- Final Confirmation Box -->
                         <div class="final-confirmation" id="finalConfirmation" style="display: none;">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
+                            </div>
 
-                        <!-- Appointment Timeline -->
                         <div class="appointment-timeline" id="appointmentTimeline">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
+                            </div>
                     </div>
 
-                    <!-- Default message when no tracking -->
                     <div class="no-tracking-message" id="noTrackingMessage">
                         <div class="no-tracking-content">
                             <i class="fas fa-search"></i>
@@ -202,8 +200,7 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
 
     
 
-<!-- Programs Application Section -->
- <section class="programs-section" id="programs">
+<section class="programs-section" id="programs">
     <div class="container">
         <h2>Apply for Our Programs</h2>
         <p class="section-intro">Sumali sa aming mga programa at makatanggap ng kinakailangang suporta. Punan ang form sa ibaba upang mag-apply.</p>
@@ -299,7 +296,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
     </div>
 </section>
 
-    <!-- Partner Organizations -->
     <section class="partners-section" id="organizations">
     <div class="container">
         <h2>Related Agencies</h2>
@@ -348,13 +344,11 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg/1633px-Government_Service_Insurance_System_%28Philippines%29_%28logo%29.svg.png" alt="GSIS Logo">
                 </a>
             </div>
-            <!-- Added TESDA -->
             <div class="partner-logo">
                 <a href="https://www.tesda.gov.ph" target="_blank" rel="noopener noreferrer">
                     <img src="https://tesdamimaropa.com/wp-content/uploads/2016/09/cropped-Tesda-Logo.png" alt="TESDA Logo">
                 </a>
             </div>
-            <!-- Added DOLE -->
             <div class="partner-logo">
                 <a href="https://www.dole.gov.ph" target="_blank" rel="noopener noreferrer">
                     <img src="https://batangmalaya.ph/wp-content/uploads/2024/01/RGB-removebg.png" alt="DOLE Logo">
@@ -365,77 +359,82 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
 </section>
 
 
-    <!-- FAQ Section -->
     <section class="faq-section">
         <div class="container">
             <h2>Frequently Asked Questions</h2>
             <div class="faq-list">
+
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>How do I book an appointment for PWD ID application?</span>
+                        <span>Ano-ano ang mga requirements para sa PWD ID?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Click "Start Application" and follow the process: Accept terms, indicate if you already have a PWD ID, then proceed with either renewal/update or new application.</p>
-                    </div>
-                </div>
-                <div class="faq-item">
-                    <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>What documents do I need to bring for my appointment?</span>
-                        <i class="fas fa-chevron-down"></i>
-                    </div>
-                    <div class="faq-answer">
-                        <p>Kailangan mong ihanda ang mga sumusunod na documents:</p>
+                        <p>Ito ang kumpletong checklist ng mga kailangan mong ihanda para sa iyong application:</p>
                         <ul style="list-style-type: disc; margin-left: 20px; padding-left: 1rem;">
-                            <li>Application form</li>
-                            <li>ID photos</li>
-                            <li>Proof of identity (Valid ID)</li>
-                            <li>Proof of disability (Medical Certificate)</li>
-                            <li>Proof of residency (Barangay Certificate)</li>
+                            <li><strong>4pcs (1x1) ID pictures</strong> (na may pangalan at pirma o thumb mark sa likod)</li>
+                            <li><strong>Birth Certificate</strong> (galing sa PSA o local Civil Registry)</li>
+                            <li><strong>Certificate of Disability</strong> (galing sa Competent Medical Practitioner)</li>
+                            <li><strong>Blood Typing</strong> (galing sa Laboratory Clinic)</li>
+                            <li><strong>Family Baseline</strong> (makukuha sa inyong Barangay Hall)</li>
+                            <li><strong>Application form</strong> (makukuha sa CSWD Office)</li>
                         </ul>
                     </div>
                 </div>
+
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>How can I track my appointment status?</span>
+                        <span>Saan ko kukunin ang mga requirements na ito?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Use the "Track Your Appointment" section above and enter your appointment reference number. You'll see real-time updates on your appointment status, timeline, and next steps.</p>
+                        <p>Narito kung saan mo pwedeng makuha ang bawat dokumento:</p>
+                        <ul style="list-style-type: disc; margin-left: 20px; padding-left: 1rem;">
+                            <li><strong>Sa Barangay Hall:</strong> Family Baseline</li>
+                            <li><strong>Sa CSWD Office:</strong> Application Form</li>
+                            <li><strong>Sa Laboratory Clinic:</strong> Blood Typing</li>
+                            <li><strong>Sa Medical Practitioner (Doktor):</strong> Certificate of Disability</li>
+                            <li><strong>Sa PSA / Local Civil Registrar:</strong> Birth Certificate</li>
+                            <li><strong>Sariling handa (Client):</strong> 4pcs 1x1 ID pictures</li>
+                        </ul>
                     </div>
                 </div>
+
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>What is the email verification process?</span>
+                        <span>Sino ang pwedeng ma-categorize as PWD?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>After booking your appointment, you'll receive a 6-digit verification code via email. Enter this code in the tracking section to confirm your appointment. This ensures the security of your booking.</p>
+                        <p>Ang isang tao ay kino-consider na PWD kung sila ay may long-term physical, mental, intellectual, o sensory impairments. Kapag ito, kasama ang iba't ibang hadlang (barriers) sa paligid, ay nakakapigil sa kanilang puno at epektibong pakikilahok sa society.</p>
+                        <p style="margin-top: 10px;">Ang iyong <strong>Certificate of Disability</strong> galing sa isang lisensyadong medical practitioner ang magpapatunay nito para sa iyong ID application.</p>
                     </div>
                 </div>
+                
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>How long does it take to process a PWD ID?</span>
+                        <span>Paano ako mag-book ng appointment dito sa website?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Processing typically takes 7-14 business days after your appointment, depending on document verification and approval. You'll receive updates via SMS and can track progress using your reference number.</p>
+                        <p>Madali lang! I-click ang <strong>"Start Application"</strong> button. Sundin ang mga steps: 1) Tanggapin ang Terms and Conditions, 2) Piliin kung may PWD ID ka na (para sa renewal) o kung bago kang applicant, at 3) Punan ang form ng iyong impormasyon at i-set ang schedule.</p>
                     </div>
                 </div>
+
                 <div class="faq-item">
                     <div class="faq-question" onclick="toggleFAQ(this)">
-                        <span>Can I reschedule my appointment?</span>
+                        <span>Paano ko i-track ang status ng appointment ko?</span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="faq-answer">
-                        <p>Yes, you can reschedule your appointment by contacting our hotline at (043) 784 8022 or visiting our office. Please provide your reference number when requesting a reschedule.</p>
+                        <p>Gamitin ang <strong>"Track Your Appointment"</strong> section na makikita sa itaas (sa ilalim ng "PWD ID Application Process"). Ilagay mo lang ang iyong reference number na na-email sa iyo, at makikita mo na ang real-time updates sa iyong appointment.</p>
                     </div>
                 </div>
+
             </div>
         </div>
     </section>
 
-    <!-- Feedback Section -->
     <section class="feedback-section" id="contact">
         <div class="container">
             <h2>Share Your Feedback</h2>
@@ -506,7 +505,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </section>
 
-    <!-- Footer -->
     <footer class="footer" id="about">
         <div class="container">
             <div class="footer-content">
@@ -545,7 +543,7 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                         <p><i class="fas fa-envelope"></i> pdaostotomas2025@gmail.com</p>
                         <p><i class="fas fa-phone"></i> Hotline: (043) 784 8022</p>
                         <p><i class="fas fa-map-marker-alt"></i> CSWD Building. Pob 1, City of Sto. Tomas</p>
-                        <p><i class="fas fa-globe"></i> www.pwd.gov.ph</p>
+                        <p><i class="fas fa-globe"></i> www.pdaohelps.online</p>
                     </div>
                 </div>
                 <div class="footer-links">
@@ -559,12 +557,11 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                 </div>
             </div>
             <div class="copyright">
-                <p>&copy; 2025 PDAO Helps. All rights reserved. | Developed with ❤️ for the PWD Community</p>
+                <p>&copy; 2025 PDAO Helps. All rights reserved.</p>
             </div>
         </div>
     </footer>
 
-    <!-- Terms and Conditions Modal -->
     <div id="termsModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -663,7 +660,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
-    <!-- PWD Status Check Modal -->
     <div id="pwdStatusModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -688,7 +684,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
-    <!-- Existing PWD Email Verification Modal -->
     <div id="existingPWDModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -706,7 +701,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
-    <!-- Renewal/Update Appointment Modal -->
     <div id="renewalUpdateModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -778,7 +772,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
-    <!-- New Applicant Progress Form Modal -->
     <div id="newApplicantModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
@@ -786,7 +779,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                 <span class="close" onclick="closeModal('newApplicantModal')">&times;</span>
             </div>
             
-            <!-- Progress Bar -->
             <div class="progress-container">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressBar"></div>
@@ -813,7 +805,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
             </div>
 
             <form id="newApplicantForm" onsubmit="handleNewApplication(event)">
-                <!-- Step 1: Personal Information -->
                 <div id="step1" class="form-step">
                     <h3>Personal Information</h3>
                     <div class="form-row">
@@ -846,7 +837,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     </div>
                 </div>
 
-                <!-- Step 2: Disability Information -->
                 <div id="step2" class="form-step" style="display: none;">
                     <h3>Disability Information</h3>
                     <div class="form-group">
@@ -875,7 +865,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     </div>
                 </div>
 
-                <!-- Step 3: Emergency Contact -->
                 <div id="step3" class="form-step" style="display: none;">
                     <h3>Emergency Contact Information</h3>
                     <div class="form-row">
@@ -894,7 +883,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     </div>
                 </div>
 
-                <!-- Step 4: Schedule Appointment -->
                 <div id="step4" class="form-step" style="display: none;">
                     <h3>Schedule Your Appointment</h3>
                     <div class="form-group">
@@ -930,7 +918,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                     </div>
                 </div>
 
-                <!-- Form Navigation -->
                 <div class="form-navigation">
                     <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
                         <i class="fas fa-arrow-left"></i> Previous
@@ -952,7 +939,6 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
-    <!-- Program Details Modal -->
     <div id="programModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -960,8 +946,7 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                 <span class="close" onclick="closeModal('programModal')">&times;</span>
             </div>
             <div id="programModalContent" class="program-modal-body">
-                <!-- Will be populated by JavaScript -->
-            </div>
+                </div>
         </div>
     </div>
 

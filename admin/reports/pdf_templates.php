@@ -181,7 +181,7 @@ function generateDemographicsPdf($pdf, $report_data) {
 
 /**
  * ===============================================
- * RESOURCES PDF
+ * RESOURCES PDF (*** EDITED ***)
  * ===============================================
  */
 function generateResourcesPdf($pdf, $report_data) {
@@ -254,13 +254,17 @@ function generateResourcesPdf($pdf, $report_data) {
         $pdf->SetFont('helvetica', 'B', 9);
         $pdf->Cell(0, 6, 'Priority Services:', 0, 1, 'L');
         
+        // --- *** START EDIT *** ---
+        // Adjusted widths and label
         $headers_svc = [
             ['label' => 'Priority', 'width' => 25],
-            ['label' => 'Disability', 'width' => 45],
+            ['label' => 'Disability', 'width' => 40],
             ['label' => 'Affected', 'width' => 20],
             ['label' => 'Concentration', 'width' => 30],
-            ['label' => 'Services (Top 2)', 'width' => 60],
+            ['label' => 'Services (Top 3)', 'width' => 65], // Changed label and width
         ];
+        // --- *** END EDIT *** ---
+        
         pdf_create_table_header($pdf, $headers_svc);
         
         $fill = 0;
@@ -279,13 +283,21 @@ function generateResourcesPdf($pdf, $report_data) {
             $pdf->Cell($headers_svc[2]['width'], 6, number_format($service['affected_count']), 1, 0, 'C', $fill);
             $pdf->Cell($headers_svc[3]['width'], 6, $service['concentration'] . '%', 1, 0, 'C', $fill);
             
-            // Get first 2 services and strip emojis
-            $service_list = array_slice($service['services'], 0, 2);
+            // --- *** START EDIT *** ---
+            // Get first 3 services and clean them correctly
+            $service_list = array_slice($service['services'], 0, 3); // Changed to 3
+            
             $service_list_clean = array_map(function($item) {
-                return preg_replace('/[[:^print:]]/', '', ltrim(strstr($item, ' ')));
+                $item = trim($item);
+                // This correctly removes emoji/icon prefixes (like 雌)
+                // without stripping the first word of normal services (like "Braille").
+                $item = preg_replace('/^[^a-zA-Z0-9]+/', '', $item);
+                return $item;
             }, $service_list);
-
+            
+            // Use the new width
             $pdf->MultiCell($headers_svc[4]['width'], 6, implode("\n", $service_list_clean), 1, 'L', $fill, 1);
+            // --- *** END EDIT *** ---
             
             $fill = !$fill;
         }

@@ -41,7 +41,7 @@
              <?php if (hasPermission($pdo, 'programs.view')): ?>
             <li class="nav-item">
                 <a href="programs.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'programs.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-comments"></i>
+                    <i class="fas fa-bookmark"></i>
                     <span>Programs & Applications</span>
                 </a>
             </li>
@@ -81,7 +81,7 @@
             <li class="nav-item">
                 <a href="reports.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'reports.php' ? 'active' : ''; ?>">
                     <i class="fas fa-chart-bar"></i>
-                    <span>Reports</span>
+                    <span>Analytics</span>
                 </a>
             </li>
             <?php endif; ?>

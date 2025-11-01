@@ -161,8 +161,7 @@
                         <?php endforeach; ?>
                         <?php if (count($service['services']) > 6): ?>
                         <li style="font-size: 0.85rem; font-style: italic; color: #6b7280;">
-                            + <?php echo count($service['services']) - 6; ?> more services recommended...
-                        </li>
+                            + <?php echo count($service['services']) - 6; ?> more (see export for full list)
                         <?php endif; ?>
                     </ul>
                 </div>

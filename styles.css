@@ -2271,3 +2271,100 @@ body {
     font-size: 1.5rem;
   }
 }
+
+/* --- Add these styles to your styles.css --- */
+
+/* For the status text in the details card */
+.status-success { color: #10b981; }
+.status-success-dark { color: #059669; font-weight: bold; }
+.status-warning { color: #f59e0b; }
+.status-danger { color: #ef4444; }
+.status-info { color: #3b82f6; }
+
+/* For the special status box in the progress area */
+.status-step-special { 
+  text-align: center; 
+  padding: 20px; 
+  border-radius: 8px; 
+}
+.status-step-special i { 
+  font-size: 2rem; 
+  margin-bottom: 10px; 
+}
+.status-step-special.status-cancelled { 
+  background: #fff1f2; 
+  color: #e11d48; 
+  border: 1px solid #fecdd3; 
+}
+.status-step-special.status-cancelled i,
+.status-step-special.status-cancelled h4 {
+  color: #e11d48;
+}
+.status-step-special.status-no_show { 
+  background: #fffbeb; 
+  color: #d97706; 
+  border: 1px solid #fde68a; 
+}
+.status-step-special.status-no_show i,
+.status-step-special.status-no_show h4 {
+  color: #d97706;
+}
+
+/* For the final confirmation box styling */
+.status-confirmed { 
+  background: #f0fdf4; 
+  border: 1px solid #10b981; 
+}
+.status-confirmed h4, .status-confirmed i { 
+  color: #10b981; 
+}
+
+.status-completed-box { 
+  background: #f8fafc; 
+  border: 1px solid #64748b; 
+}
+.status-completed-box h4, .status-completed-box i { 
+  color: #475569; 
+}
+
+.status-cancelled-box { 
+  background: #fff1f2; 
+  border: 1px solid #fecdd3; 
+}
+.status-cancelled-box h4, .status-cancelled-box i { 
+  color: #e11d48; 
+}
+
+.status-no-show-box { 
+  background: #fffbeb; 
+  border: 1px solid #fde68a; 
+}
+.status-no-show-box h4, .status-no-show-box i { 
+  color: #d97706; 
+}
+
+/* --- ADD THESE to styles.css --- */
+
+/* This makes all "completed" steps green, including the final one */
+.timeline-item.status-completed .timeline-dot {
+  background: #10b981;
+}
+.timeline-item.status-completed::after {
+  background: #10b981;
+}
+
+/* This keeps "Cancelled" steps red */
+.timeline-item.status-cancelled .timeline-content h5 {
+  color: #be123c;
+}
+.timeline-item.status-cancelled .timeline-dot {
+  background-color: #f43f5e;
+}
+
+/* This makes "No Show" steps orange/yellow */
+.timeline-item.status-no_show .timeline-content h5 {
+  color: #d97706;
+}
+.timeline-item.status-no_show .timeline-dot {
+  background-color: #f59e0b;
+}

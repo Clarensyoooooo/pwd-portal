@@ -206,12 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         handleUpdateInterview();
     } elseif ($action === 'create_pwd_record') {
         handleCreatePWDRecord();
-    } elseif ($action === 'complete_interview') {
-        handleCompleteInterview();
-    } else {
+    }  else {
         $error_message = "Invalid action: " . $action;
     }
 }
+
+$active_tab = $_POST['active_tab'] ?? 'applicant-info';
 
 function handleUpdateInterview() {
     global $pdo, $interview_id;
@@ -248,47 +248,380 @@ function handleUpdateInterview() {
     }
 }
 
-function handleCompleteInterview() {
-    global $pdo, $interview_id, $interview;
-    
-    try {
-        // Update interview status to completed
-        $stmt = $pdo->prepare("
-            UPDATE interview_records 
-            SET status = 'completed', updated_at = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([$interview_id]);
-        
-        // Update appointment status
-        $stmt = $pdo->prepare("UPDATE appointments SET status = 'completed', updated_at = NOW() WHERE id = ?");
-        $stmt->execute([$interview['appointment_id']]);
-        
-        logAdminActivity($pdo, 'complete', 'interview', 'interview_record', $interview_id);
-        
-        $_SESSION['success_message'] = 'Interview completed successfully!';
-        header("Location: appointments.php");
-        exit();
-        
-    } catch (PDOException $e) {
-        global $error_message;
-        $error_message = 'Failed to complete interview: ' . $e->getMessage();
-    }
-}
+
 
 function handleCreatePWDRecord() {
     global $pdo, $interview, $barangays;
     requirePermission($pdo, 'records.create');
     
     try {
+        // --- 1. VALIDATION BLOCK (Personal Information) ---
+        $errors = [];
+
+        // Field: first_name (Required, Text)
+        $first_name = trim($_POST['first_name'] ?? '');
+        if (empty($first_name)) {
+            $errors[] = 'First Name is required.';
+        } elseif (strlen($first_name) > 100) {
+            $errors[] = 'First Name is too long (max 100 chars).';
+        }
+
+        // Field: last_name (Required, Text)
+        $last_name = trim($_POST['last_name'] ?? '');
+        if (empty($last_name)) {
+            $errors[] = 'Last Name is required.';
+        } elseif (strlen($last_name) > 100) {
+            $errors[] = 'Last Name is too long (max 100 chars).';
+        }
+
+        // Field: middle_name (Optional, Text)
+        $middle_name = trim($_POST['middle_name'] ?? '');
+        if (empty($middle_name)) {
+            $middle_name = null; // Set to NULL if empty
+        } elseif (strlen($middle_name) > 100) {
+            $errors[] = 'Middle Name is too long (max 100 chars).';
+        }
+
+        // Field: suffix (Optional, Whitelist)
+        $allowed_suffixes = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV']; // '' is for "None"
+        $suffix = trim($_POST['suffix'] ?? '');
+        if (!in_array($suffix, $allowed_suffixes)) {
+            $errors[] = 'Invalid Suffix selected.';
+        }
+        if (empty($suffix)) {
+            $suffix = null; // Set to NULL if "None"
+        }
+
+        // Field: date_of_birth (Required, Date, Past)
+        $dob_string = trim($_POST['date_of_birth'] ?? '');
+        if (empty($dob_string)) {
+            $errors[] = 'Date of Birth is required.';
+        } else {
+            $date_format = 'Y-m-d';
+            $d = DateTime::createFromFormat($date_format, $dob_string);
+            // Check if format is correct AND it's a real date (e.g., no 2025-02-31)
+            if (!$d || $d->format($date_format) !== $dob_string) {
+                $errors[] = 'Invalid Date of Birth format. Please use YYYY-MM-DD.';
+            } elseif ($d > new DateTime()) {
+                // Check if the date is in the future
+                $errors[] = 'Date of Birth cannot be in the future.';
+            }
+        }
+
+        // Field: place_of_birth (Optional, Text)
+        $place_of_birth = trim($_POST['place_of_birth'] ?? '');
+        if (empty($place_of_birth)) {
+            $place_of_birth = null;
+        } elseif (strlen($place_of_birth) > 255) {
+            $errors[] = 'Place of Birth is too long (max 255 chars).';
+        }
+
+        // Field: gender (Required, Whitelist)
+        $allowed_genders = ['Male', 'Female', 'Other'];
+        $gender = trim($_POST['gender'] ?? '');
+        if (empty($gender)) {
+            $errors[] = 'Gender is required.';
+        } elseif (!in_array($gender, $allowed_genders)) {
+            $errors[] = 'Invalid Gender selected.';
+        }
+        
+        // Field: civil_status (Required, Whitelist)
+        $allowed_civil_statuses = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
+        $civil_status = trim($_POST['civil_status'] ?? '');
+        if (empty($civil_status)) {
+            $errors[] = 'Civil Status is required.';
+        } elseif (!in_array($civil_status, $allowed_civil_statuses)) {
+            $errors[] = 'Invalid Civil Status selected.';
+        }
+
+        // --- 1b. VALIDATION BLOCK (Address Information) ---
+
+        // Field: address_line1 (Required, Text)
+        $address_line1 = trim($_POST['address_line1'] ?? '');
+        if (empty($address_line1)) {
+            $errors[] = 'Address Line 1 is required.';
+        } elseif (strlen($address_line1) > 255) {
+            $errors[] = 'Address Line 1 is too long (max 255 chars).';
+        }
+
+        // Field: address_line2 (Optional, Text)
+        $address_line2 = trim($_POST['address_line2'] ?? '');
+        if (empty($address_line2)) {
+            $address_line2 = null;
+        } elseif (strlen($address_line2) > 255) {
+            $errors[] = 'Address Line 2 is too long (max 255 chars).';
+        }
+
+        // Fields: barangay_id OR barangay_manual (One is required)
+        $selected_barangay_id = $_POST['barangay_id'] ?? '';
+        $barangay_manual = trim($_POST['barangay_manual'] ?? '');
+        $barangay_name = ''; // This will hold our final, clean value
+        $barangay_info = null;
+
+        if (!empty($selected_barangay_id)) {
+            // User selected from dropdown, this is preferred.
+            $barangay_stmt = $pdo->prepare("SELECT * FROM barangay_boundaries WHERE id = ?");
+            $barangay_stmt->execute([$selected_barangay_id]);
+            $barangay_info = $barangay_stmt->fetch();
+            
+            if (!$barangay_info) {
+                $errors[] = 'Invalid Barangay selected.';
+            } else {
+                $barangay_name = $barangay_info['barangay_name'];
+            }
+        } elseif (!empty($barangay_manual)) {
+            // User entered manually
+            $barangay_name = $barangay_manual;
+            if (strlen($barangay_name) > 100) {
+                 $errors[] = 'Barangay (Manual Entry) is too long (max 100 chars).';
+            }
+        } else {
+            // Neither was provided
+            $errors[] = 'Barangay is required. Please select from the list or enter manually.';
+        }
+
+        // Fields: city_municipality & province (Required, Text)
+        // These are auto-filled, but we still validate the final value.
+        $city_municipality = $barangay_info['city_municipality'] ?? $_POST['city_municipality'] ?? 'Santo Tomas City';
+        $province = $barangay_info['province'] ?? $_POST['province'] ?? 'Batangas';
+        
+        if (empty($city_municipality)) {
+            $errors[] = 'City/Municipality is required.';
+        }
+        if (empty($province)) {
+            $errors[] = 'Province is required.';
+        }
+
+        // Field: postal_code (Optional, 4-digit number)
+        $postal_code = trim($_POST['postal_code'] ?? '');
+        if (empty($postal_code)) {
+            $postal_code = null;
+        } elseif (!ctype_digit($postal_code) || strlen($postal_code) != 4) {
+            $errors[] = 'Postal Code must be a 4-digit number.';
+        }
+
+       // Fields: latitude & longitude (NOW REQUIRED)
+        $latitude_str = trim($_POST['latitude'] ?? '');
+        $longitude_str = trim($_POST['longitude'] ?? '');
+        $latitude = null;
+        $longitude = null;
+
+        if (empty($latitude_str) || empty($longitude_str)) {
+            $errors[] = 'Geographic Location is required. Please click on the map to set the coordinates.';
+        } elseif (!is_numeric($latitude_str) || !is_numeric($longitude_str)) {
+            $errors[] = 'Latitude and Longitude must be valid numbers (from map).';
+        } else {
+            // It's not empty AND it's numeric, so set the float value
+            $latitude = floatval($latitude_str);
+            $longitude = floatval($longitude_str);
+        }
+
+        // --- 1c. VALIDATION BLOCK (Contact Information) ---
+
+        // Field: phone_number (Required, Text)
+        $phone_number = trim($_POST['phone_number'] ?? '');
+        if (empty($phone_number)) {
+            $errors[] = 'Phone Number is required.';
+        } elseif (strlen($phone_number) > 20) {
+            // Allows for country codes, spaces, etc.
+            $errors[] = 'Phone Number is too long (max 20 chars).';
+        }
+        
+        // Field: email_address (Optional, Email Format)
+        $email_address = trim($_POST['email_address'] ?? '');
+        if (empty($email_address)) {
+            $email_address = null;
+        } elseif (!filter_var($email_address, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Email Address is not in a valid format.';
+        } elseif (strlen($email_address) > 100) {
+             $errors[] = 'Email Address is too long (max 100 chars).';
+        }
+
+        // --- 1d. VALIDATION BLOCK (Disability Information) ---
+
+        // Field: disability_type (Required, Whitelist)
+        $allowed_disability_types = [
+            'Physical Disability', 'Visual Impairment', 'Hearing Impairment', 
+            'Intellectual Disability', 'Psychosocial Disability', 
+            'Multiple Disabilities', 'Other'
+        ];
+        $disability_type = trim($_POST['disability_type'] ?? '');
+        if (empty($disability_type)) {
+            $errors[] = 'Type of Disability is required.';
+        } elseif (!in_array($disability_type, $allowed_disability_types)) {
+            $errors[] = 'Invalid Type of Disability selected.';
+        }
+
+        // Field: disability_cause (Optional, Whitelist)
+        $allowed_disability_causes = ['', 'Congenital', 'Accident', 'Illness', 'Injury', 'Other']; // '' for "Select Cause"
+        $disability_cause = trim($_POST['disability_cause'] ?? '');
+        if (!in_array($disability_cause, $allowed_disability_causes)) {
+            $errors[] = 'Invalid Cause of Disability selected.';
+        }
+        if (empty($disability_cause)) {
+            $disability_cause = null;
+        }
+
+        // Field: disability_description (Optional, Textarea)
+        $disability_description = trim($_POST['disability_description'] ?? '');
+        if (empty($disability_description)) {
+            $disability_description = null;
+        } elseif (strlen($disability_description) > 1000) { // 1000 chars for a textarea
+            $errors[] = 'Disability Description is too long (max 1000 chars).';
+        }
+
+        // Field: assistive_device (Optional, Text)
+        $assistive_device = trim($_POST['assistive_device'] ?? '');
+        if (empty($assistive_device)) {
+            $assistive_device = null;
+        } elseif (strlen($assistive_device) > 255) {
+            $errors[] = 'Assistive Devices field is too long (max 255 chars).';
+        }
+
+        // --- 1e. VALIDATION BLOCK (Medical Information) ---
+
+        // Field: medical_condition (Optional, Textarea)
+        $medical_condition = trim($_POST['medical_condition'] ?? '');
+        if (empty($medical_condition)) {
+            $medical_condition = null;
+        } elseif (strlen($medical_condition) > 1000) {
+            $errors[] = 'Medical Condition description is too long (max 1000 chars).';
+        }
+
+        // Field: medication (Optional, Textarea)
+        $medication = trim($_POST['medication'] ?? '');
+        if (empty($medication)) {
+            $medication = null;
+        } elseif (strlen($medication) > 1000) {
+            $errors[] = 'Current Medications list is too long (max 1000 chars).';
+        }
+
+        // Field: attending_physician (Optional, Text)
+        $attending_physician = trim($_POST['attending_physician'] ?? '');
+        if (empty($attending_physician)) {
+            $attending_physician = null;
+        } elseif (strlen($attending_physician) > 100) {
+            $errors[] = 'Attending Physician name is too long (max 100 chars).';
+        }
+
+        // --- 1f. VALIDATION BLOCK (Emergency Contact) ---
+
+        // Field: emergency_contact_name (Optional, Text)
+        $emergency_contact_name = trim($_POST['emergency_contact_name'] ?? '');
+        if (empty($emergency_contact_name)) {
+            $emergency_contact_name = null;
+        } elseif (strlen($emergency_contact_name) > 100) {
+            $errors[] = 'Emergency Contact Name is too long (max 100 chars).';
+        }
+
+        // Field: emergency_contact_relationship (Optional, Whitelist)
+        $allowed_relationships = [
+            '', 'Spouse', 'Parent', 'Child', 'Sibling', 'Relative', 'Friend', 'Guardian', 'Other'
+        ];
+        $emergency_contact_relationship = trim($_POST['emergency_contact_relationship'] ?? '');
+        if (!in_array($emergency_contact_relationship, $allowed_relationships)) {
+            $errors[] = 'Invalid Emergency Contact Relationship selected.';
+        }
+        if (empty($emergency_contact_relationship)) {
+            $emergency_contact_relationship = null;
+        }
+        
+        // Field: emergency_contact_phone (Optional, Text)
+        $emergency_contact_phone = trim($_POST['emergency_contact_phone'] ?? '');
+        if (empty($emergency_contact_phone)) {
+            $emergency_contact_phone = null;
+        } elseif (strlen($emergency_contact_phone) > 20) {
+            $errors[] = 'Emergency Contact Phone is too long (max 20 chars).';
+        }
+
+        // Field: emergency_contact_address (Optional, Textarea)
+        $emergency_contact_address = trim($_POST['emergency_contact_address'] ?? '');
+        if (empty($emergency_contact_address)) {
+            $emergency_contact_address = null;
+        } elseif (strlen($emergency_contact_address) > 500) {
+            $errors[] = 'Emergency Contact Address is too long (max 500 chars).';
+        }
+
+        // --- 1g. VALIDATION BLOCK (Employment Information) ---
+
+        // Field: employment_status (Optional, Whitelist, has default)
+        $allowed_employment_statuses = ['Unemployed', 'Employed', 'Self-employed', 'Student', 'Retired'];
+        // Default to 'Unemployed' if not provided
+        $employment_status = trim($_POST['employment_status'] ?? 'Unemployed'); 
+        if (!in_array($employment_status, $allowed_employment_statuses)) {
+            $errors[] = 'Invalid Employment Status selected.';
+        }
+
+        // Field: occupation (Optional, Text)
+        $occupation = trim($_POST['occupation'] ?? '');
+        if (empty($occupation)) {
+            $occupation = null;
+        } elseif (strlen($occupation) > 100) {
+            $errors[] = 'Occupation field is too long (max 100 chars).';
+        }
+        
+        // Field: employer_name (Optional, Text)
+        $employer_name = trim($_POST['employer_name'] ?? '');
+        if (empty($employer_name)) {
+            $employer_name = null;
+        } elseif (strlen($employer_name) > 100) {
+            $errors[] = 'Employer Name field is too long (max 100 chars).';
+        }
+
+        // Field: monthly_income (Optional, Numeric)
+        $monthly_income_str = trim($_POST['monthly_income'] ?? '');
+        $monthly_income = null;
+        if (!empty($monthly_income_str)) {
+            if (!is_numeric($monthly_income_str)) {
+                $errors[] = 'Monthly Income must be a valid number.';
+            } elseif (floatval($monthly_income_str) < 0) {
+                 $errors[] = 'Monthly Income cannot be negative.';
+            } else {
+                $monthly_income = floatval($monthly_income_str);
+            }
+        }
+
+        // --- 1h. VALIDATION BLOCK (Government IDs) ---
+
+        // Field: sss_number (Optional, Text)
+        $sss_number = trim($_POST['sss_number'] ?? '');
+        if (empty($sss_number)) {
+            $sss_number = null;
+        } elseif (strlen($sss_number) > 20) {
+            $errors[] = 'SSS Number is too long (max 20 chars).';
+        }
+        
+        // Field: philhealth_number (Optional, Text)
+        $philhealth_number = trim($_POST['philhealth_number'] ?? '');
+        if (empty($philhealth_number)) {
+            $philhealth_number = null;
+        } elseif (strlen($philhealth_number) > 20) {
+            $errors[] = 'PhilHealth Number is too long (max 20 chars).';
+        }
+
+        // Field: tin_number (Optional, Text)
+        $tin_number = trim($_POST['tin_number'] ?? '');
+        if (empty($tin_number)) {
+            $tin_number = null;
+        } elseif (strlen($tin_number) > 20) {
+            $errors[] = 'TIN Number is too long (max 20 chars).';
+        }
+
+        // --- 2. CHECK FOR ERRORS ---
+        if (!empty($errors)) {
+            // If there are any errors, combine them and stop the function
+            throw new Exception(implode('<br>', $errors));
+        }
+
+        // --- 3. PROCEED WITH DATABASE LOGIC ---
+        // (All variables like $first_name, $gender, etc. are now clean and validated)
+
         $pdo->beginTransaction();
         
         // Generate PWD ID
-        // Generate a more robust unique PWD ID
-$year = date('Y');
-// This creates a short, random, and highly unique identifier
-$unique_part = substr(strtoupper(bin2hex(random_bytes(4))), 0, 6); 
-$pwd_id = "PWD-{$year}-" . $unique_part;
+        $year = date('Y');
+        $unique_part = substr(strtoupper(bin2hex(random_bytes(4))), 0, 6); 
+        $pwd_id = "PWD-{$year}-" . $unique_part;
         
         // Get barangay details
         $selected_barangay_id = $_POST['barangay_id'] ?? '';
@@ -308,16 +641,16 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
         $latitude = !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null;
         $longitude = !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null;
         
-        // Validate required fields
-        if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($barangay_name)) {
-            throw new Exception('Required fields are missing');
+        // Validate required fields (this is a simplified check, our $errors array is more robust)
+        if (empty($first_name) || empty($last_name) || empty($barangay_name)) {
+            throw new Exception('Required fields are missing (First Name, Last Name, Barangay).');
         }
         
-        // Create PWD record - FIXED: Removed created_at from INSERT and parameters
+        // Create PWD record
         $stmt = $pdo->prepare("
             INSERT INTO pwd_records (
                 appointment_id, pwd_id_number, first_name, middle_name, last_name, suffix,
-                date_of_birth, place_of_birth, gender, civil_status,
+                date_of_birth, place_of_birth, gender, civil_status, barangay_id,
                 address_line1, address_line2, barangay, city_municipality, province, postal_code,
                 latitude, longitude,
                 phone_number, email_address,
@@ -327,49 +660,57 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                 employment_status, occupation, employer_name, monthly_income,
                 sss_number, philhealth_number, tin_number,
                 status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
-        // Prepare parameters array with exact count (40 parameters)
+        // Prepare parameters array with CLEANED variables
         $params = [
             $interview['appointment_id'],                           // 1
             $pwd_id,                                               // 2
-            $_POST['first_name'],                                  // 3
-            $_POST['middle_name'] ?? null,                         // 4
-            $_POST['last_name'],                                   // 5
-            $_POST['suffix'] ?? null,                              // 6
-            $_POST['date_of_birth'],                               // 7
-            $_POST['place_of_birth'] ?? null,                      // 8
-            $_POST['gender'],                                      // 9
-            $_POST['civil_status'],                                // 10
-            $_POST['address_line1'],                               // 11
-            $_POST['address_line2'] ?? null,                       // 12
+            $first_name,                                           // 3 (Cleaned)
+            $middle_name,                                          // 4 (Cleaned)
+            $last_name,                                            // 5 (Cleaned)
+            $suffix,                                               // 6 (Cleaned)
+            $dob_string,                                           // 7 (Validated)
+            $place_of_birth,                                       // 8 (Cleaned)
+            $gender,                                               // 9 (Validated)
+            $civil_status,                                         // 10 (Validated)
+            $selected_barangay_id,                                // 11 (NEW! The link to the map)
+            // --- Address Info (Validated) ---
+            $address_line1,                                        // 11
+            $address_line2,                                        // 12
             $barangay_name,                                        // 13
             $city_municipality,                                    // 14
             $province,                                             // 15
-            $_POST['postal_code'] ?? null,                         // 16
+            $postal_code,                                          // 16
             $latitude,                                             // 17
             $longitude,                                            // 18
-            $_POST['phone_number'],                                // 19
-            $_POST['email_address'],                               // 20
-            $_POST['disability_type'],                             // 21
-            $_POST['disability_cause'] ?? null,                    // 22
-            $_POST['disability_description'] ?? null,              // 23
-            $_POST['assistive_device'] ?? null,                    // 24
-            $_POST['medical_condition'] ?? null,                   // 25
-            $_POST['medication'] ?? null,                          // 26
-            $_POST['attending_physician'] ?? null,                 // 27
-            $_POST['emergency_contact_name'] ?? null,              // 28
-            $_POST['emergency_contact_relationship'] ?? null,      // 29
-            $_POST['emergency_contact_phone'] ?? null,             // 30
-            $_POST['emergency_contact_address'] ?? null,           // 31
-            $_POST['employment_status'] ?? 'Unemployed',           // 32
-            $_POST['occupation'] ?? null,                          // 33
-            $_POST['employer_name'] ?? null,                       // 34
-            !empty($_POST['monthly_income']) ? floatval($_POST['monthly_income']) : null, // 35
-            $_POST['sss_number'] ?? null,                          // 36
-            $_POST['philhealth_number'] ?? null,                   // 37
-            $_POST['tin_number'] ?? null,                          // 38
+            // --- Contact Info (Validated) ---
+            $phone_number,                                         // 19
+            $email_address,                                        // 20
+            // --- Disability Info (Validated) ---
+            $disability_type,                                      // 21
+            $disability_cause,                                     // 22
+            $disability_description,                               // 23
+            $assistive_device,                                     // 24
+            // --- Medical Info (Validated) ---
+            $medical_condition,                                    // 25
+            $medication,                                           // 26
+            $attending_physician,                                  // 27
+            // --- Emergency Contact (Validated) ---
+            $emergency_contact_name,                               // 28
+            $emergency_contact_relationship,                       // 29
+            $emergency_contact_phone,                              // 30
+            $emergency_contact_address,                            // 31
+            // --- Employment Info (Validated) ---
+            $employment_status,                                    // 32
+            $occupation,                                           // 33
+            $employer_name,                                        // 34
+            $monthly_income,                                       // 35
+            // --- Government IDs (Validated) ---
+            $sss_number,                                           // 36
+            $philhealth_number,                                    // 37
+            $tin_number,                                           // 38
             'draft',                                               // 39
             $_SESSION['admin_user_id']                             // 40
         ];
@@ -399,9 +740,13 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
         exit();
         
     } catch (Exception $e) {
-        $pdo->rollBack();
+        // ONLY roll back IF a transaction was started
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         global $error_message;
-        $error_message = 'Failed to create PWD record: ' . $e->getMessage();
+        // The $error_message will now contain our list of validation errors
+        $error_message = 'Failed to create PWD record:<br><div style="text-align: left; padding-left: 20px;">' . $e->getMessage() . '</div>';
         error_log("PWD Record Creation Error: " . $e->getMessage());
         error_log("POST data: " . print_r($_POST, true));
     }
@@ -432,11 +777,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                 <a href="appointments.php" class="btn btn-outline">
                     <i class="fas fa-arrow-left"></i> Back to Appointments
                 </a>
-                <?php if ($interview['status'] === 'in_progress' && !$interview['record_id']): ?>
-                    <button class="btn btn-success" onclick="completeInterview()">
-                        <i class="fas fa-check"></i> Complete Interview
-                    </button>
-                <?php endif; ?>
+                
             </div>
         </div>
         
@@ -448,11 +789,10 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
         <?php endif; ?>
         
         <?php if (isset($error_message)): ?>
-            <div class="alert alert-error">
-                <i class="fas fa-exclamation-circle"></i>
-                <?php echo htmlspecialchars($error_message); ?>
-            </div>
-        <?php endif; ?>
+    <div class="alert alert-error">
+        <i class="fas fa-exclamation-circle"></i>
+        <?php echo $error_message; ?> </div>
+<?php endif; ?>
         
         <?php if (isset($_SESSION['success_message'])): ?>
             <div class="alert alert-success">
@@ -538,18 +878,18 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
          
         <div class="interview-container">
             <div class="interview-tabs">
-                <button class="tab-btn active" onclick="switchTab('applicant-info')">
+                <button class="tab-btn <?php echo $active_tab === 'applicant-info' ? 'active' : ''; ?>" onclick="switchTab('applicant-info')">
                     <i class="fas fa-user"></i> Applicant Info
                 </button>
-                <button class="tab-btn" onclick="switchTab('interview-notes')">
+                <button class="tab-btn <?php echo $active_tab === 'interview-notes' ? 'active' : ''; ?>" onclick="switchTab('interview-notes')">
                     <i class="fas fa-clipboard-list"></i> Interview Notes
                 </button>
                 <?php if (!$interview['record_id']): ?>
-                    <button class="tab-btn" onclick="switchTab('pwd-record')">
+                    <button class="tab-btn <?php echo $active_tab === 'pwd-record' ? 'active' : ''; ?>" onclick="switchTab('pwd-record')">
                         <i class="fas fa-id-card"></i> Create PWD Record
                     </button>
                 <?php else: ?>
-                    <button class="tab-btn" onclick="switchTab('record-summary')">
+                    <button class="tab-btn <?php echo $active_tab === 'record-summary' ? 'active' : ''; ?>" onclick="switchTab('record-summary')">
                         <i class="fas fa-id-card"></i> Record Summary
                     </button>
                 <?php endif; ?>
@@ -632,9 +972,10 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
             <div id="interview-notes" class="tab-content">
                 <div class="interview-form-container">
                     <form method="POST" class="interview-form">
-                        <input type="hidden" name="action" value="update_interview">
-                        
-                        <div class="form-section">
+    <input type="hidden" name="action" value="update_interview">
+    <input type="hidden" name="active_tab" value="interview-notes">
+    
+    <div class="form-section">
                             <div class="section-header">
                                 <h3><i class="fas fa-clipboard-check"></i> Document Verification</h3>
                                 <p class="section-description">Check off all documents that have been verified and are complete</p>
@@ -712,10 +1053,13 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                             </div>
                             <div class="form-group">
                                 <select name="status" class="form-select" required>
-                                    <option value="in_progress" <?php echo $interview['status'] === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
-                                    <option value="completed" <?php echo $interview['status'] === 'completed' ? 'selected' : ''; ?>>Completed</option>
-                                    <option value="cancelled" <?php echo $interview['status'] === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
-                                </select>
+    <?php if ($interview['record_id']): ?>
+        <option value="completed" selected>Completed</option>
+    <?php else: ?>
+        <option value="in_progress" <?php echo $interview['status'] === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
+        <option value="cancelled" <?php echo $interview['status'] === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
+    <?php endif; ?>
+</select>
                             </div>
                         </div>
                         
@@ -752,7 +1096,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                                value="<?php echo htmlspecialchars($interview['first_name']); ?>">
                                     </div>
                                     <div class="form-group">
-                                        <label for="middle_name">Middle Name</label>
+                                       <label for="middle_name">Middle Name <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="middle_name" name="middle_name" class="form-input">
                                     </div>
                                     <div class="form-group">
@@ -761,7 +1105,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                                value="<?php echo htmlspecialchars($interview['last_name']); ?>">
                                     </div>
                                     <div class="form-group">
-                                        <label for="suffix">Suffix</label>
+                                        <label for="suffix">Suffix <span class="optional-label">(Optional)</span></label>
                                         <select id="suffix" name="suffix" class="form-select">
                                             <option value="">None</option>
                                             <option value="Jr.">Jr.</option>
@@ -787,7 +1131,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                             <option value="">Select Gender</option>
                                             <option value="Male">Male</option>
                                             <option value="Female">Female</option>
-                                            <option value="Other">Other</option>
+                                           <!-- <option value="Other">Other</option> -->
                                         </select>
                                     </div>
                                     <div class="form-group">
@@ -817,7 +1161,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                                value="<?php echo htmlspecialchars($interview['address'] ?? ''); ?>">
                                     </div>
                                     <div class="form-group full-width">
-                                        <label for="address_line2">Address Line 2</label>
+                                        <label for="address_line2">Address Line 2 <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="address_line2" name="address_line2" class="form-input" 
                                                placeholder="Building, Subdivision, etc.">
                                     </div>
@@ -876,22 +1220,22 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                             <!-- Geographic Location -->
                             <div class="form-section">
                                 <div class="section-header">
-                                    <h4><i class="fas fa-map"></i> Geographic Location (Optional)</h4>
+                                    <h4><i class="fas fa-map"></i> Geographic Location*</h4>
                                     <p class="section-description">Click on the map to set the exact location for GIS mapping feature</p>
                                 </div>
                                 
                                 <div class="location-container">
                                     <div class="location-inputs">
-                                        <div class="form-group">
-                                            <label for="latitude">Latitude</label>
-                                            <input type="number" id="latitude" name="latitude" class="form-input" 
-                                                   step="0.000001" placeholder="14.0000" readonly>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="longitude">Longitude</label>
-                                            <input type="number" id="longitude" name="longitude" class="form-input" 
-                                                   step="0.000001" placeholder="121.0000" readonly>
-                                        </div>
+                                       <div class="form-group">
+    <label for="latitude">Latitude *</label> 
+    <input type="number" id="latitude" name="latitude" class="form-input" 
+           step="0.000001" placeholder="14.0000" readonly>
+</div>
+<div class="form-group">
+    <label for="longitude">Longitude *</label>
+    <input type="number" id="longitude" name="longitude" class="form-input" 
+           step="0.000001" placeholder="121.0000" readonly>
+</div>
                                        <div class="location-actions">
                                             <button type="button" class="btn btn-outline btn-sm" id="expandMapBtn" onclick="toggleMapExpand()">
                                                 <i class="fas fa-expand-arrows-alt"></i> Expand Map
@@ -905,7 +1249,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </div>
                                     </div>
                                     
-                                    <div class="map-container" id="locationContainer">
+                                    <div class="map-container" id="locationContainer" required>
                                         <div id="locationMap" class="location-map"></div>
                                     </div>
                                     
@@ -925,8 +1269,8 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                                value="<?php echo htmlspecialchars($interview['phone']); ?>">
                                     </div>
                                     <div class="form-group">
-                                        <label for="email_address">Email Address</label>
-                                        <input type="email" id="email_address" name="email_address" class="form-input" 
+                                        <label for="email_address">Email Address* </label>
+                                        <input type="email" id="email_address" name="email_address" class="form-input" required
                                                value="<?php echo htmlspecialchars($interview['email']); ?>">
                                     </div>
                                 </div>
@@ -952,7 +1296,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="disability_cause">Cause of Disability</label>
+                                        <label for="disability_cause">Cause of Disability* </label>
                                         <select id="disability_cause" name="disability_cause" class="form-select">
                                             <option value="">Select Cause</option>
                                             <option value="Congenital">Congenital</option>
@@ -963,12 +1307,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </select>
                                     </div>
                                     <div class="form-group full-width">
-                                        <label for="disability_description">Disability Description</label>
+                                        <label for="disability_description">Disability Description <span class="optional-label">(Optional)</span></label>
                                         <textarea id="disability_description" name="disability_description" rows="3" class="form-textarea" 
                                                   placeholder="Detailed description of the disability..."></textarea>
                                     </div>
                                     <div class="form-group full-width">
-                                        <label for="assistive_device">Assistive Devices Used</label>
+                                        <label for="assistive_device">Assistive Devices Used <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="assistive_device" name="assistive_device" class="form-input" 
                                                placeholder="Wheelchair, hearing aid, white cane, etc.">
                                     </div>
@@ -982,17 +1326,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                                 <div class="form-grid">
                                     <div class="form-group full-width">
-                                        <label for="medical_condition">Medical Condition</label>
+                                        <label for="medical_condition">Medical Condition <span class="optional-label">(Optional)</span></label>
                                         <textarea id="medical_condition" name="medical_condition" rows="3" class="form-textarea" 
                                                   placeholder="Current medical conditions and diagnoses..."></textarea>
                                     </div>
                                     <div class="form-group full-width">
-                                        <label for="medication">Current Medications</label>
+                                        <label for="medication">Current Medications <span class="optional-label">(Optional)</span></label>
                                         <textarea id="medication" name="medication" rows="2" class="form-textarea" 
                                                   placeholder="List current medications and dosages..."></textarea>
                                     </div>
                                     <div class="form-group">
-                                        <label for="attending_physician">Attending Physician</label>
+                                        <label for="attending_physician">Attending Physician <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="attending_physician" name="attending_physician" class="form-input" 
                                                placeholder="Dr. Juan Dela Cruz">
                                     </div>
@@ -1006,12 +1350,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                                 <div class="form-grid">
                                     <div class="form-group">
-                                        <label for="emergency_contact_name">Contact Name</label>
+                                        <label for="emergency_contact_name">Contact Name <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="emergency_contact_name" name="emergency_contact_name" class="form-input" 
                                                placeholder="Full name of emergency contact">
                                     </div>
                                     <div class="form-group">
-                                        <label for="emergency_contact_relationship">Relationship</label>
+                                        <label for="emergency_contact_relationship">Relationship <span class="optional-label">(Optional)</span></label>
                                         <select id="emergency_contact_relationship" name="emergency_contact_relationship" class="form-select">
                                             <option value="">Select Relationship</option>
                                             <option value="Spouse">Spouse</option>
@@ -1025,12 +1369,12 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="emergency_contact_phone">Contact Phone</label>
+                                        <label for="emergency_contact_phone">Contact Phone <span class="optional-label">(Optional)</span></label>
                                         <input type="tel" id="emergency_contact_phone" name="emergency_contact_phone" class="form-input" 
                                                placeholder="+63 912 345 6789">
                                     </div>
                                     <div class="form-group full-width">
-                                        <label for="emergency_contact_address">Contact Address</label>
+                                        <label for="emergency_contact_address">Contact Address <span class="optional-label">(Optional)</span></label>
                                         <textarea id="emergency_contact_address" name="emergency_contact_address" rows="2" class="form-textarea" 
                                                   placeholder="Complete address of emergency contact..."></textarea>
                                     </div>
@@ -1044,7 +1388,7 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                                 <div class="form-grid">
                                     <div class="form-group">
-                                        <label for="employment_status">Employment Status</label>
+                                        <label for="employment_status">Employment Status <span class="optional-label">(Optional)</span></label>
                                         <select id="employment_status" name="employment_status" class="form-select">
                                             <option value="Unemployed">Unemployed</option>
                                             <option value="Employed">Employed</option>
@@ -1054,17 +1398,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                         </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="occupation">Occupation</label>
+                                        <label for="occupation">Occupation <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="occupation" name="occupation" class="form-input" 
                                                placeholder="Job title or profession">
                                     </div>
                                     <div class="form-group">
-                                        <label for="employer_name">Employer Name</label>
+                                        <label for="employer_name">Employer Name <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="employer_name" name="employer_name" class="form-input" 
                                                placeholder="Company or organization name">
                                     </div>
                                     <div class="form-group">
-                                        <label for="monthly_income">Monthly Income (PHP)</label>
+                                        <label for="monthly_income">Monthly Income (PHP) <span class="optional-label">(Optional)</span></label>
                                         <input type="number" id="monthly_income" name="monthly_income" class="form-input" 
                                                min="0" step="0.01" placeholder="0.00">
                                     </div>
@@ -1078,17 +1422,17 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                                 </div>
                                 <div class="form-grid">
                                     <div class="form-group">
-                                        <label for="sss_number">SSS Number</label>
+                                        <label for="sss_number">SSS Number <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="sss_number" name="sss_number" class="form-input" 
                                                placeholder="XX-XXXXXXX-X">
                                     </div>
                                     <div class="form-group">
-                                        <label for="philhealth_number">PhilHealth Number</label>
+                                        <label for="philhealth_number">PhilHealth Number <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="philhealth_number" name="philhealth_number" class="form-input" 
                                                placeholder="XX-XXXXXXXXX-X">
                                     </div>
                                     <div class="form-group">
-                                        <label for="tin_number">TIN Number</label>
+                                        <label for="tin_number">TIN Number <span class="optional-label">(Optional)</span></label>
                                         <input type="text" id="tin_number" name="tin_number" class="form-input" 
                                                placeholder="XXX-XXX-XXX-XXX">
                                     </div>
@@ -2201,6 +2545,15 @@ $pwd_id = "PWD-{$year}-" . $unique_part;
                 right: 20px;
             }
         }
+
+        /* ... existing styles ... */
+        
+.optional-label {
+    font-size: 0.8rem;
+    color: #6b7280; /* A soft gray color */
+    font-weight: 400; /* Normal weight, not bold */
+    margin-left: 6px;
+}
     </style>
 </body>
 </html>
