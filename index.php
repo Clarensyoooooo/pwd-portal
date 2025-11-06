@@ -40,6 +40,93 @@ require_once 'config.php';
             */
             scroll-padding-top: 100px; 
         }
+
+        /* --- ADDED FOR PRIVACY AGREEMENT CHECKBOX --- */
+        .form-group.privacy-agreement {
+            margin-bottom: 1.5rem;
+            padding-top: 0.5rem; /* Add some space above */
+        }
+        .privacy-agreement .checkbox-label {
+            font-size: 0.9rem;
+            color: #333;
+            line-height: 1.4;
+        }
+        .privacy-agreement .checkbox-label a {
+            color: #007bff; /* Primary link color */
+            text-decoration: underline;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .privacy-agreement .checkbox-label a:hover {
+            color: #0056b3;
+        }
+        
+        /* Generic Checkbox Styles (re-used from your modal) */
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            position: relative;
+            padding-left: 30px; /* Space for the checkmark */
+            margin-bottom: 12px;
+            cursor: pointer;
+            font-size: 1rem;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        .checkbox-container input {
+            position: absolute;
+            opacity: 0;
+            cursor: pointer;
+            height: 0;
+            width: 0;
+        }
+        .checkmark {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 22px;
+            width: 22px;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .checkbox-container:hover input ~ .checkmark {
+            background-color: #ccc;
+        }
+        .checkbox-container input:checked ~ .checkmark {
+            background-color: #007bff; /* Primary color */
+            border-color: #007bff;
+        }
+        .checkmark:after {
+            content: "";
+            position: absolute;
+            display: none;
+        }
+        .checkbox-container input:checked ~ .checkmark:after {
+            display: block;
+        }
+        .checkbox-container .checkmark:after {
+            left: 8px;
+            top: 4px;
+            width: 5px;
+            height: 10px;
+            border: solid white;
+            border-width: 0 3px 3px 0;
+            -webkit-transform: rotate(45deg);
+            -ms-transform: rotate(45deg);
+            transform: rotate(45deg);
+        }
+
+        /* --- ADDED FOR PRIVACY CHECKBOX ERROR --- */
+        .privacy-error-message {
+            color: #ef4444; /* Red-500 */
+            font-size: 0.875rem; /* 14px */
+            font-weight: 500;
+            display: none; /* Hidden by default */
+            margin-top: 8px; /* Space below the checkbox label */
+        }
     </style>
 </head>
 <body>
@@ -237,9 +324,16 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                                 <input type="email" id="appEmail" name="email" required>
                             </div>
                             <div class="form-group">
-                                <label for="appPhone">Phone *</label>
-                                <input type="tel" id="appPhone" name="phone" required placeholder="09XXXXXXXXX" maxlength="11">
-                            </div>
+    <label for="appPhone">Phone *</label>
+    <input type="tel" 
+           id="appPhone" 
+           name="phone" 
+           required 
+           placeholder="09XXXXXXXXX" 
+           maxlength="11"
+           pattern="09[0-9]{9}"
+           title="Please enter a valid 11-digit number starting with 09.">
+</div>
                         </div>
                         
                         <div class="form-row">
@@ -273,6 +367,19 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                         
                         <div id="programRequirements" class="program-requirements-info"></div>
                         
+                        <div class="form-group privacy-agreement">
+        <label class="checkbox-container">
+            <input type="checkbox" id="programPrivacyCheckbox" name="privacy_policy" value="agreed" >
+            <span class="checkmark"></span>
+            <span class="checkbox-label">
+                I have read and agree to the 
+                <a href="javascript:void(0)" onclick="openModal('dataPrivacyDisplayModal')">Data Privacy Statement</a>.
+            </span>
+        </label>
+        <div id="programPrivacyError" class="privacy-error-message">
+                                You must agree to the Data Privacy Statement to continue.
+                            </div>
+    </div>
                         <div class="form-actions">
                             <button type="button" class="btn-secondary" onclick="clearProgramSelection()">Cancel</button>
 
@@ -484,6 +591,19 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                             <label for="feedbackMessage">Message</label>
                             <textarea id="feedbackMessage" name="message" rows="5" required placeholder="Please share your feedback, suggestions, or concerns..."></textarea>
                         </div>
+                        <div class="form-group privacy-agreement">
+                            <label class="checkbox-container">
+                                <input type="checkbox" id="feedbackPrivacyCheckbox" name="privacy_policy" value="agreed">
+                                <span class="checkmark"></span>
+                                <span class="checkbox-label">
+                                    I have read and agree to the 
+                                    <a href="javascript:void(0)" onclick="openModal('dataPrivacyDisplayModal')">Data Privacy Statement</a>.
+                                </span>
+                            </label>
+                            <div id="feedbackPrivacyError" class="privacy-error-message">
+                                You must agree to the Data Privacy Statement to continue.
+                            </div>
+                        </div>
                         <button type="submit" class="btn-primary">Submit Feedback</button>
                     </form>
                 </div>
@@ -565,98 +685,110 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
     <div id="termsModal" class="modal">
         <div class="modal-content modal-large">
             <div class="modal-header">
-                <h2>Terms and Conditions & Privacy Policy</h2>
+                <h2>Data Privacy Statement</h2>
                 <span class="close" onclick="closeModal('termsModal')">&times;</span>
             </div>
             <div class="terms-content">
-                <div class="terms-section">
-                    <h3><i class="fas fa-file-contract"></i> Terms and Conditions</h3>
-                    <div class="terms-scroll">
-                        <h4>1. Acceptance of Terms</h4>
-                        <p>By using the PWD Portal and booking an appointment, you agree to comply with and be bound by these Terms and Conditions. If you do not agree with any part of these terms, please do not use our services.</p>
-                        
-                        <h4>2. Appointment Booking</h4>
-                        <p>- You must provide accurate and complete information when booking an appointment.</p>
-                        <p>- Each email address can only have one active (pending or confirmed) appointment at a time.</p>
-                        <p>- You will receive an SMS verification code to confirm your appointment.</p>
-                        <p>- Appointments are subject to availability and confirmation.</p>
-                        
-                        <h4>3. Required Documents</h4>
-                        <p>You must bring all required documents to your scheduled appointment, including:</p>
-                        <p>- Medical certificate from a licensed physician</p>
-                        <p>- Barangay certificate of residency</p>
-                        <p>- 2 recent 1x1 ID pictures</p>
-                        <p>- Valid government-issued ID</p>
-                        <p>- Birth certificate</p>
-                        
-                        <h4>4. Cancellation and Rescheduling</h4>
-                        <p>- You may cancel or reschedule your appointment by contacting our hotline at 8888-1000.</p>
-                        <p>- We reserve the right to cancel appointments if required documents are not presented.</p>
-                        <p>- Failure to attend your scheduled appointment may result in restrictions on future bookings.</p>
-                        
-                        <h4>5. Service Limitations</h4>
-                        <p>- The PWD Portal is intended for legitimate PWD ID applications only.</p>
-                        <p>- We reserve the right to verify the authenticity of all submitted information.</p>
-                        <p>- Processing time may vary depending on the completeness of documents and verification requirements.</p>
-                    </div>
-                </div>
                 
-                <div class="terms-section">
-                    <h3><i class="fas fa-user-shield"></i> Privacy Policy</h3>
-                    <div class="terms-scroll">
-                        <h4>1. Information We Collect</h4>
-                        <p>We collect the following personal information:</p>
-                        <p>- Full name, date of birth, and contact information (email, phone)</p>
-                        <p>- Address and emergency contact details</p>
-                        <p>- Disability type and medical information</p>
-                        <p>- Appointment preferences and notes</p>
-                        
-                        <h4>2. How We Use Your Information</h4>
-                        <p>Your information is used to:</p>
-                        <p>- Process your PWD ID application</p>
-                        <p>- Schedule and manage appointments</p>
-                        <p>- Send appointment reminders and updates via SMS</p>
-                        <p>- Maintain records as required by law (RA 7277, RA 9442, RA 10070)</p>
-                        <p>- Improve our services and user experience</p>
-                        
-                        <h4>3. Data Protection</h4>
-                        <p>- We implement appropriate security measures to protect your personal information.</p>
-                        <p>- Your data is stored securely and accessed only by authorized personnel.</p>
-                        <p>- We comply with the Data Privacy Act of 2012 (RA 10173).</p>
-                        <p>- Your medical and disability information is treated with strict confidentiality.</p>
-                        
-                        <h4>4. Data Sharing</h4>
-                        <p>We may share your information with:</p>
-                        <p>- Government agencies as required by law for PWD ID processing</p>
-                        <p>- Healthcare providers for verification purposes</p>
-                        <p>- Partner organizations involved in PWD programs and services</p>
-                        <p>- We will never sell your personal information to third parties.</p>
-                        
-                        <h4>5. Your Rights</h4>
-                        <p>You have the right to:</p>
-                        <p>- Access and review your personal information</p>
-                        <p>- Request corrections to inaccurate information</p>
-                        <p>- Object to the processing of your data</p>
-                        <p>- Request deletion of your data (subject to legal requirements)</p>
-                        <p>- File a complaint with the National Privacy Commission</p>
-                        
-                        <h4>6. Contact for Privacy Concerns</h4>
-                        <p>For privacy-related questions or concerns, contact us at:</p>
-                        <p>Email: privacy@pwd.gov.ph</p>
-                        <p>Hotline: 8888-1000</p>
-                        <p>Data Protection Officer: dpo@pwd.gov.ph</p>
-                    </div>
-                </div>
+                <div class="terms-scroll" style="max-height: 400px; overflow-y: auto; padding-right: 15px; margin-bottom: 20px;">
+                    <p>The City Government of Sto. Tomas, Batangas values and respects your right to data privacy. We are committed to protecting the personal data we collect and process in accordance with Republic Act No. 10173 – the Data Privacy Act of 2012 (DPA), its Implementing Rules and Regulations (IRR), and relevant issuances of the National Privacy Commission (NPC).</p>
                 
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Purpose of Processing</h3>
+                    <p>Any and all processing of personal data by the City Government of Sto. Tomas shall be carried out only for legitimate purposes and/or in compliance with legal obligations under applicable laws, while implementing appropriate organizational, physical, and technical security measures to protect the confidentiality, integrity, and availability of personal data.</p>
+                    <p>We may process your personal data in order to:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Comply with laws, regulations, and government issuances.</li>
+                        <li>Respond to requests from public authorities or other government offices.</li>
+                        <li>Comply with valid legal processes issued by competent authorities.</li>
+                        <li>Protect the rights, safety, property, and privacy of the City Government of Sto. Tomas, its employees, or the general public.</li>
+                        <li>Enable the LGU to pursue remedies or minimize damages in case of legal claims.</li>
+                        <li>Respond to emergencies affecting public safety or welfare.</li>
+                        <li>Ensure compliance with internal policies, government procedures, and standards.</li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Data Retention</h3>
+                    <p>Personal data shall be retained only for as long as necessary to fulfill the declared, specific, and legitimate purpose, or until the processing relevant to such purpose has been completed. Once no longer needed, data shall be securely disposed of or anonymized.</p>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Data Breach and Incident Response</h3>
+                    <p>In case of a personal data breach, the City Government of Sto. Tomas shall:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Report the breach to the Data Protection Officer (DPO) within 24 hours.</li>
+                        <li>Activate the Data Breach Response Team (DBRT) to assess, contain, and restore system integrity.</li>
+                        <li>Notify the National Privacy Commission (NPC), the Philippine Statistics Authority (PSA) (if CBMS-related), and affected data subjects, within the period prescribed by law.</li>
+                        <li>Implement corrective actions to prevent recurrence and mitigate possible harm.</li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Rights of Data Subjects</h3>
+                    <p>As provided under the Data Privacy Act, you have the right to:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Be informed of how your personal data is collected, processed, and protected.</li>
+                        <li>Access your personal data under the custody of the City Government of Sto. Tomas.</li>
+                        <li>Object to processing, or withdraw your consent (subject to limitations under the law).</li>
+                        <li>Request correction of inaccurate or outdated personal data.</li>
+                        <li>Request deletion or blocking of personal data that is no longer necessary, unlawfully obtained, or processed without your consent.</li>
+                        <li>File a complaint and claim compensation in case of proven damages due to mishandling, misuse, malicious disclosure, or improper disposal of your personal data.</li>
+                    </ul>
+                </div>
                 <div class="terms-acceptance">
                     <label class="checkbox-container">
                         <input type="checkbox" id="termsCheckbox">
                         <span class="checkmark"></span>
-                        <span class="checkbox-label">I have read and agree to the Terms and Conditions and Privacy Policy</span>
+                        <span class="checkbox-label">I have read and agree to the Data Privacy Statement</span>
                     </label>
                     <button class="btn-primary btn-block" onclick="acceptTerms()">Accept and Continue</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="dataPrivacyDisplayModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Data Privacy Statement</h2>
+                <span class="close" onclick="closeModal('dataPrivacyDisplayModal')">&times;</span>
+            </div>
+            <div class="terms-content">
+                
+                <div class="terms-scroll" style="max-height: 400px; overflow-y: auto; padding-right: 15px; margin-bottom: 20px;">
+                    <p>The City Government of Sto. Tomas, Batangas values and respects your right to data privacy. We are committed to protecting the personal data we collect and process in accordance with Republic Act No. 10173 – the Data Privacy Act of 2012 (DPA), its Implementing Rules and Regulations (IRR), and relevant issuances of the National Privacy Commission (NPC).</p>
+                
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Purpose of Processing</h3>
+                    <p>Any and all processing of personal data by the City Government of Sto. Tomas shall be carried out only for legitimate purposes and/or in compliance with legal obligations under applicable laws, while implementing appropriate organizational, physical, and technical security measures to protect the confidentiality, integrity, and availability of personal data.</p>
+                    <p>We may process your personal data in order to:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Comply with laws, regulations, and government issuances.</li>
+                        <li>Respond to requests from public authorities or other government offices.</li>
+                        <li>Comply with valid legal processes issued by competent authorities.</li>
+                        <li>Protect the rights, safety, property, and privacy of the City Government of Sto. Tomas, its employees, or the general public.</li>
+                        <li>Enable the LGU to pursue remedies or minimize damages in case of legal claims.</li>
+                        <li>Respond to emergencies affecting public safety or welfare.</li>
+                        <li>Ensure compliance with internal policies, government procedures, and standards.</li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Data Retention</h3>
+                    <p>Personal data shall be retained only for as long as necessary to fulfill the declared, specific, and legitimate purpose, or until the processing relevant to such purpose has been completed. Once no longer needed, data shall be securely disposed of or anonymized.</p>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Data Breach and Incident Response</h3>
+                    <p>In case of a personal data breach, the City Government of Sto. Tomas shall:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Report the breach to the Data Protection Officer (DPO) within 24 hours.</li>
+                        <li>Activate the Data Breach Response Team (DBRT) to assess, contain, and restore system integrity.</li>
+                        <li>Notify the National Privacy Commission (NPC), the Philippine Statistics Authority (PSA) (if CBMS-related), and affected data subjects, within the period prescribed by law.</li>
+                        <li>Implement corrective actions to prevent recurrence and mitigate possible harm.</li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px; margin-bottom: 10px;">Rights of Data Subjects</h3>
+                    <p>As provided under the Data Privacy Act, you have the right to:</p>
+                    <ul style="list-style-type: decimal; margin-left: 20px; padding-left: 1rem; line-height: 1.6;">
+                        <li>Be informed of how your personal data is collected, processed, and protected.</li>
+                        <li>Access your personal data under the custody of the City Government of Sto. Tomas.</li>
+                        <li>Object to processing, or withdraw your consent (subject to limitations under the law).</li>
+                        <li>Request correction of inaccurate or outdated personal data.</li>
+                        <li>Request deletion or blocking of personal data that is no longer necessary, unlawfully obtained, or processed without your consent.</li>
+                        <li>File a complaint and claim compensation in case of proven damages due to mishandling, misuse, malicious disclosure, or improper disposal of your personal data.</li>
+                    </ul>
+                </div>
+                </div>
         </div>
     </div>
 
@@ -823,9 +955,16 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                             <input type="email" id="newApplicantEmail" name="email" required>
                         </div>
                         <div class="form-group">
-                            <label for="newApplicantPhone">Phone Number *</label>
-                            <input type="tel" id="newApplicantPhone" name="phone" required placeholder="09XXXXXXXXX" maxlength="11">
-                        </div>
+    <label for="newApplicantPhone">Phone Number *</label>
+    <input type="tel" 
+           id="newApplicantPhone" 
+           name="phone" 
+           required 
+           placeholder="09XXXXXXXXX" 
+           maxlength="11"
+           pattern="09[0-9]{9}"
+           title="Please enter a valid 11-digit number starting with 09.">
+</div>
                     </div>
                     <div class="form-group">
                         <label for="newApplicantDOB">Date of Birth *</label>
@@ -856,11 +995,13 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                         <i class="fas fa-info-circle"></i>
                         <p><strong>Required Documents:</strong> Please prepare the following documents for your appointment:</p>
                         <ul>
-                            <li>Medical certificate from a licensed physician</li>
-                            <li>Barangay certificate of residency</li>
-                            <li>2 recent 1x1 ID pictures</li>
-                            <li>Valid government-issued ID</li>
+                            <li>4pcs recent 1x1 ID pictures</li>
                             <li>Birth certificate</li>
+                            <li>Certificate of Disability</li>
+                            <li>Blood Typing</li>
+                            <li>Family Baseline</li>
+                            <li>Birth certificate</li>
+                            <li>Application form</li>
                         </ul>
                     </div>
                 </div>
@@ -873,9 +1014,15 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                             <input type="text" id="newEmergencyName" name="emergency_contact_name" placeholder="Full name">
                         </div>
                         <div class="form-group">
-                            <label for="newEmergencyPhone">Emergency Contact Phone</label>
-                            <input type="tel" id="newEmergencyPhone" name="emergency_contact_phone" placeholder="09XXXXXXXXX" maxlength="11">
-                        </div>
+    <label for="newEmergencyPhone">Emergency Contact Phone</label>
+    <input type="tel" 
+           id="newEmergencyPhone" 
+           name="emergency_contact_phone" 
+           placeholder="09XXXXXXXXX" 
+           maxlength="11"
+           pattern="09[0-9]{9}"
+           title="Please enter a valid 11-digit number starting with 09 (if provided).">
+</div>
                     </div>
                     <div class="info-box">
                         <i class="fas fa-user-shield"></i>

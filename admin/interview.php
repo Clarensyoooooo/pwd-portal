@@ -2,6 +2,7 @@
 require_once 'config.php';
 requireAdminLogin($pdo);
 requirePermission($pdo, 'appointments.interview');
+require_once 'spatial_functions.php';
 
 $admin = getCurrentAdmin($pdo);
 $interview_id = $_GET['id'] ?? '';
@@ -723,6 +724,10 @@ function handleCreatePWDRecord() {
         
         $record_id = $pdo->lastInsertId();
         
+        // vvv ADD THIS ONE LINE vvv
+        assignSinglePwdToBarangay($pdo, $record_id, $latitude, $longitude);
+        // ^^^ END OF NEW LINE ^^^
+        
         // Update interview status
         $stmt = $pdo->prepare("UPDATE interview_records SET status = 'completed', updated_at = NOW() WHERE id = ?");
         $stmt->execute([$interview['id']]);
@@ -751,6 +756,64 @@ function handleCreatePWDRecord() {
         error_log("POST data: " . print_r($_POST, true));
     }
 }
+
+// vvv PASTE THIS NEW FUNCTION vvv
+
+/**
+ * Finds and assigns a single PWD record to its correct barangay
+ * and updates the barangay's PWD count.
+ *
+ * @param PDO $pdo The database connection.
+ * @param int $pwd_id The ID of the PWD record just created.
+ * @param float $latitude The latitude of the new PWD.
+ * @param float $longitude The longitude of the new PWD.
+ * @return bool True on success, false on failure or no match.
+ */
+function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
+    // If there are no coordinates, we can't do anything.
+    if (empty($latitude) || empty($longitude)) {
+        return false;
+    }
+
+    try {
+        // Get all barangay boundaries
+        $stmt = $pdo->query("SELECT id, geojson_data FROM barangay_boundaries WHERE geojson_data IS NOT NULL");
+        $barangays = $stmt->fetchAll();
+        
+        $assigned_barangay_id = null;
+        
+        // Loop through each barangay to find a match
+        foreach ($barangays as $barangay) {
+            // This is your magic function from spatial_functions.php
+            if (isPointInBarangay($latitude, $longitude, $barangay['geojson_data'])) {
+                $assigned_barangay_id = $barangay['id'];
+                break; // Found a match, stop looping
+            }
+        }
+        
+        // If we found a matching barangay, update the records
+        if ($assigned_barangay_id) {
+            // 1. Assign the barangay to the PWD record
+            $update_pwd = $pdo->prepare("UPDATE pwd_records SET barangay_id = ? WHERE id = ?");
+            $update_pwd->execute([$assigned_barangay_id, $pwd_id]);
+            
+            // 2. Increment the count for that barangay
+            $update_brgy = $pdo->prepare("UPDATE barangay_boundaries SET pwd_count = pwd_count + 1 WHERE id = ?");
+            $update_brgy->execute([$assigned_barangay_id]);
+            
+            return true;
+        }
+        
+        return false; // No matching barangay found
+        
+    } catch (Exception $e) {
+        // Log the error but don't stop the whole process
+        error_log("Error in assignSinglePwdToBarangay: " . $e->getMessage());
+        return false;
+    }
+}
+
+// ^^^ END OF NEW FUNCTION ^^^
 ?>
 <!DOCTYPE html>
 <html lang="en">

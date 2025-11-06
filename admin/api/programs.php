@@ -840,19 +840,21 @@ function submitProgramApplication() {
     global $pdo;
 
     // === START HONEYPOT CHECK ===
-if (!empty($_POST['website_url'])) {
-    // It's a bot. Silently pretend to succeed.
-    error_log("Honeypot triggered on Program Form by IP: " . $_SERVER['REMOTE_ADDR']);
+    if (!empty($_POST['website_url'])) {
+        error_log("Honeypot triggered on Program Form by IP: " . $_SERVER['REMOTE_ADDR']);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Your application has been received!' 
+        ]);
+        return; // Stop any further code
+    }
+    // === END HONEYPOT CHECK ===
+
+    // --- Get IP and define local IPs ---
+    $ip_address = $_SERVER['REMOTE_ADDR'];
+    $local_ips = ['127.0.0.1', '::1']; // '::1' is the IPv6 localhost
     
-    // Send a fake success message
-    echo json_encode([
-        'success' => true,
-        'message' => 'Your application has been received!' 
-    ]);
-    return; // Stop any further code
-}
-// === END HONEYPOT CHECK ===
-    
+    // --- Get all POST data ---
     $program_id = $_POST['program_id'] ?? null;
     $first_name = trim($_POST['first_name'] ?? '');
     $last_name = trim($_POST['last_name'] ?? '');
@@ -863,30 +865,78 @@ if (!empty($_POST['website_url'])) {
     $disability_type = trim($_POST['disability_type'] ?? '');
     $additional_info = trim($_POST['additional_info'] ?? '');
     
-    // Validate required fields
+    // === START: VALIDATION (WITH FIXES) ===
     if (!$program_id || !$first_name || !$last_name || !$email || !$phone || !$dob || !$address) {
         adminJsonResponse(['success' => false, 'error' => 'Missing required fields'], 400);
+        return; // <-- ADDED RETURN
     }
-    
-    // Validate email format
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        adminJsonResponse(['success' => false, 'error' => 'Invalid email address'], 400);
+        adminJsonResponse(['success' => false, 'error' => 'Invalid email address'], 400); // <-- FIXED TYPO 'error_'
+        return; // <-- ADDED RETURN
     }
-    
-    // Validate date of birth format
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob)) {
         adminJsonResponse(['success' => false, 'error' => 'Invalid date format'], 400);
+        return; // <-- ADDED RETURN
     }
+    // === END: VALIDATION ===
     
-    try {
-        // Check if program exists and is active
-        $stmt = $pdo->prepare("SELECT id FROM programs WHERE id = ? AND status = 'active'");
-        $stmt->execute([$program_id]);
-        if (!$stmt->fetch()) {
-            adminJsonResponse(['success' => false, 'error' => 'Program not found or is no longer accepting applications'], 404);
+    // === START IP-BASED RATE-LIMIT CHECK ===
+    if (!in_array($ip_address, $local_ips)) {
+        // Only run this check if the user is NOT on localhost
+        try {
+            $stmt = $pdo->prepare("
+                SELECT id FROM program_applications 
+                WHERE ip_address = ? 
+                  AND created_at > (NOW() - INTERVAL 10 MINUTE)
+            ");
+            
+            $stmt->execute([ $ip_address ]);
+            
+            if ($stmt->fetch()) {
+                adminJsonResponse(['error' => 'You have submitted an application too recently. Please wait a few minutes.'], 429);
+                return;
+            }
+            
+        } catch (PDOException $e) {
+            error_log("Program application rate-limit check error: " . $e->getMessage());
+            adminJsonResponse(['error' => 'Failed to verify application. Please try again later.'], 500);
+            return;
         }
+    }
+    // === END IP-BASED RATE-LIMIT CHECK ===
+    
+   try {
+        // Check if program exists, is active, AND get its applicant limit
+        // <-- CHANGED THIS QUERY
+        $stmt = $pdo->prepare("SELECT id, max_applicants FROM programs WHERE id = ? AND status = 'active'");
+        $stmt->execute([$program_id]);
+        $program = $stmt->fetch(PDO::FETCH_ASSOC); // <-- CHANGED THIS LINE
         
-        // Check for duplicate application
+        if (!$program) { // <-- CHANGED THIS LINE
+            adminJsonResponse(['success' => false, 'error' => 'Program not found or is no longer accepting applications'], 404);
+            return;
+        }
+
+        // === START MAX APPLICANTS CHECK (NEW CODE) ===
+        // <-- ADDED THIS ENTIRE BLOCK
+        if (!empty($program['max_applicants']) && $program['max_applicants'] > 0) {
+            // Count current applications for this program
+            $count_stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM program_applications 
+                WHERE program_id = ?
+            ");
+            $count_stmt->execute([$program_id]);
+            $current_applications = $count_stmt->fetchColumn();
+            
+            // Compare count to the limit
+            if ($current_applications >= $program['max_applicants']) {
+                adminJsonResponse(['success' => false, 'error' => 'This program has reached its maximum number of applicants.'], 400);
+                return;
+            }
+        }
+        // === END MAX APPLICANTS CHECK ===
+        
+        // Check for duplicate application (for the same program)
         $stmt = $pdo->prepare("
             SELECT id FROM program_applications 
             WHERE program_id = ? AND email = ?
@@ -894,26 +944,28 @@ if (!empty($_POST['website_url'])) {
         $stmt->execute([$program_id, $email]);
         if ($stmt->fetch()) {
             adminJsonResponse(['success' => false, 'error' => 'You have already applied for this program'], 400);
+            return;
         }
         
-        // Insert application
+        // Insert application (This is the query I fixed last time)
         $stmt = $pdo->prepare("
             INSERT INTO program_applications 
             (program_id, first_name, last_name, email, phone, date_of_birth, 
-             address, disability_type, additional_info, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
+             address, disability_type, additional_info, ip_address, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
         ");
         
         $stmt->execute([
             $program_id, $first_name, $last_name, $email, $phone, $dob,
-            $address, $disability_type, $additional_info ?: null
+            $address, $disability_type, $additional_info ?: null,
+            $ip_address
         ]);
         
         adminJsonResponse(['success' => true, 'message' => 'Application submitted successfully']);
+
     } catch (PDOException $e) {
         error_log("Database error in submitProgramApplication: " . $e->getMessage());
         
-        // Check for specific errors
         if (strpos($e->getMessage(), 'Duplicate') !== false) {
             adminJsonResponse(['success' => false, 'error' => 'You have already applied for this program'], 400);
         }

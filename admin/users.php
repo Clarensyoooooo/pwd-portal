@@ -328,6 +328,36 @@ function editUser($pdo) {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
     
     try {
+
+        // --- ADD THIS PROTECTION BLOCK ---
+        $stmt = $pdo->prepare("
+            SELECT ar.name as role_name 
+            FROM admin_users au
+            LEFT JOIN admin_roles ar ON au.role_id = ar.id
+            WHERE au.id = ?
+        ");
+        $stmt->execute([$user_id]);
+        $user_being_edited = $stmt->fetch();
+        
+        if ($user_being_edited && $user_being_edited['role_name'] === 'super_admin') {
+            // Check if the current user is trying to deactivate the Super Admin
+            if ($is_active == 0) {
+                $_SESSION['error'] = 'You cannot deactivate the Super Administrator account.';
+                return;
+            }
+            
+            // Check if the current user is trying to change the Super Admin's role
+            // We need to get the super_admin role's ID to be sure
+            $sa_role_stmt = $pdo->query("SELECT id FROM admin_roles WHERE name = 'super_admin' LIMIT 1");
+            $sa_role_id = $sa_role_stmt->fetchColumn();
+
+            if ($sa_role_id && $role_id != $sa_role_id) {
+                 $_SESSION['error'] = 'You cannot change the role of the Super Administrator.';
+                 return;
+            }
+        }
+        // --- END OF PROTECTION BLOCK ---
+
         // Check if username or email is taken by another user
         $stmt = $pdo->prepare("
             SELECT COUNT(*) FROM admin_users 
@@ -383,6 +413,12 @@ function deleteUser($pdo) {
         $_SESSION['error'] = 'You cannot delete your own account.';
         return;
     }
+
+    // Add this new check
+if ($user_id == 1) { // <-- This protects the user with ID 1
+    $_SESSION['error'] = 'This user account cannot be deleted.';
+    return;
+}
     
     try {
         $stmt = $pdo->prepare("DELETE FROM admin_users WHERE id = ?");

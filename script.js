@@ -1,6 +1,20 @@
 // Enhanced script.js for PWD Portal Appointment System (No Authentication)
 
+// Generic function to open any modal by its ID
+function openModal(modalId) {
+    var modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
 
+// Generic function to close any modal by its ID
+function closeModal(modalId) {
+    var modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
 // Global variables
 let currentAppointment = null
 let currentUserData = null
@@ -118,6 +132,45 @@ document.addEventListener("DOMContentLoaded", () => {
       e.target.value = value
     })
   }
+   // --- ADD THIS NEW BLOCK ---
+  // Restrict all phone inputs to numbers only
+  const phoneInputs = [
+    document.getElementById("appPhone"),           // Program application
+    document.getElementById("newApplicantPhone"),  // New applicant form
+    document.getElementById("newEmergencyPhone")   // New applicant emergency contact
+  ];
+
+  phoneInputs.forEach(input => {
+    if (input) { // Check if the input exists on the page
+      input.addEventListener("input", function() {
+        // This regex replaces any character that is NOT a digit (0-9) with an empty string
+        this.value = this.value.replace(/[^0-9]/g, '');
+      });
+    }
+  });
+  // --- END OF NEW BLOCK ---
+  
+  // --- NEW BLOCK TO PREVENT NUMBERS IN TEXT FIELDS ---
+  // Restrict all name/text inputs to letters/symbols only (no numbers)
+  const textOnlyInputs = [
+    document.getElementById("appFirstName"),         // Program application
+    document.getElementById("appLastName"),          // Program application
+    document.getElementById("feedbackName"),         // Feedback form
+    document.getElementById("newApplicantFirstName"),// New applicant form
+    document.getElementById("newApplicantLastName"), // New applicant form
+    document.getElementById("newEmergencyName")      // New applicant emergency contact
+  ];
+
+  textOnlyInputs.forEach(input => {
+    if (input) { // Check if the input exists on the page
+      input.addEventListener("input", function() {
+        // This regex replaces any character that IS a digit (0-9) with an empty string
+        this.value = this.value.replace(/\d/g, '');
+      });
+    }
+  });
+  // --- END OF NEW BLOCK ---
+  
 })
 
 // Program Management Functions
@@ -330,6 +383,18 @@ if (phone.value.trim() === '') {
 async function handleProgramApplication(event) {
     event.preventDefault(); // Stop the form from submitting immediately
 
+    // --- ⬇️ ADD THIS VALIDATION CODE ⬇️ ---
+    const privacyCheckbox = document.getElementById('programPrivacyCheckbox');
+    const privacyError = document.getElementById('programPrivacyError');
+
+    if (!privacyCheckbox.checked) {
+        privacyError.style.display = 'block'; // Show the error
+        return; // Stop the function from submitting
+    } else {
+        privacyError.style.display = 'none'; // Hide the error if it was shown
+    }
+    // --- ⬆️ ADD THIS VALIDATION CODE ⬆️ ---
+
     if (!selectedProgramId) {
         showNotification("Please select a program", "error");
         return;
@@ -396,7 +461,7 @@ function acceptTerms() {
   const checkbox = document.getElementById("termsCheckbox")
 
   if (!checkbox.checked) {
-    showNotification("Please read and accept the terms and conditions to continue", "error")
+    showNotification("Please read and accept the data privacy statement to continue", "error")
     return
   }
 
@@ -768,7 +833,7 @@ async function validateStep(step) {
 
     // Validate phone number format
     if (phoneInput && phoneInput.value) {
-      const phoneRegex = /^[0-9]{10,11}$/;
+      const phoneRegex = /^09[0-9]{9}$/;
       if (!phoneRegex.test(phoneInput.value.replace(/[\s\-()]/g, ""))) {
         showNotification("Please enter a valid 10-11 digit phone number", "error");
         phoneInput.style.borderColor = "#ef4444";
@@ -1408,6 +1473,18 @@ Generated on: ${new Date().toLocaleString()}
 // Feedback Functions
 async function handleFeedback(event) {
   event.preventDefault()
+
+  // --- ⬇️ ADD THIS VALIDATION CODE ⬇️ ---
+    const privacyCheckbox = document.getElementById('feedbackPrivacyCheckbox');
+    const privacyError = document.getElementById('feedbackPrivacyError');
+
+    if (!privacyCheckbox.checked) {
+        privacyError.style.display = 'block'; // Show the error
+        return; // Stop the function from submitting
+    } else {
+        privacyError.style.display = 'none'; // Hide the error if it was shown
+    }
+    // --- ⬆️ ADD THIS VALIDATION CODE ⬆️ ---
 
   const formData = new FormData(event.target)
   formData.append("action", "submit_feedback")

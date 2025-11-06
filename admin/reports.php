@@ -1106,7 +1106,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
         
         .chart-container {
             position: relative;
-            height: 300px;
+            height: 400px;
             margin-top: 1rem;
         }
         

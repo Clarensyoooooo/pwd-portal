@@ -21,19 +21,20 @@ function handleFeedbackSubmission() {
     
     // === START HONEYPOT CHECK ===
     if (!empty($_POST['website_url'])) {
-        // This field should be empty. If it's filled, it's a bot.
-        // We will "pretend" it was a success to trick the bot.
         error_log("Honeypot triggered by IP: " . $_SERVER['REMOTE_ADDR']);
-        
         jsonResponse([
             'success' => true,
             'message' => 'Thank you for your feedback! We appreciate your input and will review it shortly.'
         ]);
-        return; // Stop any further code execution
+        return;
     }
     // === END HONEYPOT CHECK ===
     
-    // Validate required fields
+    // --- Get IP and define local IPs ---
+    $ip_address = $_SERVER['REMOTE_ADDR'];
+    $local_ips = ['127.0.0.1', '::1']; // '::1' is the IPv6 localhost
+    
+    // === START: VALIDATION (This part was missing) ===
     $required_fields = ['name', 'email', 'subject', 'message'];
     foreach ($required_fields as $field) {
         if (empty($_POST[$field])) {
@@ -42,13 +43,11 @@ function handleFeedbackSubmission() {
         }
     }
     
-    // Validate email
     if (!filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
         jsonResponse(['error' => 'Invalid email address'], 400);
         return;
     }
     
-    // Validate rating if provided
     $rating = null;
     if (!empty($_POST['rating'])) {
         $rating = (int)$_POST['rating'];
@@ -57,49 +56,50 @@ function handleFeedbackSubmission() {
             return;
         }
     }
-
-    // === START RATE-LIMIT CHECK ===
-    // Check if this email submitted ANY feedback in the last 10 minutes
-    try {
-        $stmt = $pdo->prepare("
-            SELECT id FROM feedback 
-            WHERE email = ? 
-              AND created_at > (NOW() - INTERVAL 10 MINUTE)
-        ");
-        
-        $stmt->execute([
-            $_POST['email']
-        ]);
-        
-        $existing = $stmt->fetch();
-        
-        if ($existing) {
-            // It's a recent submission from this email.
-            // Send a "Too Many Requests" error.
-            jsonResponse(['error' => 'You have submitted feedback too recently. Please wait a few minutes.'], 429);
+    // === END: VALIDATION ===
+    
+    // === START IP-BASED RATE-LIMIT CHECK ===
+    if (!in_array($ip_address, $local_ips)) {
+        // Only run this check if the user is NOT on localhost
+        try {
+            $stmt = $pdo->prepare("
+                SELECT id FROM feedback 
+                WHERE ip_address = ? 
+                  AND created_at > (NOW() - INTERVAL 10 MINUTE)
+            ");
+            
+            $stmt->execute([ $ip_address ]);
+            
+            if ($stmt->fetch()) {
+                jsonResponse(['error' => 'You have submitted feedback too recently. Please wait a few minutes.'], 429);
+                return;
+            }
+            
+        } catch (PDOException $e) {
+            error_log("Feedback rate-limit check error: " . $e->getMessage());
+            jsonResponse(['error' => 'Failed to verify feedback. Please try again later.'], 500);
             return;
         }
-        
-    } catch (PDOException $e) {
-        error_log("Feedback rate-limit check error: " . $e->getMessage());
-        // For safety, let's block submission if the check itself errors.
-        jsonResponse(['error' => 'Failed to verify feedback. Please try again later.'], 500);
-        return;
     }
-    // === END RATE-LIMIT CHECK ===
+    // === END IP-BASED RATE-LIMIT CHECK ===
     
     try {
+        // === FIX IS HERE ===
+        // 1. Added `ip_address` to the query
+        // 2. Added one more `?` to VALUES
         $stmt = $pdo->prepare("
-            INSERT INTO feedback (name, email, subject, message, rating, created_at) 
-            VALUES (?, ?, ?, ?, ?, NOW())
+            INSERT INTO feedback (name, email, subject, message, rating, ip_address, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
         ");
         
+        // 3. Added `$ip_address` to the execute array
         $result = $stmt->execute([
             $_POST['name'],
             $_POST['email'],
             $_POST['subject'],
             $_POST['message'],
-            $rating
+            $rating,
+            $ip_address
         ]);
         
         if ($result) {

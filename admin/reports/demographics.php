@@ -116,7 +116,7 @@
 
  
 <div class="analytics-grid">
-    <div class="analytics-card">
+    <div class="analytics-card" style="grid-column: 1 / -1;">
         <h3><i class="fas fa-chart-pie"></i> Gender × Barangay Distribution</h3>
         <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1rem;">Shows community diversity across geographic areas</p>
         <div class="chart-container">
@@ -124,7 +124,7 @@
         </div>
     </div>
     
-    <div class="analytics-card">
+   <div class="analytics-card" style="grid-column: 1 / -1;">
         <h3><i class="fas fa-users"></i> Age Groups Across Areas</h3>
         <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1rem;">Understanding age distribution helps tailor age-appropriate services</p>
         <div class="chart-container">
@@ -314,7 +314,8 @@ function initializeAnalyticsCharts() {
                     x: {
                         ticks: {
                             maxRotation: 45,
-                            minRotation: 45
+                            minRotation: 45,
+                            autoSkip: false
                         },
                         title: {
                             display: true,
@@ -381,7 +382,8 @@ function initializeAnalyticsCharts() {
                     x: {
                         ticks: {
                             maxRotation: 45,
-                            minRotation: 45
+                            minRotation: 45,
+                            autoSkip: false
                         },
                         title: {
                             display: true,

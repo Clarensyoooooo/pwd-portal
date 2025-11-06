@@ -2557,10 +2557,7 @@ function zoomToBarangay(barangayId) {
                     <div class="value">${barangayCoverage.barangays_with_pwd}</div>
                     <div class="label">Active Barangays</div>
                 </div>
-                <div class="summary-card">
-                    <div class="value">${locationStats.cities_covered}</div>
-                    <div class="label">Cities Covered</div>
-                </div>
+                
                 <div class="summary-card">
                     <div class="value">${Math.round(barangayCoverage.avg_pwd_per_barangay || 0)}</div>
                     <div class="label">Avg PWD/Barangay</div>
