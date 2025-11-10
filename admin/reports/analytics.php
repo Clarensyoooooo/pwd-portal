@@ -10,6 +10,16 @@ $summary = $report_data['summary'] ?? [
     'draft_records' => 0
 ];
 
+// --- NEW: Get the All-Time Summary data ---
+$all_time_summary = $report_data['all_time_summary'] ?? [
+    'total_records' => 0,
+    'total_active' => 0,
+    'total_expired' => 0,
+    'total_inactive' => 0,
+    'total_avg_age' => 0
+];
+// --- END NEW ---
+
 $age_groups = $report_data['age_groups'] ?? [];
 $gender_distribution = $report_data['gender_distribution'] ?? [];
 $disability_distribution = $report_data['disability_distribution'] ?? [];
@@ -27,43 +37,85 @@ $total = (int)($summary['total_individuals'] ?? 0);
 $safe_percent = function($numerator, $denominator) {
     return $denominator > 0 ? round(($numerator / $denominator) * 100) : 0;
 };
+
+// Prepare the 'since' date for the all-time summary
+$all_time_date_string = "";
+if (!empty($all_time_summary['first_registration_date'])) {
+    // New format: [Start Date] - Present
+    $start_date = date('M j, Y', strtotime($all_time_summary['first_registration_date']));
+    $all_time_date_string = "({$start_date} - Present)";
+}
 ?>
 
+<h3 style="font-size: 1.5rem; color: #1f2937; margin-bottom: 1rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem;">
+    <i class="fas fa-globe-asia"></i> All-Time Community Summary
+    <span style="font-size: 1rem; color: #64748b; font-weight: 400; margin-left: 10px;">
+        <?php echo $all_time_date_string; ?>
+    </span>
+</h3>
+<div class="analytics-grid" style="margin-bottom: 2.5rem;">
+    <div class="metric-card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-color: #0ea5e9;">
+        <div class="metric-value" style="color: #0c4a6e;"><?php echo number_format($all_time_summary['total_records']); ?></div>
+        <div class="metric-label">Total Community Members</div>
+        <div class="metric-change" style="color: #0c4a6e;"><i class="fas fa-users"></i> All-time registered</div>
+    </div>
+    <div class="metric-card" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-color: #22c55e;">
+        <div class="metric-value" style="color: #15803d;"><?php echo number_format($all_time_summary['total_active']); ?></div>
+        <div class="metric-label">Total Active IDs</div>
+        <div class="metric-change" style="color: #15803d;"><i class="fas fa-check-circle"></i> Currently valid IDs</div>
+    </div>
+    <div class="metric-card" style="background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%); border-color: #eab308;">
+        <div class="metric-value" style="color: #a16207;"><?php echo number_format($all_time_summary['total_expired']); ?></div>
+        <div class="metric-label">Total Expired IDs</div>
+        <div class="metric-change" style="color: #a16207;"><i class="fas fa-hourglass-end"></i> Needs renewal</div>
+    </div>
+    <div class="metric-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-color: #64748b;">
+        <div class="metric-value" style="color: #475569;"><?php echo number_format($all_time_summary['total_inactive']); ?></div>
+        <div class="metric-label">Total Inactive IDs</div>
+        <div class="metric-change" style="color: #475569;"><i class="fas fa-ban"></i> Marked inactive</div>
+    </div>
+</div>
+<h3 style="font-size: 1.5rem; color: #1f2937; margin-bottom: 1rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem;">
+    <i class="fas fa-filter"></i> Filtered Period Summary
+    <span style="font-size: 1rem; color: #64748b; font-weight: 400; margin-left: 10px;">
+        (<?php echo date('M j, Y', strtotime($date_from)); ?> to <?php echo date('M j, Y', strtotime($date_to)); ?>)
+    </span>
+</h3>
 <div class="analytics-grid">
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($total); ?></div>
-        <div class="metric-label">Total Records</div>
-        <div class="metric-change"><i class="fas fa-users"></i> All community members</div>
+        <div class="metric-label">Records in Period</div> 
+        <div class="metric-change"><i class="fas fa-users"></i> New or updated in period</div>
     </div>
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($summary['active_ids']); ?></div>
-        <div class="metric-label">Active IDs</div>
+         <div class="metric-label">Active (in Period)</div>
         <div class="metric-change positive"><i class="fas fa-check-circle"></i> <?php echo $safe_percent($summary['active_ids'], $total); ?>% of total</div>
     </div>
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($summary['validated_profiles']); ?></div>
-        <div class="metric-label">Validated (Pending ID)</div>
+         <div class="metric-label">Validated (in Period)</div>
         <div class="metric-change" style="color: #0ea5e9;"><i class="fas fa-file-signature"></i> <?php echo $safe_percent($summary['validated_profiles'], $total); ?>% of total</div>
     </div>
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($summary['expired_ids']); ?></div>
-        <div class="metric-label">Expired IDs</div>
+         <div class="metric-label">Expired (in Period)</div>
         <div class="metric-change" style="color: #f59e0b;"><i class="fas fa-hourglass-end"></i> <?php echo $safe_percent($summary['expired_ids'], $total); ?>% of total</div>
     </div>
     <div class="metric-card">
         <div class="metric-value"><?php echo number_format($summary['inactive_ids']); ?></div>
-        <div class="metric-label">Inactive IDs</div>
+         <div class="metric-label">Inactive (in Period)</div>
         <div class="metric-change" style="color: #64748b;"><i class="fas fa-ban"></i> <?php echo $safe_percent($summary['inactive_ids'], $total); ?>% of total</div>
     </div>
     <div class="metric-card">
         <div class="metric-value"><?php echo round($summary['avg_age'], 1); ?> yrs</div>
-        <div class="metric-label">Average Age</div>
-        <div class="metric-change"><i class="fas fa-birthday-cake"></i> Community age profile</div>
+         <div class="metric-label">Average Age (in Period)</div>
+       <div class="metric-change"><i class="fas fa-birthday-cake"></i> Of members in this group</div>
     </div>
 </div>
 
 <div class="analytics-card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #0ea5e9; margin-bottom: 1.5rem;">
-    <h3><i class="fas fa-lightbulb"></i> Key Insights</h3>
+    <h3><i class="fas fa-lightbulb"></i> Key Insights for Filtered Period</h3>
     <div style="line-height: 1.8; color: #0c4a6e;">
         <p style="margin: 0.5rem 0;">
             Based on <strong><?php echo number_format($total); ?></strong> total records in this period:
@@ -72,9 +124,9 @@ $safe_percent = function($numerator, $denominator) {
             <?php
             // Insight 1: ID Status
             $active_percent = $safe_percent($summary['active_ids'], $total);
-            if ($active_percent > 75) {
+            if ($total > 0 && $active_percent > 75) {
                 echo "<li><strong>ID Coverage:</strong> Excellent. <strong>{$active_percent}%</strong> of all records have an active ID.</li>";
-            } else {
+            } elseif ($total > 0) {
                 $unprocessed_count = $summary['draft_records'] + $summary['validated_profiles'];
                 $unprocessed_percent = $safe_percent($unprocessed_count, $total);
                 if ($unprocessed_percent > 30) {
@@ -120,6 +172,10 @@ $safe_percent = function($numerator, $denominator) {
                 if ($top_brgy_percent > 10) {
                     echo "<li><strong></strong> <strong>{$top_barangay['barangay']}</strong> has the highest concentration of members, accounting for <strong>{$top_brgy_percent}%</strong> of all records.</li>";
                 }
+            }
+            
+            if ($total == 0) {
+                echo "<li>No records found for this period. Clear filters or expand the date range to generate insights.</li>";
             }
             ?>
         </ul>

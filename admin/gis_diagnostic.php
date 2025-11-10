@@ -516,9 +516,9 @@ $ph_center_lng = 121.7740;
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
-    <?php include 'includes/sidebar.php'; ?>
     
-    <main class="main-content">
+    
+    <main class="dashboard-container">
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-tools"></i> GIS Diagnostic Tool</h1>
@@ -620,54 +620,7 @@ $ph_center_lng = 121.7740;
             </form>
         </div>
         
-        <div class="diagnostic-section">
-            <h2><i class="fas fa-plus-circle"></i> Manually Add Barangay (Optional)</h2>
-            <p>Add a barangay boundary manually for testing purposes (only if you need to add individual barangays).</p>
-            
-            <form method="post">
-                <input type="hidden" name="action" value="add_barangay">
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="barangay_name">Barangay Name</label>
-                        <input type="text" id="barangay_name" name="barangay_name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="city_municipality">City/Municipality</label>
-                        <input type="text" id="city_municipality" name="city_municipality" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="province">Province</label>
-                        <input type="text" id="province" name="province" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="area_sqkm">Area (sq km)</label>
-                        <input type="number" id="area_sqkm" name="area_sqkm" step="0.01" value="1.0" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="population">Population</label>
-                        <input type="number" id="population" name="population" value="1000" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="size">Size (km)</label>
-                        <input type="number" id="size" name="size" step="0.1" value="1.0" required>
-                        <small class="help-text">Approximate size of the barangay (will create a square)</small>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label>Location (Click on map to set)</label>
-                    <div id="locationMap" class="mini-map"></div>
-                    <input type="hidden" id="center_lat" name="center_lat" value="<?php echo $ph_center_lat; ?>" required>
-                    <input type="hidden" id="center_lng" name="center_lng" value="<?php echo $ph_center_lng; ?>" required>
-                </div>
-                
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-success">
-                        <i class="fas fa-plus"></i> Add Barangay
-                    </button>
-                </div>
-            </form>
-        </div>
+       
         
         <div class="diagnostic-section">
             <h2><i class="fas fa-list"></i> Existing Barangay Boundaries</h2>
@@ -682,8 +635,7 @@ $ph_center_lng = 121.7740;
                     <thead>
                         <tr>
                             <th>Name</th>
-                            <th>City/Municipality</th>
-                            <th>Province</th>
+                            
                             <th>Area (sq km)</th>
                             <th>Population</th>
                             <th>PWD Count</th>
@@ -693,8 +645,7 @@ $ph_center_lng = 121.7740;
                         <?php foreach ($barangays as $barangay): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($barangay['barangay_name']); ?></td>
-                                <td><?php echo htmlspecialchars($barangay['city_municipality']); ?></td>
-                                <td><?php echo htmlspecialchars($barangay['province']); ?></td>
+                                
                                 <td><?php echo number_format($barangay['area_sqkm'], 2); ?></td>
                                 <td><?php echo number_format($barangay['population']); ?></td>
                                 <td class="pwd-count"><?php echo $barangay['pwd_count']; ?></td>

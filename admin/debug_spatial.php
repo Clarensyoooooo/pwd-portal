@@ -270,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php include 'includes/header.php'; ?>
     
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-bug"></i> Spatial Debug Tool</h1>

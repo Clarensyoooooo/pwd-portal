@@ -607,7 +607,7 @@ function deleteRole($pdo) {
     <?php include 'includes/header.php'; ?>
     
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="page-header">
             <h1><i class="fas fa-users"></i> User Management</h1>
             <div class="page-actions">

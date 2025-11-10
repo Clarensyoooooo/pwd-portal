@@ -1506,7 +1506,7 @@ $last_import = $pdo->query("
     <?php include 'includes/header.php'; ?>
    
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-map-marked-alt"></i> GIS Mapping System</h1>
@@ -2180,13 +2180,15 @@ function zoomToBarangay(barangayId) {
 }
 
        function clearBarangaySelection() {
-            console.log('Clearing barangay selection');
+            console.log('Clearing ALL map filters');
             
             selectedBarangayId = null;
             highlightedBarangayLayer = null;
             
-            // Reset the dropdown
+            // --- NEW: Reset other filter dropdowns ---
             document.getElementById('barangayFilter').value = '';
+            document.getElementById('disabilityFilter').value = ''; // Resets disability
+            document.getElementById('statusFilter').value = '';     // Resets status
             
             // Reset all barangay styles
             barangayLayers.forEach(geoJsonLayer => {
@@ -2200,7 +2202,8 @@ function zoomToBarangay(barangayId) {
                 }
             });
             
-            // Reset filters and reload all markers (respecting other filters)
+            // Reload markers with ALL filters cleared
+            // filterMarkers() will now read the empty values from the dropdowns
             filterMarkers(); 
             
             // Reset map view
@@ -2209,7 +2212,7 @@ function zoomToBarangay(barangayId) {
             // Hide clear button
             document.getElementById('clearBarangayBtn').style.display = 'none';
             
-            showToast('Selection cleared', 'info', 2000);
+            showToast('All filters cleared', 'info', 2000);
         }
 
         function loadMarkers() {

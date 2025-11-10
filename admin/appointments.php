@@ -794,7 +794,7 @@ function handleGetAppointmentDetails() {
     <?php include 'includes/header.php'; ?>
    
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-calendar-check"></i> Appointments</h1>

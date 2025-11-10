@@ -40,7 +40,28 @@ try {
 $report_data = [];
 switch ($report_type) {
     case 'analytics':
-        $report_data = generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter);
+        // --- NEW: ADDED ALL-TIME SUMMARY QUERY ---
+        // This query runs with NO filters to get the total community numbers
+        try {
+            $all_time_stmt = $pdo->query("
+                SELECT 
+                    COUNT(*) as total_records,
+                    SUM(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 ELSE 0 END) as total_active,
+                    SUM(CASE WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 ELSE 0 END) as total_expired,
+                    SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as total_inactive,
+                    AVG(TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE())) as total_avg_age,
+                    MIN(created_at) as first_registration_date
+                FROM pwd_records
+            ");
+            $report_data['all_time_summary'] = $all_time_stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            $report_data['all_time_summary'] = [
+                'total_records' => 0, 'total_active' => 0, 'total_expired' => 0, 'total_inactive' => 0, 'total_avg_age' => 0,
+                'first_registration_date' => null
+            ];
+        }
+        // --- END NEW BLOCK ---
+        $report_data += generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $status_filter, $disability_filter, $gender_filter, $barangay_filter, $employment_filter);
         break;
     case 'demographics':
         $report_data = generateDemographicsReport($pdo, $date_from, $date_to, $age_group, $barangay_filter, $gender_filter, $disability_filter);
@@ -202,17 +223,23 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
     $stmt->execute(array_merge($params, $params));
     $data['employment_distribution'] = $stmt->fetchAll();
     
-    $date_format = '%Y-%m'; // Default to monthly
-    if ($time_period == 'daily') {
-        $date_format = '%Y-%m-%d';
-    } elseif ($time_period == 'yearly') {
-        $date_format = '%Y';
+    // --- START: Trends Query (REVAMPED TO FIX QUARTERLY BUG) ---
+    $period_select = "DATE_FORMAT(created_at, '%Y-%m')"; // Default: monthly
+    $period_group_by = "period";
+
+    if ($time_period == 'yearly') {
+        $period_select = "DATE_FORMAT(created_at, '%Y')";
     } elseif ($time_period == 'quarterly') {
-        $date_format = '%Y-Q%q';
+        // --- THIS IS THE FIX ---
+        // MySQL DATE_FORMAT does not support %q.
+        // We must use the QUARTER() function and CONCAT()
+        $period_select = "CONCAT(YEAR(created_at), '-Q', QUARTER(created_at))";
     }
+    // 'daily' is already removed
+
     $stmt = $pdo->prepare("
         SELECT 
-            DATE_FORMAT(created_at, '{$date_format}') as period,
+            {$period_select} as period,
             COUNT(*) as registrations,
             SUM(CASE WHEN status = 'issued' AND (expiry_date IS NULL OR expiry_date >= CURDATE()) THEN 1 ELSE 0 END) as active_ids,
             SUM(CASE WHEN status = 'issued' AND expiry_date < CURDATE() THEN 1 ELSE 0 END) as expired_ids,
@@ -220,11 +247,12 @@ function generateAnalyticsReport($pdo, $date_from, $date_to, $time_period, $stat
             SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) as validated
         FROM pwd_records 
         {$where_clause}
-        GROUP BY DATE_FORMAT(created_at, '{$date_format}')
+        GROUP BY {$period_group_by}
         ORDER BY period
     ");
     $stmt->execute($params);
     $data['trends'] = $stmt->fetchAll();
+    // --- END: Trends Query ---
     
     return $data;
 }
@@ -909,6 +937,32 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
     
+    .active-filters-bar {
+    background: #fffbe6; /* Light yellow */
+    border: 1px solid #fde68a;
+    color: #92400e;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.active-filter-tag {
+    background: #fef3c7;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+}
+.clear-all-link {
+    margin-left: auto;
+    color: #b91c1c;
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-decoration: underline;
+}
+
     /* --- Pagination Styles --- */
 .pagination-container {
     display: flex;
@@ -1269,7 +1323,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
     <?php include 'includes/header.php'; ?>
 
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="analytics-header">
             <h1><i class="fas fa-chart-line"></i> Community Analytics & Insights</h1>
             <p>Data-driven insights to support our community and improve services</p>
@@ -1286,6 +1340,63 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
                 <i class="fas fa-lightbulb"></i> Resource Planning
             </a>
         </div>
+
+        <?php
+// --- START: Active Filter Bar ---
+// Build a fresh URL with only the report type and default dates
+$clear_url = http_build_query([
+    'type' => $report_type,
+    'date_from' => date('Y-m-01'),
+    'date_to' => date('Y-m-d')
+]);
+
+// Check for any non-default filters
+$active_filters = [];
+
+// --- NEW CHECKS FOR DATE AND TIME PERIOD ---
+// Check if 'date_from' is NOT the default (first of the month)
+if ($date_from !== date('Y-m-01')) {
+    $active_filters['From Date'] = date('M j, Y', strtotime($date_from));
+}
+
+// Check if 'date_to' is NOT the default (today)
+if ($date_to !== date('Y-m-d')) {
+    $active_filters['To Date'] = date('M j, Y', strtotime($date_to));
+}
+
+// Check if 'time_period' is NOT the default ('monthly')
+if ($report_type == 'analytics' && $time_period !== 'monthly') {
+    $active_filters['Time Period'] = ucfirst($time_period); // e.g., "Quarterly"
+}
+// --- END NEW CHECKS ---
+
+
+// --- Your existing checks ---
+if (!empty($status_filter)) { 
+    $status_text = $status_filter;
+    if ($status_text === 'issued') $status_text = 'Active'; // Match dropdown
+    $active_filters['Status'] = ucfirst($status_text);
+}
+if (!empty($disability_filter)) { $active_filters['Disability'] = $disability_filter; }
+if (!empty($age_group)) { $active_filters['Age'] = ucfirst($age_group); }
+if (!empty($barangay_filter)) { $active_filters['Barangay'] = $barangay_filter; }
+if (!empty($gender_filter)) { $active_filters['Gender'] = $gender_filter; }
+if (!empty($employment_filter)) { $active_filters['Employment'] = $employment_filter; }
+?>
+
+<?php if (!empty($active_filters)): ?>
+    <div class="active-filters-bar">
+        <strong><i class="fas fa-filter"></i> Filters Active:</strong>
+        <?php foreach ($active_filters as $label => $value): ?>
+            <span class="active-filter-tag">
+                <?php echo htmlspecialchars($label); ?>: 
+                <strong><?php echo htmlspecialchars($value); ?></strong>
+            </span>
+        <?php endforeach; ?>
+
+        <a href="?<?php echo $clear_url; ?>" class="clear-all-link">Clear All</a>
+    </div>
+<?php endif; ?>
         
         <div class="filters-panel">
             <form method="GET" id="filtersForm">
@@ -1306,7 +1417,6 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
                     <div class="form-group">
                         <label for="time_period">Time Period</label>
                         <select name="time_period" id="time_period" class="form-control">
-                            <option value="daily" <?php echo $time_period == 'daily' ? 'selected' : ''; ?>>Daily</option>
                             <option value="monthly" <?php echo $time_period == 'monthly' ? 'selected' : ''; ?>>Monthly</option>
                             <option value="quarterly" <?php echo $time_period == 'quarterly' ? 'selected' : ''; ?>>Quarterly</option>
                             <option value="yearly" <?php echo $time_period == 'yearly' ? 'selected' : ''; ?>>Yearly</option>
@@ -1372,6 +1482,16 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
                     </div>
                     
                     <?php if ($report_type == 'demographics'): ?>
+
+                        <div class="form-group">
+                        <label for="gender_filter">Gender</label>
+                        <select name="gender" id="gender_filter" class="form-control">
+                            <option value="">All Genders</option>
+                            <option value="Male" <?php echo $gender_filter == 'Male' ? 'selected' : ''; ?>>Male</option>
+                            <option value="Female" <?php echo $gender_filter == 'Female' ? 'selected' : ''; ?>>Female</option>
+                        </select>
+                    </div>
+
                     <div class="form-group">
                         <label for="age_group">Age Group</label>
                         <select name="age_group" id="age_group" class="form-control">
@@ -1391,11 +1511,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'pdf') {
                         </button>
                     </div>
                     
-                    <div class="form-group">
-                        <button type="button" onclick="clearFilters()" class="filter-clear">
-                            <i class="fas fa-times"></i> Clear Filters
-                        </button>
-                    </div>
+                    
                     
                     <?php
                     // Build the query string for the export links, preserving all filters

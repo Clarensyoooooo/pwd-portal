@@ -39,6 +39,13 @@ body {
   line-height: 1.6;
 }
 
+
+.dashboard-container {
+    padding: 30px;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
 /* Login Page Styles */
 .login-page {
   background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);

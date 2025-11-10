@@ -1543,7 +1543,7 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     <?php include 'includes/header.php'; ?>
     
     
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-id-card"></i> PWD Records</h1>

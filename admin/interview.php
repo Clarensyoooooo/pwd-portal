@@ -10,9 +10,9 @@ $interview_id = $_GET['id'] ?? '';
 // Show placeholder if no interview ID is provided
 if (empty($interview_id)) {
     include 'includes/header.php';
-    include 'includes/sidebar.php';
+    
     ?>
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="empty-state-container">
             <div class="empty-state-card">
                 <div class="empty-state-icon">

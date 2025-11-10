@@ -79,7 +79,8 @@ employment_weights = [0.40, 0.25, 0.15, 0.10, 0.10]
 # Replaced 'pending_validation' with 'draft' to match your application's logic.
 # Added 'expired' which will be handled by date logic below.
 record_statuses = ['validated', 'issued', 'draft', 'inactive', 'expired']
-record_status_weights = [0.40, 0.30, 0.15, 0.10, 0.05] # 15% draft, 40% validated, 30% issued
+# NEW WEIGHTS: 3% validated, 50% issued (active), 3% draft, 20% inactive, 24% expired
+record_status_weights = [0.03, 0.50, 0.03, 0.20, 0.24]
 # --- *** END OF FIX 1 *** ---
 
 # Weighted Age Ranges (min_age, max_age)
@@ -145,12 +146,21 @@ try:
                 lat, lon = None, None
                 if polygon:
                     minx, miny, maxx, maxy = polygon.bounds
-                    for _ in range(10): 
+                    # Increased retries from 10 to 100
+                    for _ in range(100): 
                        point = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
                        if polygon.buffer(0).contains(point):
                            lat, lon = point.y, point.x
                            generated_coords_count += 1
                            break
+                    
+                    # --- NEW FALLBACK ---
+                    # If it still failed after 100 tries, use the centroid
+                    if lat is None:
+                        centroid = polygon.centroid
+                        lat, lon = centroid.y, centroid.x
+                        generated_coords_count += 1
+                    # --- END OF NEW FALLBACK ---
 
                 first_name = fake.first_name()
                 middle_name = fake.last_name() 
@@ -171,32 +181,40 @@ try:
                 validation_date = None
                 issue_date = None
                 expiry_date = None
+                created_at = None # <-- ADD THIS LINE
                 db_status = record_status_choice # This will be 'draft', 'validated', or 'inactive'
                 
                 if record_status_choice == 'validated':
                     # Record is validated but not issued
                     validation_date = fake.date_time_between(start_date="-30d", end_date="-1d")
-                
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
+
                 elif record_status_choice == 'issued':
                     # This is an ACTIVE issued ID
                     issue_date = fake.date_time_between(start_date="-3y", end_date="-1d") # Issued sometime in last 3 years
-                    expiry_date = issue_date.date() + datetime.timedelta(days=random.randint(4*365, 5*365)) # Active for 4-5 more years
+                    expiry_date = issue_date.date() + datetime.timedelta(days=random.randint(2*365, 3*365)) # Active for 2-3 more years
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5)) 
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
                     db_status = 'issued' # Status in DB is 'issued'
                 
                 elif record_status_choice == 'expired':
                     # This is an EXPIRED issued ID
                     expiry_date = fake.date_time_between(start_date="-3y", end_date="-1d").date() # Expired sometime in last 3 years
-                    issue_date = expiry_date - datetime.timedelta(days=5*365) # Issued 5 years before it expired
+                    issue_date = expiry_date - datetime.timedelta(days=3*365) # Issued 3 years before it expired
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
                     db_status = 'issued' # CRITICAL: Status in DB is 'issued', report logic calculates 'expired'
                 
                 elif record_status_choice == 'inactive':
                     # Inactive records were likely 'issued' at some point
                     issue_date = fake.date_time_between(start_date="-4y", end_date="-1y")
-                    expiry_date = issue_date.date() + datetime.timedelta(days=5*365) # Was valid
+                    expiry_date = issue_date.date() + datetime.timedelta(days=3*365) # Was valid
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
                     db_status = 'inactive' # Status in DB is 'inactive'
+
+                else: # This handles 'draft'
+                    created_at = fake.date_time_between(start_date="-3y", end_date="now") # <-- ADD THIS BLOCK
                 
                 # 'draft' status has no dates, which is correct
                 # --- *** END OF FIX 2 *** ---
@@ -209,10 +227,10 @@ try:
                         gender, civil_status, address_line1, barangay, city_municipality,
                         province, latitude, longitude, disability_type, employment_status,
                         created_by, status, barangay_id,
-                        validation_date, issue_date, expiry_date 
+                        validation_date, issue_date, expiry_date, created_at 
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """ # ^-- Added created_at and one more %s
                 values = (
                     pwd_id, first_name, middle_name, last_name, dob,
                     gender, civil_status, address_line1, brgy_key, city,
@@ -222,7 +240,8 @@ try:
                     barangay_id,
                     validation_date, # Add new date
                     issue_date,      # Add new date
-                    expiry_date      # Add new date
+                    expiry_date,     # Add new date
+                    created_at       # <-- ADD THIS LINE
                 )
                 # --- *** END OF FIX 3 *** ---
 

@@ -7,7 +7,7 @@ requireAdminLogin($pdo);
 
 ?>
 
-<div id="mainContent" class="main-content">
+<main class="dashboard-container">
     <!-- Header -->
     <div class="content-header">
         <div class="header-top">

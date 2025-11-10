@@ -79,7 +79,7 @@ include 'includes/header.php';
 
 
 
-<div class="main-content">
+<main class="dashboard-container">
     <div class="page-header">
         <div>
             <h1><i class="fas fa-user-circle"></i> My Profile</h1>
