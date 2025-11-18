@@ -96,6 +96,8 @@ if (empty($interview_id)) {
 $stmt = $pdo->prepare("
     SELECT ir.*, a.*, u.first_name, u.last_name, u.phone, u.email, u.date_of_birth, u.address, u.disability_type,
            au.full_name as interviewer_name,
+a.doc_id_picture, a.doc_birth_certificate, a.doc_medical_certificate,
+a.doc_voters_certificate, a.doc_registration_form,
            pr.id as record_id, pr.pwd_id_number, pr.status as record_status
     FROM interview_records ir
     JOIN appointments a ON ir.appointment_id = a.id
@@ -203,8 +205,10 @@ $barangays = $barangay_stmt->fetchAll();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    if ($action === 'update_interview') {
+   if ($action === 'update_interview') {
         handleUpdateInterview();
+    } elseif ($action === 'upload_document') {
+        handleDocumentUpload(); // <--- Add this line
     } elseif ($action === 'create_pwd_record') {
         handleCreatePWDRecord();
     }  else {
@@ -218,16 +222,33 @@ function handleUpdateInterview() {
     global $pdo, $interview_id;
     
     $interview_notes = $_POST['interview_notes'] ?? '';
+    // Decode the JSON if it exists, or default to empty array
     $documents_verified = $_POST['documents_verified'] ?? [];
     $eligibility_assessment = $_POST['eligibility_assessment'] ?? '';
     $recommendations = $_POST['recommendations'] ?? '';
-    $status = $_POST['status'] ?? 'in_progress';
     
+    // --- NEW STATUS LOGIC ---
+    // Get the status from the form, defaulting to current status or 'in_progress'
+    $new_status = $_POST['status'] ?? 'in_progress';
+
+    // SECURITY: Force the status to be valid. 
+    // We NEVER allow setting 'completed' here. That is reserved for the "Create Record" button.
+    $allowed_statuses = ['in_progress', 'pending_docs'];
+    
+    if (!in_array($new_status, $allowed_statuses)) {
+        $new_status = 'in_progress'; // Default back to safe state if invalid
+    }
+    // ------------------------
+
     try {
         $stmt = $pdo->prepare("
             UPDATE interview_records 
-            SET interview_notes = ?, documents_verified = ?, eligibility_assessment = ?, 
-                recommendations = ?, status = ?, updated_at = NOW()
+            SET interview_notes = ?, 
+                documents_verified = ?, 
+                eligibility_assessment = ?, 
+                recommendations = ?, 
+                status = ?,  
+                updated_at = NOW()
             WHERE id = ?
         ");
         
@@ -236,17 +257,86 @@ function handleUpdateInterview() {
             json_encode($documents_verified),
             $eligibility_assessment,
             $recommendations,
-            $status,
+            $new_status, // Use our safe, filtered status
             $interview_id
         ]);
         
         logAdminActivity($pdo, 'edit', 'interview', 'interview_record', $interview_id);
         
-        $success_message = 'Interview updated successfully!';
+        // Force a refresh to show the saved data
+        header("Location: interview.php?id=" . $interview_id . "&success=1");
+        exit;
         
     } catch (PDOException $e) {
-        $error_message = 'Failed to update interview: ' . $e->getMessage();
+        echo "Failed to update interview: " . $e->getMessage();
     }
+}
+
+function handleDocumentUpload() {
+    global $pdo, $interview_id, $interview;
+    
+    $doc_type = $_POST['doc_type'] ?? '';
+    $allowed_columns = [
+        'doc_id_picture', 'doc_birth_certificate', 
+        'doc_medical_certificate', 'doc_voters_certificate', 
+        'doc_registration_form'
+    ];
+
+    // 1. Security Check: Ensure we are updating a valid column
+    if (!in_array($doc_type, $allowed_columns)) {
+        $_SESSION['error_message'] = "Invalid document type.";
+        header("Location: interview.php?id=" . $interview_id . "&active_tab=interview-notes");
+        exit;
+    }
+
+    // 2. Check if file was uploaded
+    if (!isset($_FILES['new_file']) || $_FILES['new_file']['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['error_message'] = "File upload failed. Please try again.";
+        header("Location: interview.php?id=" . $interview_id . "&active_tab=interview-notes");
+        exit;
+    }
+
+    $file_tmp = $_FILES['new_file']['tmp_name'];
+    $file_name = $_FILES['new_file']['name'];
+    $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+    
+    // 3. Validate Extension
+    $allowed_exts = ['jpg', 'jpeg', 'png', 'pdf'];
+    if (!in_array($file_ext, $allowed_exts)) {
+        $_SESSION['error_message'] = "Invalid file type. Only JPG, PNG, and PDF are allowed.";
+        header("Location: interview.php?id=" . $interview_id . "&active_tab=interview-notes");
+        exit;
+    }
+
+    // 4. Process Upload
+    $upload_dir = '../uploads/applicant_docs/';
+    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+
+    // Generate unique name
+    $new_filename = uniqid('doc_', true) . '.' . $file_ext;
+    $destination = $upload_dir . $new_filename;
+
+    if (move_uploaded_file($file_tmp, $destination)) {
+        // 5. Delete Old File (Optional but recommended)
+        $old_file = $interview[$doc_type];
+        if ($old_file && file_exists($upload_dir . $old_file)) {
+            unlink($upload_dir . $old_file);
+        }
+
+        // 6. Update Database (Note: We update appointments table, not interview_records)
+        $stmt = $pdo->prepare("UPDATE appointments SET $doc_type = ? WHERE id = ?");
+        $stmt->execute([$new_filename, $interview['appointment_id']]);
+
+        logAdminActivity($pdo, 'upload', 'document', 'appointment', $interview['appointment_id'], ['field' => $doc_type]);
+
+        $_SESSION['success_message'] = "Document uploaded successfully.";
+    } else {
+        $_SESSION['error_message'] = "Failed to save file to server.";
+    }
+
+    // Redirect to refresh
+    header("Location: interview.php?id=" . $interview_id . "&active_tab=interview-notes");
+    exit;
 }
 
 
@@ -660,8 +750,10 @@ function handleCreatePWDRecord() {
                 emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_address,
                 employment_status, occupation, employer_name, monthly_income,
                 sss_number, philhealth_number, tin_number,
-                status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, created_by,
+                doc_id_picture, doc_birth_certificate, doc_medical_certificate,
+                doc_voters_certificate, doc_registration_form
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         // Prepare parameters array with CLEANED variables
@@ -713,7 +805,12 @@ function handleCreatePWDRecord() {
             $philhealth_number,                                    // 37
             $tin_number,                                           // 38
             'draft',                                               // 39
-            $_SESSION['admin_user_id']                             // 40
+            $_SESSION['admin_user_id'] ,                            // 40
+            $interview['doc_id_picture'] ?? null,
+    $interview['doc_birth_certificate'] ?? null,
+    $interview['doc_medical_certificate'] ?? null,
+    $interview['doc_voters_certificate'] ?? null,
+    $interview['doc_registration_form'] ?? null
         ];
         
         $result = $stmt->execute($params);
@@ -1033,6 +1130,11 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             
               
             <div id="interview-notes" class="tab-content">
+                <form id="globalUploadForm" method="POST" enctype="multipart/form-data" style="display: none;">
+    <input type="hidden" name="action" value="upload_document">
+    <input type="hidden" name="doc_type" id="global_doc_type">
+    <input type="file" name="new_file" id="global_file_input" onchange="if(confirm('Confirm upload?')) document.getElementById('globalUploadForm').submit();">
+</form>
                 <div class="interview-form-container">
                     <form method="POST" class="interview-form">
     <input type="hidden" name="action" value="update_interview">
@@ -1045,35 +1147,86 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                             </div>
                             
                             <div class="document-checklist">
-                                <?php 
-                                $verified_docs = json_decode($interview['documents_verified'] ?? '[]', true);
-                                $required_docs = [
-                                    'medical_certificate' => ['Medical Certificate', 'Medical assessment from licensed physician'],
-                                    'barangay_certificate' => ['Barangay Certificate', 'Certificate of residency from barangay'],
-                                    'id_pictures' => ['2x2 ID Pictures', 'Recent passport-size photographs'],
-                                    'valid_id' => ['Valid Government ID', 'Any government-issued identification'],
-                                    'birth_certificate' => ['Birth Certificate', 'PSA-issued birth certificate'],
-                                    'disability_assessment' => ['Disability Assessment Report', 'Professional disability evaluation'],
-                                    'income_certificate' => ['Certificate of Indigency', 'If applicable for financial assistance']
-                                ];
-                                ?>
-                                
-                                <?php foreach ($required_docs as $key => $doc_info): ?>
-                                    <div class="document-item <?php echo in_array($key, $verified_docs) ? 'verified' : ''; ?>">
-                                        <label class="document-label">
-                                            <input type="checkbox" name="documents_verified[]" value="<?php echo $key; ?>" 
-                                                   <?php echo in_array($key, $verified_docs) ? 'checked' : ''; ?>>
-                                            <div class="document-content">
-                                                <div class="document-title"><?php echo $doc_info[0]; ?></div>
-                                                <div class="document-description"><?php echo $doc_info[1]; ?></div>
-                                            </div>
-                                            <div class="document-status">
-                                                <i class="fas fa-check-circle"></i>
-                                            </div>
-                                        </label>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
+    <?php 
+    $verified_docs = json_decode($interview['documents_verified'] ?? '[]', true);
+    
+    // DEFINING THE ARRAY WITH 'db_col' IS CRITICAL
+    $required_docs = [
+        'id_pictures' => [
+            'title' => '1. 1x1 ID Pictures', 
+            'desc' => 'Required. 2 (two) "1x1" recent ID pictures.',
+            'file' => $interview['doc_id_picture'],
+            'db_col' => 'doc_id_picture' 
+        ],
+        'birth_certificate' => [
+            'title' => '2. Birth Certificate (Xerox Copy)', 
+            'desc' => 'Required. (JPG, PNG, PDF)',
+            'file' => $interview['doc_birth_certificate'],
+            'db_col' => 'doc_birth_certificate' 
+        ],
+        'medical_certificate' => [
+            'title' => '3. Certificate of Disability', 
+            'desc' => 'Required. Must be original copy.',
+            'file' => $interview['doc_medical_certificate'],
+            'db_col' => 'doc_medical_certificate'
+        ],
+        'voters_certificate' => [
+            'title' => '4. Voter\'s Certification (2025)', 
+            'desc' => 'Required. Xerox copy.',
+            'file' => $interview['doc_voters_certificate'],
+            'db_col' => 'doc_voters_certificate'
+        ],
+        'registration_form' => [
+            'title' => '5. PWD Registration Form', 
+            'desc' => 'Required. You can download the form from the "Requirements" section.',
+            'file' => $interview['doc_registration_form'],
+            'db_col' => 'doc_registration_form'
+        ]
+    ];
+    ?>
+    
+    <?php foreach ($required_docs as $key => $doc_info): ?>
+        <div class="document-item <?php echo in_array($key, $verified_docs) ? 'verified' : ''; ?>">
+            <div class="document-inner" style="display: flex; padding: 16px; gap: 16px;">
+                
+                <div class="checkbox-wrapper" style="padding-top: 4px;">
+                    <input type="checkbox" name="documents_verified[]" value="<?php echo $key; ?>" 
+                           <?php echo in_array($key, $verified_docs) ? 'checked' : ''; ?>
+                           style="width: 20px; height: 20px; accent-color: #10b981;">
+                </div>
+                
+                <div class="document-content" style="flex: 1;">
+                    <div class="document-title" style="font-weight: 600; color: #1f2937;"><?php echo $doc_info['title']; ?></div>
+                    <div class="document-description" style="font-size: 0.8rem; color: #6b7280; margin-bottom: 10px;"><?php echo $doc_info['desc']; ?></div>
+                    
+                    <div class="document-actions-row" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <?php if (!empty($doc_info['file'])): ?>
+                            <a href="../uploads/applicant_docs/<?php echo htmlspecialchars($doc_info['file']); ?>" 
+                               target="_blank" 
+                               class="btn-doc-action btn-view"> 
+                               <i class="fas fa-eye"></i> View
+                            </a>
+                        <?php else: ?>
+                            <span style="color: #ef4444; font-size: 0.8rem;"><i class="fas fa-times-circle"></i> Missing</span>
+                        <?php endif; ?>
+
+                        <button type="button" 
+                                class="btn-doc-action btn-upload"
+                                onclick="triggerDocUpload('<?php echo $doc_info['db_col'] ?? ''; ?>')">
+                            <i class="fas fa-upload"></i> <?php echo !empty($doc_info['file']) ? 'Replace' : 'Upload'; ?>
+                        </button>
+                    </div>
+                </div>
+                
+                <?php if (in_array($key, $verified_docs)): ?>
+                <div style="color: #10b981; font-size: 1.2rem;">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php endforeach; ?>
+</div>
                         </div>
                         
                         <div class="form-section">
@@ -1108,23 +1261,40 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                                           placeholder="Recommend appropriate services, accommodations, or referrals based on the applicant's needs..."><?php echo htmlspecialchars($interview['recommendations'] ?? ''); ?></textarea>
                             </div>
                         </div>
-                        
+
                         <div class="form-section">
-                            <div class="section-header">
-                                <h3><i class="fas fa-flag"></i> Interview Status</h3>
-                                <p class="section-description">Update the current status of this interview</p>
-                            </div>
-                            <div class="form-group">
-                                <select name="status" class="form-select" required>
-    <?php if ($interview['record_id']): ?>
-        <option value="completed" selected>Completed</option>
-    <?php else: ?>
-        <option value="in_progress" <?php echo $interview['status'] === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
-        <option value="cancelled" <?php echo $interview['status'] === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
-    <?php endif; ?>
-</select>
-                            </div>
-                        </div>
+    <div class="section-header">
+        <h3><i class="fas fa-exclamation-circle"></i> Interview Status</h3>
+        <p class="section-description">Is this interview ongoing or paused due to missing requirements?</p>
+    </div>
+    
+    <div class="status-options">
+        <label class="status-option-card">
+            <input type="radio" name="status" value="in_progress" 
+                   <?php echo ($interview['status'] === 'in_progress' || $interview['status'] === 'confirmed') ? 'checked' : ''; ?>>
+            <div class="option-content">
+                <div class="option-icon"><i class="fas fa-spinner"></i></div>
+                <div class="option-text">
+                    <strong>In Progress</strong>
+                    <span>Interview is currently happening.</span>
+                </div>
+            </div>
+        </label>
+
+        <label class="status-option-card">
+            <input type="radio" name="status" value="pending_docs" 
+                   <?php echo ($interview['status'] === 'pending_docs') ? 'checked' : ''; ?>>
+            <div class="option-content">
+                <div class="option-icon warning"><i class="fas fa-file-import"></i></div>
+                <div class="option-text">
+                    <strong>Missing Documents</strong>
+                    <span>Applicant needs to return with more requirements.</span>
+                </div>
+            </div>
+        </label>
+    </div>
+</div>
+                        
                         
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary btn-lg">
@@ -1588,6 +1758,16 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     
     <script src="assets/admin.js"></script>
     <script>
+
+        // NEW FUNCTION: Triggers the hidden global upload form
+    function triggerDocUpload(docType) {
+        // 1. Set the document type in the hidden form
+        document.getElementById('global_doc_type').value = docType;
+        
+        // 2. Trigger the file selection dialog
+        document.getElementById('global_file_input').click();
+    }
+
         let locationMap;
         let locationMarker;
         
@@ -1861,6 +2041,73 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     </script>
     
     <style>
+
+        .status-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.status-option-card {
+    cursor: pointer;
+    position: relative;
+}
+
+.status-option-card input[type="radio"] {
+    position: absolute;
+    opacity: 0; /* Hide the actual radio button */
+}
+
+.option-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    transition: all 0.2s ease;
+}
+
+/* When the radio is checked, style the content div */
+.status-option-card input[type="radio"]:checked + .option-content {
+    border-color: #2c5aa0;
+    background: #f0f9ff;
+    box-shadow: 0 2px 4px rgba(44, 90, 160, 0.1);
+}
+
+.option-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e0e7ff;
+    color: #2c5aa0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.option-icon.warning {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.option-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.option-text strong {
+    color: #1f2937;
+    font-size: 0.95rem;
+}
+
+.option-text span {
+    color: #6b7280;
+    font-size: 0.8rem;
+}
+
         .interview-progress {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
@@ -2617,6 +2864,127 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     font-weight: 400; /* Normal weight, not bold */
     margin-left: 6px;
 }
+
+
+/* New Document Item Layout */
+.document-inner {
+    display: flex;
+    padding: 16px;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.checkbox-wrapper {
+    padding-top: 4px;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: #10b981;
+    cursor: pointer;
+}
+
+.document-title-label {
+    cursor: pointer;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.document-actions-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Action Buttons */
+.btn-doc-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-view {
+    background-color: #e0f2fe;
+    color: #0284c7;
+    border: 1px solid #bae6fd;
+}
+
+.btn-view:hover {
+    background-color: #bae6fd;
+}
+
+.btn-upload {
+    background-color: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+}
+
+.btn-upload:hover {
+    background-color: #e5e7eb;
+    color: #1f2937;
+}
+
+.hidden-file-input {
+    display: none;
+}
+
+.document-status-icon {
+    margin-left: auto;
+    color: #10b981;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    font-size: 1.2rem;
+}
+
+.document-item.verified .document-status-icon {
+    opacity: 1;
+}
+
+/* Add/Ensure these styles are in your <style> block */
+.btn-doc-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none; /* Important for button element */
+    font-family: inherit;
+}
+
+.btn-view {
+    background-color: #e0f2fe;
+    color: #0284c7;
+    border: 1px solid #bae6fd;
+}
+
+.btn-view:hover {
+    background-color: #bae6fd;
+}
+
+.btn-upload {
+    background-color: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+}
+
+.btn-upload:hover {
+    background-color: #e5e7eb;
+    color: #1f2937;
+}
+
     </style>
 </body>
 </html>

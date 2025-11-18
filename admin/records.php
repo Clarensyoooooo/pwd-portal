@@ -518,6 +518,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'create_direct_record':
             handleCreateDirectRecord();
             break;
+            // --- ADD THIS NEW CASE ---
+case 'update_document':
+    handleUpdateDocument();
+    break;
         default:
             adminJsonResponse(['error' => 'Invalid action'], 400);
     }
@@ -1549,6 +1553,73 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
         error_log("Error in assignSinglePwdToBarangay: " . $e->getMessage());
         return false;
     }
+}
+
+function handleUpdateDocument() {
+    global $pdo;
+    requirePermission($pdo, 'records.edit');
+
+    $record_id = $_POST['record_id'] ?? '';
+    $doc_type = $_POST['doc_type'] ?? '';
+
+    $allowed_columns = [
+        'doc_id_picture', 'doc_birth_certificate', 
+        'doc_medical_certificate', 'doc_voters_certificate', 
+        'doc_registration_form'
+    ];
+
+    if (empty($record_id) || !in_array($doc_type, $allowed_columns)) {
+        $_SESSION['error_message'] = "Invalid request details.";
+        header("Location: records.php?highlight=" . $record_id);
+        exit;
+    }
+
+    if (!isset($_FILES['new_file']) || $_FILES['new_file']['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['error_message'] = "File upload failed.";
+        header("Location: records.php?highlight=" . $record_id);
+        exit;
+    }
+
+    $file_tmp = $_FILES['new_file']['tmp_name'];
+    $file_name = $_FILES['new_file']['name'];
+    $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+
+    if (!in_array($file_ext, ['jpg', 'jpeg', 'png', 'pdf'])) {
+        $_SESSION['error_message'] = "Invalid file type. Only JPG, PNG, PDF allowed.";
+        header("Location: records.php?highlight=" . $record_id);
+        exit;
+    }
+
+    // Get current filename to delete it later
+    $stmt = $pdo->prepare("SELECT $doc_type FROM pwd_records WHERE id = ?");
+    $stmt->execute([$record_id]);
+    $old_file = $stmt->fetchColumn();
+
+    // Upload new file
+    $upload_dir = '../uploads/applicant_docs/';
+    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+
+    $new_filename = uniqid('rec_', true) . '.' . $file_ext;
+
+    if (move_uploaded_file($file_tmp, $upload_dir . $new_filename)) {
+        // Update DB
+        $update = $pdo->prepare("UPDATE pwd_records SET $doc_type = ?, updated_at = NOW() WHERE id = ?");
+        $update->execute([$new_filename, $record_id]);
+
+        // Delete old file if it exists
+        if ($old_file && file_exists($upload_dir . $old_file)) {
+            unlink($upload_dir . $old_file);
+        }
+
+        logAdminActivity($pdo, 'update_doc', 'records', 'pwd_record', $record_id, ['field' => $doc_type]);
+        $_SESSION['success_message'] = "Document updated successfully.";
+    } else {
+        $_SESSION['error_message'] = "Failed to move uploaded file.";
+    }
+
+    // Redirect back to show the modal again
+    header("Location: records.php?highlight=" . $record_id);
+    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -2724,343 +2795,291 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     </div>
     
     <script src="assets/admin.js"></script>
-    <script>
+    <script src="assets/admin.js"></script>
+<script>
+    // --- Global Variables (Declared ONCE at the top) ---
+    let createLocationMap = null;
+    let createLocationMarker = null;
+    let editLocationMap = null;
+    let editLocationMarker = null;
 
-        document.addEventListener('DOMContentLoaded', function() {
-            const pwdIdInput = document.getElementById('official_pwd_id_input');
-            
-            if (pwdIdInput) {
-                pwdIdInput.addEventListener('input', function(e) {
-                    // 1. Get the raw value and remove all non-numbers
-                    let rawValue = e.target.value.replace(/[^0-9]/g, '');
-                    
-                    // 2. Limit to 12 digits
-                    rawValue = rawValue.substring(0, 12);
-                    
-                    // 3. Apply the auto-formatting (XX-XXXX-XXX-XXX)
-                    let formattedValue = '';
-                    if (rawValue.length > 0) {
-                        formattedValue = rawValue.substring(0, 2);
-                    }
-                    if (rawValue.length > 2) {
-                        formattedValue += '-' + rawValue.substring(2, 6);
-                    }
-                    if (rawValue.length > 6) {
-                        formattedValue += '-' + rawValue.substring(6, 9);
-                    }
-                    if (rawValue.length > 9) {
-                        formattedValue += '-' + rawValue.substring(9, 12);
-                    }
-                    
-                    // 4. Set the input's value to the new formatted string
-                    e.target.value = formattedValue;
-                });
-            }
-        });
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Auto-open modal if 'highlight' param exists (after document upload)
+        const urlParams = new URLSearchParams(window.location.search);
+        const highlightId = urlParams.get('highlight');
 
+        if (highlightId) {
+            viewRecord(highlightId);
+            // Optional: Clean URL to remove ?highlight=123
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({
+                path: newUrl
+            }, '', newUrl);
+        }
 
-                                    let editLocationMarker;
-        
-        // --- ADD THIS NEW FUNCTION ---
-        // Tab switching for create/edit modals
-        function setupModalTabs(modalId) {
-            const modal = document.getElementById(modalId);
-            if (!modal) return;
+        // 2. Initialize PWD ID Input Formatting
+        const pwdIdInput = document.getElementById('official_pwd_id_input');
+        if (pwdIdInput) {
+            pwdIdInput.addEventListener('input', function(e) {
+                let rawValue = e.target.value.replace(/[^0-9]/g, '');
+                rawValue = rawValue.substring(0, 12);
 
-            const tabBtns = modal.querySelectorAll('.tab-btn');
-            const tabContents = modal.querySelectorAll('.tab-content');
+                let formattedValue = '';
+                if (rawValue.length > 0) formattedValue = rawValue.substring(0, 2);
+                if (rawValue.length > 2) formattedValue += '-' + rawValue.substring(2, 6);
+                if (rawValue.length > 6) formattedValue += '-' + rawValue.substring(6, 9);
+                if (rawValue.length > 9) formattedValue += '-' + rawValue.substring(9, 12);
 
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const tabId = btn.getAttribute('data-tab');
-
-                    // Remove active class from all buttons and content
-                    tabBtns.forEach(b => b.classList.remove('active'));
-                    tabContents.forEach(c => c.classList.remove('active'));
-
-                    // Add active class to clicked button and target content
-                    btn.classList.add('active');
-                    modal.querySelector('#' + tabId).classList.add('active');
-
-                    // Refresh maps if they are in the newly active tab
-                    if (tabId === 'pwd-record-tab') {
-                        if (createLocationMap) setTimeout(() => createLocationMap.invalidateSize(), 100);
-                        if (editLocationMap) setTimeout(() => editLocationMap.invalidateSize(), 100);
-                    }
-                });
+                e.target.value = formattedValue;
             });
         }
-        // --- END OF NEW FUNCTION ---
 
-        // Initialize the page
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize tab functionality for the create modal
-            setupModalTabs('createRecordModal');
-        });
+        // 3. Initialize Tabs for Create Record Modal
+        setupModalTabs('createRecordModal');
+    });
 
+    // --- Functions ---
 
-        let createLocationMap;
-        let createLocationMarker;
-        let editLocationMap;
-        
-        
-        // Initialize the page
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize maps when modals are shown
-        });
-        
-        // Initialize create location map
-        function initializeCreateLocationMap() {
-            const mapElement = document.getElementById('createLocationMap');
-            if (!mapElement || createLocationMap) return;
-            
-            // Default center (Santo Tomas City, Batangas)
-            const defaultLat = 14.1078;
-            const defaultLng = 121.1414;
-            
-            createLocationMap = L.map('createLocationMap').setView([defaultLat, defaultLng], 13);
-            
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 18
-            }).addTo(createLocationMap);
-            
-            // Add click event to map
-            createLocationMap.on('click', function(e) {
-                setCreateLocation(e.latlng.lat, e.latlng.lng);
-            });
-        }
-        
-        // Initialize edit location map
-        function initializeEditLocationMap() {
-            const mapElement = document.getElementById('editLocationMap');
-            if (!mapElement || editLocationMap) return;
-            
-            // Default center (Santo Tomas City, Batangas)
-            const defaultLat = 14.1078;
-            const defaultLng = 121.1414;
-            
-            editLocationMap = L.map('editLocationMap').setView([defaultLat, defaultLng], 13);
-            
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 18
-            }).addTo(editLocationMap);
-            
-            // Add click event to map
-            editLocationMap.on('click', function(e) {
-                setEditLocation(e.latlng.lat, e.latlng.lng);
-            });
-        }
-        
-        // Set location on create map
-        function setCreateLocation(lat, lng) {
-            // Remove existing marker
-            if (createLocationMarker) {
-                createLocationMap.removeLayer(createLocationMarker);
-            }
-            
-            // Add new marker
-            createLocationMarker = L.marker([lat, lng]).addTo(createLocationMap);
-            
-            // Update input fields
-            document.getElementById('createLatitude').value = lat.toFixed(6);
-            document.getElementById('createLongitude').value = lng.toFixed(6);
-            
-            // Show success message
-            showNotification('Location set successfully!', 'success');
-        }
-        
-        // Set location on edit map
-        function setEditLocation(lat, lng) {
-            // Remove existing marker
-            if (editLocationMarker) {
-                editLocationMap.removeLayer(editLocationMarker);
-            }
-            
-            // Add new marker
-            editLocationMarker = L.marker([lat, lng]).addTo(editLocationMap);
-            
-            // Update input fields
-            document.getElementById('editLatitude').value = lat.toFixed(6);
-            document.getElementById('editLongitude').value = lng.toFixed(6);
-            
-            // Show success message
-            showNotification('Location updated successfully!', 'success');
-        }
-        
-        // Get current location for create
-        function getCurrentLocationCreate() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    
-                    setCreateLocation(lat, lng);
-                    createLocationMap.setView([lat, lng], 16);
-                    
-                    showNotification('Current location detected!', 'success');
-                }, function(error) {
-                    showNotification('Unable to get current location: ' + error.message, 'error');
-                });
-            } else {
-                showNotification('Geolocation is not supported by this browser', 'error');
-            }
-        }
-        
-        // Get current location for edit
-        function getCurrentLocationEdit() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    
-                    setEditLocation(lat, lng);
-                    editLocationMap.setView([lat, lng], 16);
-                    
-                    showNotification('Current location detected!', 'success');
-                }, function(error) {
-                    showNotification('Unable to get current location: ' + error.message, 'error');
-                });
-            } else {
-                showNotification('Geolocation is not supported by this browser', 'error');
-            }
-        }
-        
-        // Clear location for create
-        function clearLocationCreate() {
-            if (createLocationMarker) {
-                createLocationMap.removeLayer(createLocationMarker);
-                createLocationMarker = null;
-            }
-            
-            document.getElementById('createLatitude').value = '';
-            document.getElementById('createLongitude').value = '';
-            
-            showNotification('Location cleared', 'info');
-        }
-        
-        // Clear location for edit
-        function clearLocationEdit() {
-            if (editLocationMarker) {
-                editLocationMap.removeLayer(editLocationMarker);
-                editLocationMarker = null;
-            }
-            
-            document.getElementById('editLatitude').value = '';
-            document.getElementById('editLongitude').value = '';
-            
-            showNotification('Location cleared', 'info');
-        }
+    function setupModalTabs(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
 
-        // --- REPLACE THE OLD FUNCTION WITH THIS ---
-        function toggleMapExpand(type) {
-            let container, button, mapInstance, actionsContainer;
+        const tabBtns = modal.querySelectorAll('.tab-btn');
+        const tabContents = modal.querySelectorAll('.tab-content');
 
-            if (type === 'create') {
-                container = document.getElementById('createLocationMap').parentElement; // .map-container
-                // Find the actions div
-                actionsContainer = document.getElementById('createRecordForm').querySelector('.location-actions');
-                mapInstance = createLocationMap;
-                // Find the button, wherever it is
-                button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
-                
-            } else if (type === 'edit') {
-                container = document.getElementById('editLocationMap').parentElement; // .map-container
-                // Find the actions div
-                actionsContainer = document.getElementById('editRecordForm').querySelector('.location-actions');
-                mapInstance = editLocationMap;
-                // Find the button, wherever it is
-                button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
-            
-            } else {
-                return;
-            }
-            
-            if (!button) {
-                console.error('Could not find expand map button');
-                return;
-            }
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tabId = btn.getAttribute('data-tab');
 
-            const isExpanded = container.classList.toggle('map-expanded');
+                // Remove active class from all
+                tabBtns.forEach(b => b.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
 
-            if (isExpanded) {
-                // Move button inside expanded container
-                container.appendChild(button); 
-                button.innerHTML = '<i class="fas fa-compress-arrows-alt"></i> Compress Map';
-            } else {
-                // Move button back to actions list
-                actionsContainer.prepend(button);
-                button.innerHTML = '<i class="fas fa-expand-arrows-alt"></i> Expand Map';
-            }
+                // Add active class to clicked
+                btn.classList.add('active');
+                modal.querySelector('#' + tabId).classList.add('active');
 
-            // IMPORTANT: Tell Leaflet to recalculate its size
-            setTimeout(() => {
-                if (mapInstance) {
-                    mapInstance.invalidateSize();
+                // Refresh maps if needed
+                if (tabId === 'pwd-record-tab') {
+                    if (createLocationMap) {
+                        setTimeout(() => createLocationMap.invalidateSize(), 100);
+                    }
                 }
-            }, 100); // Small delay to let CSS animations finish
+            });
+        });
+    }
+
+    // Initialize create location map
+    function initializeCreateLocationMap() {
+        const mapElement = document.getElementById('createLocationMap');
+        if (!mapElement || createLocationMap) return;
+
+        const defaultLat = 14.1078;
+        const defaultLng = 121.1414;
+
+        createLocationMap = L.map('createLocationMap').setView([defaultLat, defaultLng], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18
+        }).addTo(createLocationMap);
+
+        createLocationMap.on('click', function(e) {
+            setCreateLocation(e.latlng.lat, e.latlng.lng);
+        });
+    }
+
+    // Initialize edit location map
+    function initializeEditLocationMap() {
+        const mapElement = document.getElementById('editLocationMap');
+        if (!mapElement || editLocationMap) return;
+
+        const defaultLat = 14.1078;
+        const defaultLng = 121.1414;
+
+        editLocationMap = L.map('editLocationMap').setView([defaultLat, defaultLng], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18
+        }).addTo(editLocationMap);
+
+        editLocationMap.on('click', function(e) {
+            setEditLocation(e.latlng.lat, e.latlng.lng);
+        });
+    }
+
+    // Set location on create map
+    function setCreateLocation(lat, lng) {
+        if (createLocationMarker) {
+            createLocationMap.removeLayer(createLocationMarker);
         }
-        // --- END OF REPLACEMENT ---
-        
-        // Update city and province based on barangay selection for create
-        function updateCreateCityProvince() {
-            const barangaySelect = document.getElementById('createBarangayId');
-            const selectedOption = barangaySelect.options[barangaySelect.selectedIndex];
-            
-            if (selectedOption.value) {
-                const barangayName = selectedOption.getAttribute('data-name');
-                const city = selectedOption.getAttribute('data-city');
-                const province = selectedOption.getAttribute('data-province');
-                
-                document.getElementById('createBarangayName').value = barangayName;
-                document.getElementById('createCity').value = city;
-                document.getElementById('createProvince').value = province;
-                
-                // Hide manual barangay input
-                document.getElementById('createManualBarangay').style.display = 'none';
-                document.getElementById('createBarangayManual').required = false;
-                document.getElementById('createBarangayId').required = true;
+        createLocationMarker = L.marker([lat, lng]).addTo(createLocationMap);
+        document.getElementById('createLatitude').value = lat.toFixed(6);
+        document.getElementById('createLongitude').value = lng.toFixed(6);
+        showNotification('Location set successfully!', 'success');
+    }
+
+    // Set location on edit map
+    function setEditLocation(lat, lng) {
+        if (editLocationMarker) {
+            editLocationMap.removeLayer(editLocationMarker);
+        }
+        editLocationMarker = L.marker([lat, lng]).addTo(editLocationMap);
+        document.getElementById('editLatitude').value = lat.toFixed(6);
+        document.getElementById('editLongitude').value = lng.toFixed(6);
+        showNotification('Location updated successfully!', 'success');
+    }
+
+    // Get current location for create
+    function getCurrentLocationCreate() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(position) {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                setCreateLocation(lat, lng);
+                createLocationMap.setView([lat, lng], 16);
+                showNotification('Current location detected!', 'success');
+            }, function(error) {
+                showNotification('Unable to get current location: ' + error.message, 'error');
+            });
+        } else {
+            showNotification('Geolocation is not supported by this browser', 'error');
+        }
+    }
+
+    // Get current location for edit
+    function getCurrentLocationEdit() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(position) {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                setEditLocation(lat, lng);
+                editLocationMap.setView([lat, lng], 16);
+                showNotification('Current location detected!', 'success');
+            }, function(error) {
+                showNotification('Unable to get current location: ' + error.message, 'error');
+            });
+        } else {
+            showNotification('Geolocation is not supported by this browser', 'error');
+        }
+    }
+
+    // Clear location for create
+    function clearLocationCreate() {
+        if (createLocationMarker) {
+            createLocationMap.removeLayer(createLocationMarker);
+            createLocationMarker = null;
+        }
+        document.getElementById('createLatitude').value = '';
+        document.getElementById('createLongitude').value = '';
+        showNotification('Location cleared', 'info');
+    }
+
+    // Clear location for edit
+    function clearLocationEdit() {
+        if (editLocationMarker) {
+            editLocationMap.removeLayer(editLocationMarker);
+            editLocationMarker = null;
+        }
+        document.getElementById('editLatitude').value = '';
+        document.getElementById('editLongitude').value = '';
+        showNotification('Location cleared', 'info');
+    }
+
+    function toggleMapExpand(type) {
+        let container, button, mapInstance, actionsContainer;
+
+        if (type === 'create') {
+            container = document.getElementById('createLocationMap').parentElement;
+            actionsContainer = document.getElementById('createRecordForm').querySelector('.location-actions');
+            mapInstance = createLocationMap;
+            button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
+
+        } else if (type === 'edit') {
+            container = document.getElementById('editLocationMap').parentElement;
+            actionsContainer = document.getElementById('editRecordForm').querySelector('.location-actions');
+            mapInstance = editLocationMap;
+            button = container.querySelector('.expand-map-btn') || actionsContainer.querySelector('.expand-map-btn');
+
+        } else {
+            return;
+        }
+
+        if (!button) return;
+
+        const isExpanded = container.classList.toggle('map-expanded');
+
+        if (isExpanded) {
+            container.appendChild(button);
+            button.innerHTML = '<i class="fas fa-compress-arrows-alt"></i> Compress Map';
+        } else {
+            actionsContainer.prepend(button);
+            button.innerHTML = '<i class="fas fa-expand-arrows-alt"></i> Expand Map';
+        }
+
+        setTimeout(() => {
+            if (mapInstance) {
+                mapInstance.invalidateSize();
             }
+        }, 100);
+    }
+
+    // Update city and province based on barangay selection for create
+    function updateCreateCityProvince() {
+        const barangaySelect = document.getElementById('createBarangayId');
+        const selectedOption = barangaySelect.options[barangaySelect.selectedIndex];
+
+        if (selectedOption.value) {
+            const barangayName = selectedOption.getAttribute('data-name');
+            const city = selectedOption.getAttribute('data-city');
+            const province = selectedOption.getAttribute('data-province');
+
+            document.getElementById('createBarangayName').value = barangayName;
+            document.getElementById('createCity').value = city;
+            document.getElementById('createProvince').value = province;
+
+            document.getElementById('createManualBarangay').style.display = 'none';
+            document.getElementById('createBarangayManual').required = false;
+            document.getElementById('createBarangayId').required = true;
         }
-        
-        // Toggle manual barangay entry for create
-        function toggleCreateManualBarangay() {
-            const manualDiv = document.getElementById('createManualBarangay');
-            const barangaySelect = document.getElementById('createBarangayId');
-            const manualInput = document.getElementById('createBarangayManual');
-            
-            if (manualDiv.style.display === 'none') {
-                manualDiv.style.display = 'block';
-                manualInput.required = true;
-                barangaySelect.required = false;
-                barangaySelect.value = '';
-                
-                // Allow manual city/province editing
-                document.getElementById('createCity').readOnly = false;
-                document.getElementById('createProvince').readOnly = false;
-                
-                showNotification('Manual barangay entry enabled', 'info');
-            } else {
-                manualDiv.style.display = 'none';
-                manualInput.required = false;
-                barangaySelect.required = true;
-                manualInput.value = '';
-                
-                // Reset to readonly
-                document.getElementById('createCity').readOnly = true;
-                document.getElementById('createProvince').readOnly = true;
-                document.getElementById('createCity').value = 'Santo Tomas City';
-                document.getElementById('createProvince').value = 'Batangas';
-                
-                showNotification('Switched back to barangay dropdown', 'info');
-            }
+    }
+
+    // Toggle manual barangay entry for create
+    function toggleCreateManualBarangay() {
+        const manualDiv = document.getElementById('createManualBarangay');
+        const barangaySelect = document.getElementById('createBarangayId');
+        const manualInput = document.getElementById('createBarangayManual');
+
+        if (manualDiv.style.display === 'none') {
+            manualDiv.style.display = 'block';
+            manualInput.required = true;
+            barangaySelect.required = false;
+            barangaySelect.value = '';
+
+            document.getElementById('createCity').readOnly = false;
+            document.getElementById('createProvince').readOnly = false;
+
+            showNotification('Manual barangay entry enabled', 'info');
+        } else {
+            manualDiv.style.display = 'none';
+            manualInput.required = false;
+            barangaySelect.required = true;
+            manualInput.value = '';
+
+            document.getElementById('createCity').readOnly = true;
+            document.getElementById('createProvince').readOnly = true;
+            document.getElementById('createCity').value = 'Santo Tomas City';
+            document.getElementById('createProvince').value = 'Batangas';
+
+            showNotification('Switched back to barangay dropdown', 'info');
         }
-        
-        // View record details
-        function viewRecord(recordId) {
-            fetch('records.php', {
+    }
+
+    // View record details
+    function viewRecord(recordId) {
+        fetch('records.php', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -3079,49 +3098,77 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             .catch(error => {
                 showNotification('Failed to load record details', 'error');
             });
-        }
+    }
+
+    // Helper to trigger the hidden upload form
+    function triggerRecordDocUpload(recordId, docType) {
+        document.getElementById('upload_record_id').value = recordId;
+        document.getElementById('upload_doc_type').value = docType;
+        document.getElementById('upload_file_input').click();
+    }
+
+    // Helper to generate the HTML for a single document row
+    function generateDocRow(record, dbField, label, iconClass) {
+        const fileName = record[dbField];
+        const hasFile = fileName != null && fileName !== '';
+
+        let html = `
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+            <div style="width: 30px; text-align: center; color: #4b5563;"><i class="fas ${iconClass}"></i></div>
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-weight: 500; font-size: 0.9rem; color: #1f2937;">${label}</span>
+                ${hasFile 
+                    ? `<a href="../uploads/applicant_docs/${fileName}" target="_blank" style="font-size: 0.8rem; color: #2563eb; text-decoration: none;">View Current File</a>` 
+                    : `<span style="font-size: 0.8rem; color: #ef4444;">Not provided</span>`
+                }
+            </div>
+        </div>
         
-        function displayRecordDetails(record) {
-            const modalBody = document.getElementById('recordModalBody');
-            const modalTitle = document.getElementById('recordModalTitle');
-            
-            modalTitle.textContent = `PWD Record: ${record.pwd_id_number}`;
+        <button type="button" 
+                onclick="triggerRecordDocUpload(${record.id}, '${dbField}')"
+                style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; border: 1px solid #d1d5db; background: white; cursor: pointer; color: #374151; transition: all 0.2s;">
+            <i class="fas fa-upload"></i> ${hasFile ? 'Replace' : 'Upload'}
+        </button>
+    </div>`;
 
-            // --- ADD THIS ENTIRE BLOCK ---
-            
-            // Parse documents verified
-            let documentsVerified = [];
-            try {
-                documentsVerified = record.documents_verified ? JSON.parse(record.documents_verified) : [];
-            } catch (e) {
-                documentsVerified = [];
-            }
-            
-            const documentLabels = {
-                'medical_certificate': 'Medical Certificate',
-                'barangay_certificate': 'Barangay Certificate',
-                'id_pictures': '2x2 ID Pictures',
-                'valid_id': 'Valid Government ID',
-                'birth_certificate': 'Birth Certificate',
-                'disability_assessment': 'Disability Assessment Report',
-                'income_certificate': 'Certificate of Indigency'
-            };
-            
-            // --- END OF BLOCK TO ADD ---
-            
-            // --- NEW FIX: Clean up city/province data ---
-            let city = record.city_municipality;
-            let province = record.province;
+        return html;
+    }
 
-            if (!city || city === 'Unknown City') {
-                city = 'Santo Tomas City';
-            }
-            if (!province || province === 'Unknown Province') {
-                province = 'Batangas';
-            }
-            // --- END OF FIX ---
+    function displayRecordDetails(record) {
+        const modalBody = document.getElementById('recordModalBody');
+        const modalTitle = document.getElementById('recordModalTitle');
 
-            modalBody.innerHTML = `
+        modalTitle.textContent = `PWD Record: ${record.pwd_id_number}`;
+
+        let documentsVerified = [];
+        try {
+            documentsVerified = record.documents_verified ? JSON.parse(record.documents_verified) : [];
+        } catch (e) {
+            documentsVerified = [];
+        }
+
+        const documentLabels = {
+            'medical_certificate': 'Medical Certificate',
+            'barangay_certificate': 'Barangay Certificate',
+            'id_pictures': '2x2 ID Pictures',
+            'valid_id': 'Valid Government ID',
+            'birth_certificate': 'Birth Certificate',
+            'disability_assessment': 'Disability Assessment Report',
+            'income_certificate': 'Certificate of Indigency'
+        };
+
+        let city = record.city_municipality;
+        let province = record.province;
+
+        if (!city || city === 'Unknown City') {
+            city = 'Santo Tomas City';
+        }
+        if (!province || province === 'Unknown Province') {
+            province = 'Batangas';
+        }
+
+        modalBody.innerHTML = `
                 <div class="record-details">
                     <div class="details-grid">
                         <div class="detail-section">
@@ -3201,6 +3248,18 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                                 </div>
                             </div>
                         </div>
+
+                        <div class="detail-section full-width">
+                            <h4><i class="fas fa-folder-open"></i> Uploaded Documents</h4>
+                            <div class="documents-list-admin">
+                                ${generateDocRow(record, 'doc_id_picture', '1x1 ID Pictures', 'fa-id-card')}
+                                ${generateDocRow(record, 'doc_birth_certificate', 'Birth Certificate', 'fa-file-alt')}
+                                ${generateDocRow(record, 'doc_medical_certificate', 'Certificate of Disability', 'fa-file-medical')}
+                                ${generateDocRow(record, 'doc_voters_certificate', 'Voter\'s Certification', 'fa-vote-yea')}
+                                ${generateDocRow(record, 'doc_registration_form', 'PWD Registration Form', 'fa-file-signature')}
+                            </div>
+                        </div>
+
                         ${documentsVerified.length > 0 ? `
                         <div class="detail-section">
                             <h4><i class="fas fa-clipboard-check"></i> Documents Verified</h4>
@@ -3299,11 +3358,11 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                     </div>
                 </div>
             `;
-        }
-        
-        // Edit record
-        function editRecord(recordId) {
-            fetch('records.php', {
+    }
+
+    // Edit record
+    function editRecord(recordId) {
+        fetch('records.php', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -3333,65 +3392,63 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             .catch(error => {
                 showNotification('Failed to load record details', 'error');
             });
-        }
-        
-        function populateEditForm(record) {
-            // --- NEW FIX: Clean up city/province data ---
-            let city = record.city_municipality;
-            let province = record.province;
+    }
 
-            if (!city || city === 'Unknown City') {
-                city = 'Santo Tomas City';
-            }
-            if (!province || province === 'Unknown Province') {
-                province = 'Batangas';
-            }
-            // --- END OF FIX ---
+    function populateEditForm(record) {
+        let city = record.city_municipality;
+        let province = record.province;
 
-            document.getElementById('editRecordId').value = record.id;
-            document.getElementById('editFirstName').value = record.first_name || '';
-            document.getElementById('editMiddleName').value = record.middle_name || '';
-            document.getElementById('editLastName').value = record.last_name || '';
-            document.getElementById('editSuffix').value = record.suffix || '';
-            document.getElementById('editPhone').value = record.phone_number || '';
-            document.getElementById('editEmail').value = record.email_address || '';
-            document.getElementById('editAddress1').value = record.address_line1 || '';
-            document.getElementById('editAddress2').value = record.address_line2 || '';
-            document.getElementById('editBarangay').value = record.barangay || '';
-            document.getElementById('editCity').value = city; // Use the fixed 'city' variable
-            document.getElementById('editProvince').value = province; // Use the fixed 'province' variable
-            document.getElementById('editPostal').value = record.postal_code || '';
-            document.getElementById('editLatitude').value = record.latitude || '';
-            document.getElementById('editLongitude').value = record.longitude || '';
-            document.getElementById('editDisabilityType').value = record.disability_type || '';
-            document.getElementById('editDisabilityCause').value = record.disability_cause || '';
-            document.getElementById('editDisabilityDescription').value = record.disability_description || '';
-            document.getElementById('editEmploymentStatus').value = record.employment_status || '';
-            document.getElementById('editOccupation').value = record.occupation || '';
-            document.getElementById('editEmployer').value = record.employer_name || '';
-            document.getElementById('editIncome').value = record.monthly_income || '';
+        if (!city || city === 'Unknown City') {
+            city = 'Santo Tomas City';
         }
-        
-        // Validate record
-        function validateRecord(recordId) {
-            document.getElementById('validateRecordId').value = recordId;
-            showModal('validationModal');
+        if (!province || province === 'Unknown Province') {
+            province = 'Batangas';
         }
-        
-        // Issue ID
-        function issueID(recordId) {
-            document.getElementById('issueRecordId').value = recordId;
-            document.getElementById('issueAction').value = 'issue_id'; // Set action
-            document.querySelector('#issueModal .modal-header h3').textContent = 'Issue PWD ID';
-            showModal('issueModal');
-        }
-        
-        // Delete record
-        function deleteRecord(recordId, pwdId) {
-            const reason = prompt(`Please provide a reason for deleting PWD record ${pwdId}:`);
-            if (reason) {
-                if (confirm(`Are you sure you want to delete PWD record ${pwdId}? This action cannot be undone.`)) {
-                    fetch('records.php', {
+
+        document.getElementById('editRecordId').value = record.id;
+        document.getElementById('editFirstName').value = record.first_name || '';
+        document.getElementById('editMiddleName').value = record.middle_name || '';
+        document.getElementById('editLastName').value = record.last_name || '';
+        document.getElementById('editSuffix').value = record.suffix || '';
+        document.getElementById('editPhone').value = record.phone_number || '';
+        document.getElementById('editEmail').value = record.email_address || '';
+        document.getElementById('editAddress1').value = record.address_line1 || '';
+        document.getElementById('editAddress2').value = record.address_line2 || '';
+        document.getElementById('editBarangay').value = record.barangay || '';
+        document.getElementById('editCity').value = city;
+        document.getElementById('editProvince').value = province;
+        document.getElementById('editPostal').value = record.postal_code || '';
+        document.getElementById('editLatitude').value = record.latitude || '';
+        document.getElementById('editLongitude').value = record.longitude || '';
+        document.getElementById('editDisabilityType').value = record.disability_type || '';
+        document.getElementById('editDisabilityCause').value = record.disability_cause || '';
+        document.getElementById('editDisabilityDescription').value = record.disability_description || '';
+        document.getElementById('editEmploymentStatus').value = record.employment_status || '';
+        document.getElementById('editOccupation').value = record.occupation || '';
+        document.getElementById('editEmployer').value = record.employer_name || '';
+        document.getElementById('editIncome').value = record.monthly_income || '';
+    }
+
+    // Validate record
+    function validateRecord(recordId) {
+        document.getElementById('validateRecordId').value = recordId;
+        showModal('validationModal');
+    }
+
+    // Issue ID
+    function issueID(recordId) {
+        document.getElementById('issueRecordId').value = recordId;
+        document.getElementById('issueAction').value = 'issue_id';
+        document.querySelector('#issueModal .modal-header h3').textContent = 'Issue PWD ID';
+        showModal('issueModal');
+    }
+
+    // Delete record
+    function deleteRecord(recordId, pwdId) {
+        const reason = prompt(`Please provide a reason for deleting PWD record ${pwdId}:`);
+        if (reason) {
+            if (confirm(`Are you sure you want to delete PWD record ${pwdId}? This action cannot be undone.`)) {
+                fetch('records.php', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
@@ -3410,24 +3467,24 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                     .catch(error => {
                         showNotification('Failed to delete record', 'error');
                     });
-                }
             }
         }
+    }
 
-// Activate / Renew ID
-        function renewOrActivateID(recordId) {
-            document.getElementById('issueRecordId').value = recordId;
-            document.getElementById('issueAction').value = 'renew_or_activate_id'; // Set action
-            document.querySelector('#issueModal .modal-header h3').textContent = 'Renew / Activate PWD ID';
-            showModal('issueModal');
-        }
-        
-        // Deactivate record
-        function deactivateRecord(recordId, pwdId) {
-            const reason = prompt(`Please provide a reason for deactivating PWD ID ${pwdId}:`);
-            if (reason) {
-                if (confirm(`Are you sure you want to DEACTIVATE PWD ID ${pwdId}? This will mark it as inactive.`)) {
-                    fetch('records.php', {
+    // Activate / Renew ID
+    function renewOrActivateID(recordId) {
+        document.getElementById('issueRecordId').value = recordId;
+        document.getElementById('issueAction').value = 'renew_or_activate_id';
+        document.querySelector('#issueModal .modal-header h3').textContent = 'Renew / Activate PWD ID';
+        showModal('issueModal');
+    }
+
+    // Deactivate record
+    function deactivateRecord(recordId, pwdId) {
+        const reason = prompt(`Please provide a reason for deactivating PWD ID ${pwdId}:`);
+        if (reason) {
+            if (confirm(`Are you sure you want to DEACTIVATE PWD ID ${pwdId}? This will mark it as inactive.`)) {
+                fetch('records.php', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
@@ -3446,48 +3503,43 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                     .catch(error => {
                         showNotification('Failed to deactivate record', 'error');
                     });
-                }
             }
         }
-        
-        // Export records
-        function exportRecords() {
-            // Build the export URL with all current filters
-            const params = new URLSearchParams();
-            params.append('export', '1');
-            
-            // Get filter values
-            const status = document.getElementById('status').value;
-            const barangay = document.getElementById('barangay').value;
-            const disabilityType = document.getElementById('disability_type').value;
-            const gender = document.getElementById('gender').value;
-            const ageGroup = document.getElementById('age_group').value;
-            const employment = document.getElementById('employment_status').value;
-            const search = document.getElementById('search').value;
-            const location_filter = document.getElementById('location_filter').value; // <-- ADD THIS LINE
-            
-            // Add filters to params
-            if (status) params.append('status', status);
-            if (barangay) params.append('barangay', barangay);
-            if (disabilityType) params.append('disability_type', disabilityType);
-            if (gender) params.append('gender', gender);
-            if (ageGroup) params.append('age_group', ageGroup);
-            if (employment) params.append('employment_status', employment);
-            if (search) params.append('search', search);
-            if (location_filter) params.append('location', location_filter); // <-- ADD THIS LINE
-            
-            // Trigger download
-            window.location.href = `records.php?${params.toString()}`;
-        }
-        
-        // Form submissions
-        document.getElementById('editRecordForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            formData.append('action', 'update_record');
-            
-            fetch('records.php', {
+    }
+
+    // Export records
+    function exportRecords() {
+        const params = new URLSearchParams();
+        params.append('export', '1');
+
+        const status = document.getElementById('status').value;
+        const barangay = document.getElementById('barangay').value;
+        const disabilityType = document.getElementById('disability_type').value;
+        const gender = document.getElementById('gender').value;
+        const ageGroup = document.getElementById('age_group').value;
+        const employment = document.getElementById('employment_status').value;
+        const search = document.getElementById('search').value;
+        const location_filter = document.getElementById('location_filter').value;
+
+        if (status) params.append('status', status);
+        if (barangay) params.append('barangay', barangay);
+        if (disabilityType) params.append('disability_type', disabilityType);
+        if (gender) params.append('gender', gender);
+        if (ageGroup) params.append('age_group', ageGroup);
+        if (employment) params.append('employment_status', employment);
+        if (search) params.append('search', search);
+        if (location_filter) params.append('location', location_filter);
+
+        window.location.href = `records.php?${params.toString()}`;
+    }
+
+    // Form submissions
+    document.getElementById('editRecordForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        formData.append('action', 'update_record');
+
+        fetch('records.php', {
                 method: 'POST',
                 body: formData
             })
@@ -3504,15 +3556,14 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             .catch(error => {
                 showNotification('Failed to update record', 'error');
             });
-        });
-        
-        document.getElementById('validationForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            formData.append('action', 'validate_record');
-            
-            fetch('records.php', {
+    });
+
+    document.getElementById('validationForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        formData.append('action', 'validate_record');
+
+        fetch('records.php', {
                 method: 'POST',
                 body: formData
             })
@@ -3529,15 +3580,13 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             .catch(error => {
                 showNotification('Failed to validate record', 'error');
             });
-        });
-        
-        document.getElementById('issueForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            // The 'action' is now set in the hidden input by issueID() or renewOrActivateID()
-            
-            fetch('records.php', {
+    });
+
+    document.getElementById('issueForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+
+        fetch('records.php', {
                 method: 'POST',
                 body: formData
             })
@@ -3554,134 +3603,109 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
             .catch(error => {
                 showNotification('Failed to issue ID', 'error');
             });
+    });
+
+    function exportRecordsPDF() {
+        const params = new URLSearchParams();
+        params.append('export', 'pdf');
+
+        const status = document.getElementById('status').value;
+        const barangay = document.getElementById('barangay').value;
+        const disabilityType = document.getElementById('disability_type').value;
+        const gender = document.getElementById('gender').value;
+        const ageGroup = document.getElementById('age_group').value;
+        const employment = document.getElementById('employment_status').value;
+        const search = document.getElementById('search').value;
+        const location_filter = document.getElementById('location_filter').value;
+
+        if (status) params.append('status', status);
+        if (barangay) params.append('barangay', barangay);
+        if (disabilityType) params.append('disability_type', disabilityType);
+        if (gender) params.append('gender', gender);
+        if (ageGroup) params.append('age_group', ageGroup);
+        if (employment) params.append('employment_status', employment);
+        if (search) params.append('search', search);
+        if (location_filter) params.append('location', location_filter);
+
+        window.location.href = `records.php?${params.toString()}`;
+    }
+
+    function showCreateRecordModal() {
+        document.getElementById('createRecordForm').reset();
+        document.getElementById('createCity').value = 'Santo Tomas City';
+        document.getElementById('createProvince').value = 'Batangas';
+        document.getElementById('createPostalCode').value = '4234';
+
+        document.getElementById('createManualBarangay').style.display = 'none';
+        document.getElementById('createBarangayManual').required = false;
+        document.getElementById('createBarangayId').required = true;
+
+        showModal('createRecordModal');
+        setTimeout(() => {
+            initializeCreateLocationMap();
+        }, 300);
+    }
+
+    function resetCreateForm() {
+        if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
+            const form = document.getElementById('createRecordForm');
+            if (form) {
+                form.reset();
+                document.getElementById('createCity').value = 'Santo Tomas City';
+                document.getElementById('createProvince').value = 'Batangas';
+                document.getElementById('createPostalCode').value = '4234';
+                document.getElementById('createManualBarangay').style.display = 'none';
+                document.getElementById('createBarangayManual').required = false;
+                document.getElementById('createBarangayId').required = true;
+                clearLocationCreate();
+                showNotification('Form has been reset', 'info');
+            }
+        }
+    }
+
+    document.getElementById('createRecordForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const requiredFields = this.querySelectorAll('[required]');
+        let isValid = true;
+        let missingFields = [];
+
+        requiredFields.forEach(field => {
+            if (!field.value.trim()) {
+                field.classList.add('error');
+                missingFields.push(field.name || field.id);
+                isValid = false;
+            } else {
+                field.classList.remove('error');
+            }
         });
 
-        // Export records as PDF
-        function exportRecordsPDF() {
-            // Build the export URL with all current filters
-            const params = new URLSearchParams();
-            params.append('export', 'pdf'); // Use the 'pdf' trigger
-            
-            // Get filter values
-            const status = document.getElementById('status').value;
-            const barangay = document.getElementById('barangay').value;
-            const disabilityType = document.getElementById('disability_type').value;
-            const gender = document.getElementById('gender').value;
-            const ageGroup = document.getElementById('age_group').value;
-            const employment = document.getElementById('employment_status').value;
-            const search = document.getElementById('search').value;
-            const location_filter = document.getElementById('location_filter').value; // <-- ADD THIS LINE
-            
-            // Add filters to params
-            if (status) params.append('status', status);
-            if (barangay) params.append('barangay', barangay);
-            if (disabilityType) params.append('disability_type', disabilityType);
-            if (gender) params.append('gender', gender);
-            if (ageGroup) params.append('age_group', ageGroup);
-            if (employment) params.append('employment_status', employment);
-            if (search) params.append('search', search);
-            if (location_filter) params.append('location', location_filter); // <-- ADD THIS LINE
-            
-            // Trigger download
-            window.location.href = `records.php?${params.toString()}`;
+        const barangaySelect = document.getElementById('createBarangayId');
+        const manualBarangay = document.getElementById('createBarangayManual');
+        const barangayName = document.getElementById('createBarangayName');
+
+        if (!barangaySelect.value && !manualBarangay.value) {
+            showNotification('Please select a barangay or enter it manually.', 'error');
+            isValid = false;
+            missingFields.push('barangay');
+        } else if (manualBarangay.value) {
+            barangayName.value = manualBarangay.value;
         }
 
-        // Show create record modal
-        function showCreateRecordModal() {
-            // Reset form
-            document.getElementById('createRecordForm').reset();
-            
-            // Set default values
-            document.getElementById('createCity').value = 'Santo Tomas City';
-            document.getElementById('createProvince').value = 'Batangas';
-            document.getElementById('createPostalCode').value = '4234';
-            
-            // Hide manual barangay input
-            document.getElementById('createManualBarangay').style.display = 'none';
-            document.getElementById('createBarangayManual').required = false;
-            document.getElementById('createBarangayId').required = true;
-            
-            showModal('createRecordModal');
-            
-            // Initialize map after modal is shown
-            setTimeout(() => {
-                initializeCreateLocationMap();
-            }, 300);
+        if (!isValid) {
+            showNotification('Please fill in all required fields: ' + missingFields.join(', '), 'error');
+            return false;
         }
 
-        // Reset create form
-        function resetCreateForm() {
-            if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
-                const form = document.getElementById('createRecordForm');
-                if (form) {
-                    form.reset();
-                    
-                    // Reset default values
-                    document.getElementById('createCity').value = 'Santo Tomas City';
-                    document.getElementById('createProvince').value = 'Batangas';
-                    document.getElementById('createPostalCode').value = '4234';
-                    
-                    // Hide manual barangay input
-                    document.getElementById('createManualBarangay').style.display = 'none';
-                    document.getElementById('createBarangayManual').required = false;
-                    document.getElementById('createBarangayId').required = true;
-                    
-                    // Clear location
-                    clearLocationCreate();
-                    
-                    showNotification('Form has been reset', 'info');
-                }
-            }
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Record...';
         }
 
-        // Handle create record form submission
-        document.getElementById('createRecordForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const requiredFields = this.querySelectorAll('[required]');
-            let isValid = true;
-            let missingFields = [];
-            
-            requiredFields.forEach(field => {
-                if (!field.value.trim()) {
-                    field.classList.add('error');
-                    missingFields.push(field.name || field.id);
-                    isValid = false;
-                } else {
-                    field.classList.remove('error');
-                }
-            });
-            
-            // Check barangay selection
-            const barangaySelect = document.getElementById('createBarangayId');
-            const manualBarangay = document.getElementById('createBarangayManual');
-            const barangayName = document.getElementById('createBarangayName');
-            
-            if (!barangaySelect.value && !manualBarangay.value) {
-                showNotification('Please select a barangay or enter it manually.', 'error');
-                isValid = false;
-                missingFields.push('barangay');
-            } else if (manualBarangay.value) {
-                // Set manual barangay name
-                barangayName.value = manualBarangay.value;
-            }
-            
-            if (!isValid) {
-                showNotification('Please fill in all required fields: ' + missingFields.join(', '), 'error');
-                return false;
-            }
-            
-            // Show loading state
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.innerHTML;
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Record...';
-            }
-            
-            const formData = new FormData(this);
-            
-            fetch('records.php', {
+        const formData = new FormData(this);
+
+        fetch('records.php', {
                 method: 'POST',
                 body: formData
             })
@@ -3706,18 +3730,49 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                 showNotification('Failed to create PWD record', 'error');
             })
             .finally(() => {
-                // Restore button state
                 if (submitBtn) {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = originalText;
                 }
             });
-            
-            return false;
-        });
-    </script>
+        return false;
+    });
+</script>
     
     <style>
+
+        .documents-list-admin {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    padding-top: 10px;
+}
+.document-link-admin {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: #eef2ff;
+    color: #312e81; text-decoration: none;
+    font-weight: 500; border-radius: 6px;
+    border: 1px solid #c7d2fe;
+    transition: background-color 0.2s ease;
+}
+.document-link-admin i { color: #4f46e5; }
+.document-link-admin:hover { background: #e0e7ff; }
+.document-missing-admin {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: #fdf2f2;
+    color: #7f1d1d; font-weight: 500;
+    border-radius: 6px; border: 1px solid #fecaca;
+    opacity: 0.8;
+}
+.document-missing-admin i { color: #b91c1c; }
+.document-physical-admin {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: #f0f9ff;
+    color: #0369a1; font-weight: 500;
+    border-radius: 6px; border: 1px solid #bae6fd;
+    opacity: 0.8;
+}
+.document-physical-admin i { color: #0ea5e9; }
 
 .interview-tabs {
             display: flex;
@@ -4302,5 +4357,15 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     display: block !important;
 }
     </style>
+
+    <form id="globalRecordUploadForm" method="POST" enctype="multipart/form-data" style="display: none;">
+    <input type="hidden" name="action" value="update_document">
+    <input type="hidden" name="record_id" id="upload_record_id">
+    <input type="hidden" name="doc_type" id="upload_doc_type">
+    <input type="file" name="new_file" id="upload_file_input" 
+           accept=".jpg,.jpeg,.png,.pdf"
+           onchange="if(confirm('Are you sure you want to replace this document?')) document.getElementById('globalRecordUploadForm').submit();">
+</form>
+
 </body>
 </html>

@@ -902,10 +902,12 @@ function handleGetAppointmentDetails() {
                                         } elseif ($apt['record_status'] === 'validated') {
                                             echo '<span class="progress-badge validated"><i class="fas fa-id-card"></i> Validated</span>';
                                         } elseif ($apt['interview_status'] === 'completed') {
-                                            echo '<span class="progress-badge interview-done"><i class="fas fa-comments"></i> Interview Done</span>';
-                                        } elseif ($apt['interview_id']) {
-                                            echo '<span class="progress-badge in-progress"><i class="fas fa-clock"></i> In Progress</span>';
-                                        } else {
+    echo '<span class="progress-badge interview-done"><i class="fas fa-comments"></i> Interview Done</span>';
+} elseif ($apt['interview_status'] === 'pending_docs') { // <-- ADD THIS
+    echo '<span class="progress-badge error"><i class="fas fa-exclamation-triangle"></i> Missing Docs</span>';
+} elseif ($apt['interview_id']) {
+    echo '<span class="progress-badge in-progress"><i class="fas fa-clock"></i> In Progress</span>';
+} else {
                                             echo '<span class="progress-badge pending"><i class="fas fa-calendar-clock"></i> Scheduled</span>';
                                         }
                                     } else {
@@ -1158,6 +1160,7 @@ function handleGetAppointmentDetails() {
                                     </span>
                                 </td>
                                 <td>
+                                    
                                     <div class="progress-indicators">
                                         <?php 
                                         // Different progress display for new applications vs renewals/updates
@@ -1176,14 +1179,19 @@ function handleGetAppointmentDetails() {
                                                     <i class="fas fa-file-alt"></i> Record Created
                                                 </span>
                                             <?php elseif ($appointment['interview_status'] === 'completed'): ?>
-                                                <span class="progress-badge interview-completed">
-                                                    <i class="fas fa-comments"></i> Interview Completed
-                                                </span>
-                                            <?php elseif ($appointment['interview_id']): ?>
-                                                <span class="progress-badge interview-progress">
-                                                    <i class="fas fa-clock"></i> Interview: <?php echo ucfirst($appointment['interview_status']); ?>
-                                                </span>
-                                            <?php else: ?>
+    <span class="progress-badge interview-completed">
+        <i class="fas fa-comments"></i> Interview Completed
+    </span>
+
+<?php elseif ($appointment['interview_status'] === 'pending_docs'): ?>
+    <span class="progress-badge error">
+        <i class="fas fa-exclamation-triangle"></i> Missing Documents
+    </span>
+<?php elseif ($appointment['interview_id']): ?>
+    <span class="progress-badge interview-progress">
+        <i class="fas fa-clock"></i> Interview: <?php echo ucwords(str_replace('_', ' ', $appointment['interview_status'])); ?>
+    </span>
+<?php else: ?>
                                                 <span class="progress-badge awaiting">
                                                     <i class="fas fa-calendar-clock"></i> Awaiting Interview
                                                 </span>
@@ -1585,10 +1593,7 @@ ${appointment.doc_registration_form ? `
                         <div class="detail-section">
                             <h4><i class="fas fa-comments"></i> Interview Information</h4>
                             <div class="detail-rows">
-                                <div class="detail-row">
-                                    <span class="label">Status:</span>
-                                    <span class="value"><span class="status-badge status-${appointment.interview_status}">${appointment.interview_status.charAt(0).toUpperCase() + appointment.interview_status.slice(1)}</span></span>
-                                </div>
+                                
                                 <div class="detail-row">
                                     <span class="label">Interviewer:</span>
                                     <span class="value">${appointment.interviewer_name || 'Not assigned'}</span>
@@ -1872,6 +1877,13 @@ ${appointment.doc_registration_form ? `
     </script>
     
     <style>
+
+        /* Missing Documents Badge */
+.progress-badge.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
 
         .documents-list-admin {
     display: grid;
