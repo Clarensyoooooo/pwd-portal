@@ -616,7 +616,7 @@ async function handleRenewalUpdate(event) {
 
 // Progress-based form for new applicants
 let currentStep = 1
-const totalSteps = 4
+const totalSteps = 5
 
 function initializeProgressSteps() {
   currentStep = 1
@@ -871,10 +871,31 @@ async function validateStep(step) {
     }
   }
 
-  // Step 2: If all specific validations passed, now check for empty required fields.
+  // ===================================================
+  // ===== NEW VALIDATION BLOCK FOR STEP 5 (FILES) =====
+  // ===================================================
+  if (step === 5) {
+    const allowedTypes = ['.jpg', '.jpeg', '.png', '.pdf'];
+    const maxSizeMB = 5; // 5MB per file
+
+    if (!validateFileInput('doc_id_picture', allowedTypes, maxSizeMB)) return false;
+    if (!validateFileInput('doc_birth_certificate', allowedTypes, maxSizeMB)) return false;
+    if (!validateFileInput('doc_medical_certificate', allowedTypes, maxSizeMB)) return false;
+    if (!validateFileInput('doc_voters_certificate', allowedTypes, maxSizeMB)) return false;
+    if (!validateFileInput('doc_registration_form', allowedTypes, maxSizeMB)) return false;
+  }
+  // ===================================================
+  // ===== END OF NEW VALIDATION BLOCK               =====
+  // ===================================================
+
+
+  // If all specific validations passed, now check for empty required fields.
   const requiredInputs = stepElement.querySelectorAll("[required]");
   let allFieldsFilled = true;
   for (const input of requiredInputs) {
+    // Skip file inputs for this check, as we validated them above
+    if (input.type === 'file') continue; 
+
     if (!input.value.trim()) {
       input.style.borderColor = "#ef4444";
       allFieldsFilled = false;
@@ -892,7 +913,6 @@ async function validateStep(step) {
     return false;
   }
 
-  // --- End of new logic ---
   return true; // If we reached here, the step is valid.
 }
 
@@ -1323,6 +1343,46 @@ function updateFinalConfirmation(appointment) {
       </div>
     `;
   }
+}
+
+/**
+ * Validates a single file input for type and size.
+ * @param {string} inputId The ID of the file input element.
+ * @param {string[]} allowedTypes An array of allowed file extensions (e.li., ['.jpg', '.pdf']).
+ * @param {number} maxSizeMB The maximum file size in megabytes.
+ * @returns {boolean} True if valid, false otherwise.
+ */
+function validateFileInput(inputId, allowedTypes, maxSizeMB) {
+  const input = document.getElementById(inputId);
+  if (!input || input.files.length === 0) {
+    if (input.required) {
+        showNotification(`Please upload the required file: ${input.labels[0].textContent}`, 'error');
+        input.style.borderColor = "#ef4444";
+        return false;
+    }
+    return true; // Not required and no file, so it's fine
+  }
+
+  const file = input.files[0];
+  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+  // 1. Check File Size
+  if (file.size > maxSizeBytes) {
+    showNotification(`File "${file.name}" is too large. Max size is ${maxSizeMB}MB.`, 'error');
+    input.style.borderColor = "#ef4444";
+    return false;
+  }
+
+  // 2. Check File Type
+  const fileExtension = "." + file.name.split('.').pop().toLowerCase();
+  if (!allowedTypes.includes(fileExtension)) {
+    showNotification(`Invalid file type for "${file.name}". Allowed types are: ${allowedTypes.join(', ')}`, 'error');
+    input.style.borderColor = "#ef4444";
+    return false;
+  }
+
+  input.style.borderColor = ""; // Valid
+  return true;
 }
 
 // In script.js, replace the old updateAppointmentTimeline function with this:

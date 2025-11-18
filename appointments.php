@@ -1,6 +1,55 @@
 <?php
 require_once 'config.php';
 require_once 'resend_email.php'; 
+/**
+ * Handles a single file upload, validation, and moving.
+ *
+ * @param array $file The file array from $_FILES (e.g., $_FILES['doc_id_picture']).
+ * @param string $uploadDir The directory to move the file to.
+ * @param string $newBaseName The unique base name for the file (e.g., reference number + file type).
+ * @param array $allowedMimes Allowed MIME types (e.g., ['image/jpeg', 'application/pdf']).
+ * @param int $maxSize Maximum file size in bytes.
+ * @return string The new, secured filename.
+ * @throws Exception If upload fails, is invalid, or file is not found.
+ */
+function handleFileUpload($file, $uploadDir, $newBaseName, $allowedMimes, $maxSize) {
+    if (!isset($file['error']) || is_array($file['error'])) {
+        throw new Exception('Invalid parameters for file upload.');
+    }
+
+    switch ($file['error']) {
+        case UPLOAD_ERR_OK:
+            break;
+        case UPLOAD_ERR_NO_FILE:
+            throw new Exception('No file was sent.');
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            throw new Exception('File exceeded upload size limit.');
+        default:
+            throw new Exception('Unknown file upload error.');
+    }
+
+    if ($file['size'] > $maxSize) {
+        throw new Exception('File exceeded ' . ($maxSize / 1024 / 1024) . 'MB size limit.');
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']);
+
+    if (false === in_array($mime, $allowedMimes)) {
+        throw new Exception('Invalid file format. Allowed: ' . implode(', ', $allowedMimes));
+    }
+
+    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $newFilename = $newBaseName . '.' . strtolower($extension);
+    $targetPath = $uploadDir . $newFilename;
+
+    if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+        throw new Exception('Failed to move uploaded file.');
+    }
+
+    return $newFilename; // Return the new name to be stored in the DB
+}
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -349,168 +398,178 @@ function handleNewApplication() {
     global $pdo;
 
     // === START HONEYPOT CHECK ===
-if (!empty($_POST['website_url'])) {
-    // It's a bot. Silently pretend to succeed.
-    error_log("Honeypot triggered on New App Form by IP: " . $_SERVER['REMOTE_ADDR']);
-    
-    // Send a fake success message
-    echo json_encode([
-        'success' => true,
-        'message' => 'Your application has been submitted!' 
-    ]);
-    return; // Stop any further code
-}
-    
+    if (!empty($_POST['website_url'])) {
+        error_log("Honeypot triggered on New App Form by IP: " . $_SERVER['REMOTE_ADDR']);
+        echo json_encode(['success' => true, 'message' => 'Your application has been submitted!']);
+        return;
+    }
+
+    // === 1. VALIDATE POST DATA ===
     $required_fields = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'address', 'disability_type', 'preferred_date', 'preferred_time'];
     foreach ($required_fields as $field) {
         if (empty($_POST[$field])) {
             jsonResponse(['error' => "Field {$field} is required"], 400);
         }
     }
-    
-    // Validate terms acceptance
+
     if (empty($_POST['terms_accepted']) || $_POST['terms_accepted'] !== 'true') {
         jsonResponse(['error' => 'You must accept the terms and conditions to proceed'], 400);
     }
-    
-    // Validate email format
+
     if (!filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
         jsonResponse(['error' => 'Please enter a valid email address'], 400);
     }
-    
-    // Validate date of birth using DateTime for robustness
+
+    // ... (All other POST validations: DOB, appointment date, phone) ...
     try {
         $dob = $_POST['date_of_birth'];
         $dobDate = new DateTime($dob);
         $today = new DateTime();
         $minDate = (new DateTime())->sub(new DateInterval('P120Y'));
-        
-        if ($dobDate > $today) {
-            jsonResponse(['error' => 'Date of birth cannot be in the future'], 400);
-        }
-        
-        if ($dobDate < $minDate) {
-            jsonResponse(['error' => 'Please enter a valid date of birth (not more than 120 years ago)'], 400);
-        }
+        if ($dobDate > $today) jsonResponse(['error' => 'Date of birth cannot be in the future'], 400);
+        if ($dobDate < $minDate) jsonResponse(['error' => 'Please enter a valid date of birth'], 400);
     } catch (Exception $e) {
          jsonResponse(['error' => 'Invalid date of birth format'], 400);
     }
-
-    
-    // Validate appointment date using DateTime
     try {
         $preferred_date = $_POST['preferred_date'];
         $preferredDateTime = new DateTime($preferred_date);
         $tomorrow = (new DateTime('today'))->add(new DateInterval('P1D'));
         $maxDate = (new DateTime('today'))->add(new DateInterval('P2M'));
-        
-        if ($preferredDateTime < $tomorrow) {
-            jsonResponse(['error' => 'Appointment date must be in the future'], 400);
-        }
-        
-        if ($preferredDateTime > $maxDate) {
-            jsonResponse(['error' => 'Appointment date cannot be more than 2 months from today'], 400);
-        }
-
-        // Validate date is not a weekend
-        $preferred_date_day = $preferredDateTime->format('N'); // 1 (for Monday) through 7 (for Sunday)
-        if ($preferred_date_day >= 6) { // 6 is Saturday, 7 is Sunday
-            jsonResponse(['error' => 'Appointments are not available on weekends. Please select a weekday.'], 400);
-        }
+        if ($preferredDateTime < $tomorrow) jsonResponse(['error' => 'Appointment date must be in the future'], 400);
+        if ($preferredDateTime > $maxDate) jsonResponse(['error' => 'Appointment date cannot be more than 2 months from today'], 400);
+        $preferred_date_day = $preferredDateTime->format('N');
+        if ($preferred_date_day >= 6) jsonResponse(['error' => 'Appointments are not available on weekends'], 400);
     } catch (Exception $e) {
         jsonResponse(['error' => 'Invalid appointment date format'], 400);
     }
-    
-    // Validate phone number
     $phone = preg_replace('/[^0-9]/', '', $_POST['phone']);
     if (strlen($phone) < 10 || strlen($phone) > 11) {
         jsonResponse(['error' => 'Please enter a valid 10-11 digit phone number'], 400);
     }
-    
+
+    // === 2. VALIDATE FILE DATA (PRE-CHECK) ===
+    // Check if all required files are present in the $_FILES array
+    $required_files = ['doc_id_picture', 'doc_birth_certificate', 'doc_medical_certificate', 'doc_voters_certificate', 'doc_registration_form'];
+    foreach ($required_files as $fileKey) {
+        if (empty($_FILES[$fileKey]) || $_FILES[$fileKey]['error'] == UPLOAD_ERR_NO_FILE) {
+            jsonResponse(['error' => "Missing required file: " . $fileKey], 400);
+        }
+    }
+
+    // === 3. START DATABASE TRANSACTION AND FILE PROCESSING ===
     try {
         $pdo->beginTransaction();
-        
-        // CORRECTED: Check if email already exists in official PWD records, not the users table.
+
+        // Check for existing PWD record
         $stmt = $pdo->prepare("SELECT id FROM pwd_records WHERE email_address = ?");
         $stmt->execute([$_POST['email']]);
-        $existingPwdRecord = $stmt->fetch();
-        
-        if ($existingPwdRecord) {
+        if ($stmt->fetch()) {
             $pdo->rollBack();
-            jsonResponse(['error' => 'This email is already registered in our PWD records. Please select "Yes, I have a PWD ID" to book a renewal or update appointment.'], 400);
+            jsonResponse(['error' => 'This email is already registered in our PWD records. Please book a renewal/update.'], 400);
         }
-        
-        // Check if email already has pending appointment (this part is correct as it checks new applicants in the 'users' table)
+
+        // Check for pending appointment
         $stmt = $pdo->prepare("
             SELECT a.id, a.reference_number FROM appointments a 
             JOIN users u ON a.user_id = u.id 
             WHERE u.email = ? AND a.status IN ('pending', 'confirmed')
         ");
         $stmt->execute([$_POST['email']]);
-        $pendingAppointment = $stmt->fetch();
-        
-        if ($pendingAppointment) {
+        if ($pendingAppointment = $stmt->fetch()) {
             $pdo->rollBack();
-            jsonResponse(['error' => 'This email already has a pending appointment (Ref: ' . $pendingAppointment['reference_number'] . '). Please complete or cancel it first.'], 400);
+            jsonResponse(['error' => 'This email already has a pending appointment (Ref: ' . $pendingAppointment['reference_number'] . ').'], 400);
         }
-        
+
         // Create new user
         $stmt = $pdo->prepare("
             INSERT INTO users (first_name, last_name, email, phone, date_of_birth, address, disability_type, emergency_contact_name, emergency_contact_phone, is_verified) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         ");
-        
         $stmt->execute([
-            $_POST['first_name'],
-            $_POST['last_name'],
-            $_POST['email'],
-            $phone,
-            $_POST['date_of_birth'],
-            $_POST['address'],
-            $_POST['disability_type'],
-            $_POST['emergency_contact_name'] ?? null,
-            $_POST['emergency_contact_phone'] ?? null
+            $_POST['first_name'], $_POST['last_name'], $_POST['email'], $phone,
+            $_POST['date_of_birth'], $_POST['address'], $_POST['disability_type'],
+            $_POST['emergency_contact_name'] ?? null, $_POST['emergency_contact_phone'] ?? null
         ]);
-        
         $user_id = $pdo->lastInsertId();
-        
+
         // Generate reference number and SMS code
         $reference_number = generateReferenceNumber();
         $sms_code = str_pad(rand(100000, 999999), 6, '0', STR_PAD_LEFT);
-        
-        // Create appointment with 'new_application' type
+
+        // === 4. PROCESS FILE UPLOADS ===
+        $uploadDir = 'uploads/applicant_docs/'; // Make sure this directory exists and is writable!
+        $allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
+        $maxSize = 5 * 1024 * 1024; // 5 MB
+
+        $uploadedFileNames = []; // To store new filenames for DB insert
+
+        // Define our file keys and their base names
+        $fileMap = [
+            'doc_id_picture' => $reference_number . '_id_picture',
+            'doc_birth_certificate' => $reference_number . '_birth_certificate',
+            'doc_medical_certificate' => $reference_number . '_medical_certificate',
+            'doc_voters_certificate' => $reference_number . '_voters_certificate',
+            'doc_registration_form' => $reference_number . '_registration_form',
+        ];
+
+        foreach ($fileMap as $fileKey => $newBaseName) {
+            if (!empty($_FILES[$fileKey])) {
+                // The handleFileUpload function will throw an exception on failure
+                $newFilename = handleFileUpload(
+                    $_FILES[$fileKey],
+                    $uploadDir,
+                    $newBaseName,
+                    $allowedMimes,
+                    $maxSize
+                );
+                $uploadedFileNames[$fileKey] = $newFilename;
+            } else {
+                // This should have been caught by our pre-check, but as a safeguard:
+                throw new Exception("Required file $fileKey is missing.");
+            }
+        }
+
+        // === 5. CREATE APPOINTMENT (NOW WITH FILE PATHS) ===
         $stmt = $pdo->prepare("
-            INSERT INTO appointments (user_id, reference_number, appointment_type, preferred_date, preferred_time, notes, sms_verification_code) 
-            VALUES (?, ?, 'new_application', ?, ?, ?, ?)
+            INSERT INTO appointments (
+                user_id, reference_number, appointment_type, 
+                preferred_date, preferred_time, notes, sms_verification_code,
+                doc_id_picture, doc_birth_certificate, doc_medical_certificate,
+                doc_voters_certificate, doc_registration_form
+            ) 
+            VALUES (?, ?, 'new_application', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        
+
         $stmt->execute([
             $user_id,
             $reference_number,
             $preferred_date,
             $_POST['preferred_time'],
             $_POST['notes'] ?? null,
-            $sms_code
+            $sms_code,
+            // Add the new filenames
+            $uploadedFileNames['doc_id_picture'],
+            $uploadedFileNames['doc_birth_certificate'],
+            $uploadedFileNames['doc_medical_certificate'],
+            $uploadedFileNames['doc_voters_certificate'],
+            $uploadedFileNames['doc_registration_form']
         ]);
-        
+
         $appointment_id = $pdo->lastInsertId();
-        
+
+        // === 6. COMMIT AND SEND NOTIFICATIONS ===
         $pdo->commit(); // Commit the database changes FIRST.
 
         // --- START FAULT-TOLERANT NOTIFICATIONS ---
-
-        // Send SMS verification
         try {
             sendSMSVerification($phone, $sms_code);
-            // Update SMS sent status
             $stmt = $pdo->prepare("UPDATE appointments SET sms_verification_sent = TRUE WHERE id = ?");
             $stmt->execute([$appointment_id]);
         } catch (Exception $sms_error) {
-            // Log SMS error but don't stop the script
             error_log("handleNewApplication SMS Error: " . $sms_error->getMessage());
         }
 
-        // Send Email confirmation
         try {
             $emailSubject = "Your Appointment Verification Code – PWD Portal";
             $emailBody = "
@@ -521,19 +580,19 @@ if (!empty($_POST['website_url'])) {
                 <p>Reference Number: <strong>{$reference_number}</strong></p>
                 <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
                 <p>This is a copy of the verification code sent to your email address.</p>
+                <p>Your documents have been successfully uploaded for review.</p>
                 <br>
                 <p>– PDAO Helps, City of Sto. Tomas</p>
             ";
             sendResendEmail($_POST['email'], $emailSubject, $emailBody);
         } catch (Exception $email_error) {
-            // Log Email error but don't stop the script
             error_log("handleNewApplication Email Error: " . $email_error->getMessage());
         }
         // --- END FAULT-TOLERANT NOTIFICATIONS ---
-        
+
         jsonResponse([
             'success' => true,
-            'message' => 'Application submitted successfully! A verification code has been sent to your email.',
+            'message' => 'Application submitted successfully! Your documents are uploaded and a verification code has been sent to your email.',
             'appointment' => [
                 'id' => $appointment_id,
                 'reference_number' => $reference_number,
@@ -541,9 +600,10 @@ if (!empty($_POST['website_url'])) {
                 'preferred_time' => $_POST['preferred_time']
             ]
         ]);
-        
-    } catch (PDOException $e) {
+
+    } catch (Exception $e) { // Catch both PDOException and file upload Exceptions
         $pdo->rollBack();
+        // Send a more specific error message
         jsonResponse(['error' => 'Failed to submit application: ' . $e->getMessage()], 500);
     }
 }

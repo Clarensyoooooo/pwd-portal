@@ -60,6 +60,67 @@ require_once 'config.php';
         .privacy-agreement .checkbox-label a:hover {
             color: #0056b3;
         }
+
+        /* --- ADDED FOR MULTI-STEP PROGRESS BAR --- */
+        .progress-steps {
+            display: flex; 
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .step-indicator .step-label {
+            font-size: 0.8rem;
+            color: #888;
+            font-weight: 500;
+            
+            /* --- NEW FIXES BELOW --- */
+            
+            /* Set a fixed line-height */
+            line-height: 1.2rem; 
+            
+            /* Force the label area to be tall enough for 2 lines.
+               This makes all labels align perfectly, even the wrapped one. */
+            min-height: 2.4rem; 
+        }
+        
+        .step-indicator .step-number {
+            height: 30px;
+            width: 30px;
+            line-height: 28px; /* Adjust for border */
+            border-radius: 50%;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            color: #888;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin-bottom: 5px; /* Space between number and label */
+        }
+
+        .step-indicator .step-label {
+            font-size: 0.8rem;
+            color: #888;
+            font-weight: 500;
+        }
+
+        /* --- Active Step Styles --- */
+        .step-indicator.active .step-number {
+            background-color: #007bff; /* Primary color */
+            border-color: #007bff;
+            color: #fff;
+        }
+        .step-indicator.active .step-label {
+            color: #007bff; /* Primary color */
+            font-weight: 700;
+        }
+
+        /* --- Style the text below the bar --- */
+        .progress-text {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #555;
+            width: 100%;
+        }
         
         /* Generic Checkbox Styles (re-used from your modal) */
         .checkbox-container {
@@ -932,11 +993,15 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                         <span class="step-number">4</span>
                         <span class="step-label">Schedule</span>
                     </div>
-                </div>
-                <p class="progress-text" id="progressText">Step 1 of 4</p>
-            </div>
+                    <div class="step-indicator" id="stepIndicator5">
+    <span class="step-number">5</span>
+    <span class="step-label">Uploads</span>
+</div>
 
-            <form id="newApplicantForm" onsubmit="handleNewApplication(event)">
+            </div>
+            <p class="progress-text" id="progressText">Step 1 of 5</p>
+
+            <form id="newApplicantForm" onsubmit="handleNewApplication(event)" enctype="multipart/form-data">
                 <div id="step1" class="form-step">
                     <h3>Personal Information</h3>
                     <div class="form-row">
@@ -1031,44 +1096,76 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
                 </div>
 
                 <div id="step4" class="form-step" style="display: none;">
-                    <h3>Schedule Your Appointment</h3>
-                    <div class="form-group">
-                        <label>Appointment Type</label>
-                        <input type="text" value="New Application" readonly class="readonly-input">
-                        <input type="hidden" name="appointment_type" value="new_application">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="newApplicantPreferredDate">Preferred Date *</label>
-                            <input type="date" id="newApplicantPreferredDate" name="preferred_date" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="newApplicantPreferredTime">Preferred Time *</label>
-                            <select id="newApplicantPreferredTime" name="preferred_time" required>
-                                <option value="">Select time</option>
-                                <option value="09:00:00">9:00 AM</option>
-                                <option value="10:00:00">10:00 AM</option>
-                                <option value="11:00:00">11:00 AM</option>
-                                <option value="14:00:00">2:00 PM</option>
-                                <option value="15:00:00">3:00 PM</option>
-                                <option value="16:00:00">4:00 PM</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="newApplicantNotes">Additional Notes (Optional)</label>
-                        <textarea id="newApplicantNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
-                    </div>
-                    <div class="info-box success">
-                        <i class="fas fa-check-circle"></i>
-                        <p><strong>Almost done!</strong> Review your information and click "Submit Application" to complete your booking. You will receive an email verification code to confirm your appointment.</p>
-                    </div>
-                </div>
+    <h3>Schedule Your Appointment</h3>
+    <div class="form-group">
+        <label>Appointment Type</label>
+        <input type="text" value="New Application" readonly class="readonly-input">
+        <input type="hidden" name="appointment_type" value="new_application">
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="newApplicantPreferredDate">Preferred Date *</label>
+            <input type="date" id="newApplicantPreferredDate" name="preferred_date" required>
+        </div>
+        <div class="form-group">
+            <label for="newApplicantPreferredTime">Preferred Time *</label>
+            <select id="newApplicantPreferredTime" name="preferred_time" required>
+                <option value="">Select time</option>
+                <option value="09:00:00">9:00 AM</option>
+                <option value="10:00:00">10:00 AM</option>
+                <option value="11:00:00">11:00 AM</option>
+                <option value="14:00:00">2:00 PM</option>
+                <option value="15:00:00">3:00 PM</option>
+                <option value="16:00:00">4:00 PM</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-group">
+        <label for="newApplicantNotes">Additional Notes (Optional)</label>
+        <textarea id="newApplicantNotes" name="notes" rows="3" placeholder="Any special requirements or notes..."></textarea>
+    </div>
+</div> <div id="step5" class="form-step" style="display: none;">
+    <h3>Upload Requirements</h3>
+    <p>Please upload all the required documents. (PDF, JPG, or PNG files only).</p>
 
-                <div class="form-navigation">
-                    <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
-                        <i class="fas fa-arrow-left"></i> Previous
-                    </button>
+    <div class="form-group">
+        <label for="doc_id_picture">1. 1x1 ID Pictures *</label>
+        <input type="file" id="doc_id_picture" name="doc_id_picture" accept=".jpg,.jpeg,.png,.pdf" required>
+        <small>Required. 2 (two) "1x1" recent ID pictures. (JPG, PNG, PDF)</small>
+    </div>
+
+    <div class="form-group">
+        <label for="doc_birth_certificate">2. Birth Certificate (Xerox Copy) *</label>
+        <input type="file" id="doc_birth_certificate" name="doc_birth_certificate" accept=".jpg,.jpeg,.png,.pdf" required>
+        <small>Required. (JPG, PNG, PDF)</small>
+    </div>
+
+    <div class="form-group">
+        <label for="doc_medical_certificate">3. Certificate of Disability *</label>
+        <input type="file" id="doc_medical_certificate" name="doc_medical_certificate" accept=".jpg,.jpeg,.png,.pdf" required>
+        <small>Required. Must be original copy. (JPG, PNG, PDF)</small>
+    </div>
+
+    <div class="form-group">
+        <label for="doc_voters_certificate">4. Voter's Certification (2025) *</label>
+        <input type="file" id="doc_voters_certificate" name="doc_voters_certificate" accept=".jpg,.jpeg,.png,.pdf" required>
+        <small>Required. Xerox copy. (JPG, PNG, PDF)</small>
+    </div>
+
+    <div class="form-group">
+        <label for="doc_registration_form">5. PWD Registration Form *</label>
+        <input type="file" id="doc_registration_form" name="doc_registration_form" accept=".jpg,.jpeg,.png,.pdf" required>
+        <small>Required. You can download the form from the "Requirements" section. (JPG, PNG, PDF)</small>
+    </div>
+
+    <div class="info-box success">
+        <i class="fas fa-check-circle"></i>
+        <p><strong>Almost done!</strong> Review your information and click "Submit Application" to complete your booking. You will receive an email verification code to confirm your appointment.</p>
+    </div>
+</div> <div class="form-navigation">
+    <button type="button" class="btn-secondary" id="prevStepBtn" onclick="prevStep()" style="display: none;">
+        <i class="fas fa-arrow-left"></i> Previous
+    </button>
 
                     <div style="opacity: 0; position: absolute; left: -5000px;" aria-hidden="true">
         <label for="new_app_website">Website</label>

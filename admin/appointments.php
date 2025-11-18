@@ -756,7 +756,13 @@ function handleGetAppointmentDetails() {
                    ir.id as interview_id, ir.status as interview_status, ir.interview_notes,
                    ir.eligibility_assessment, ir.recommendations, ir.documents_verified,
                    pr.pwd_id_number, pr.status as record_status,
-                   au.full_name as interviewer_name
+                   au.full_name as interviewer_name,
+                   /* --- ADD THESE 5 LINES --- */
+           a.doc_id_picture, 
+           a.doc_birth_certificate, 
+           a.doc_medical_certificate,
+           a.doc_voters_certificate, 
+           a.doc_registration_form
             FROM appointments a 
             JOIN users u ON a.user_id = u.id 
             LEFT JOIN interview_records ir ON a.id = ir.appointment_id
@@ -1539,6 +1545,41 @@ endif; ?>
                                 </div>
                             </div>
                         </div>
+
+                        <div class="detail-section full-width">
+                            <h4><i class="fas fa-folder-open"></i> Uploaded Documents</h4>
+                            <div class="documents-list-admin">
+                                ${appointment.doc_id_picture ? `
+    <a href="../uploads/applicant_docs/${appointment.doc_id_picture}" target="_blank" class="document-link">
+        <i class="fas fa-id-card"></i> 1x1 ID Pictures
+    </a>
+` : '...'}
+
+${appointment.doc_birth_certificate ? `
+    <a href="../uploads/applicant_docs/${appointment.doc_birth_certificate}" target="_blank" class="document-link">
+        <i class="fas fa-file-alt"></i> Birth Certificate
+    </a>
+` : '...'}
+
+${appointment.doc_medical_certificate ? `
+    <a href="../uploads/applicant_docs/${appointment.doc_medical_certificate}" target="_blank" class="document-link">
+        <i class="fas fa-file-medical"></i> Certificate of Disability
+    </a>
+` : '...'}
+
+${appointment.doc_voters_certificate ? `
+    <a href="../uploads/applicant_docs/${appointment.doc_voters_certificate}" target="_blank" class="document-link">
+        <i class="fas fa-vote-yea"></i> Voter's Certification
+    </a>
+` : '...'}
+
+${appointment.doc_registration_form ? `
+    <a href="../uploads/applicant_docs/${appointment.doc_registration_form}" target="_blank" class="document-link">
+        <i class="fas fa-file-signature"></i> PWD Registration Form
+    </a>
+                                ` : '<span class="document-missing"><i class="fas fa-times-circle"></i> PWD Registration Form (Not provided)</span>'}
+                            </div>
+                        </div>
                         
                         ${appointment.interview_id && !isRenewalOrUpdate ? `
                         <div class="detail-section">
@@ -1831,6 +1872,49 @@ endif; ?>
     </script>
     
     <style>
+
+        .documents-list-admin {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    padding-top: 10px;
+}
+.document-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #eef2ff; /* A light indigo/blue */
+    color: #312e81; /* Dark indigo */
+    text-decoration: none;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid #c7d2fe;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.document-link i {
+    color: #4f46e5; /* Primary indigo */
+}
+.document-link:hover {
+    background: #e0e7ff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.document-missing {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #fdf2f2; /* Light red */
+    color: #7f1d1d; /* Dark red */
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid #fecaca;
+    opacity: 0.8;
+}
+.document-missing i {
+    color: #b91c1c; /* Red */
+}
+
         /* Appointment Type Indicators */
         .type-indicator {
             display: inline-block;
