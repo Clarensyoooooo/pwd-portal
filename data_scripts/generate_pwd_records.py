@@ -74,13 +74,10 @@ disability_weights = [0.30, 0.20, 0.15, 0.15, 0.10, 0.10]
 employment_statuses = ['Unemployed', 'Employed', 'Self-employed', 'Student', 'Retired']
 employment_weights = [0.40, 0.25, 0.15, 0.10, 0.10] 
 
-# --- *** START OF FIX 1 *** ---
-# Weighted choices for Record Status (ID Status)
-# Replaced 'pending_validation' with 'draft' to match your application's logic.
-# Added 'expired' which will be handled by date logic below.
+# --- *** START OF FIX 1 (99% Active) *** ---
 record_statuses = ['validated', 'issued', 'draft', 'inactive', 'expired']
-# NEW WEIGHTS: 3% validated, 50% issued (active), 3% draft, 20% inactive, 24% expired
-record_status_weights = [0.03, 0.50, 0.03, 0.20, 0.24]
+# NEW WEIGHTS: 99% 'issued', 1% split unevenly
+record_status_weights = [0.006, 0.99, 0.001, 0.002, 0.001]
 # --- *** END OF FIX 1 *** ---
 
 # Weighted Age Ranges (min_age, max_age)
@@ -115,14 +112,21 @@ def get_weighted_dob():
 
 # --- *** DIVERSIFICATION END *** ---
 
+# --- Define minimum issue date (Jan 1, 2022) ---
+min_issue_date = datetime.date(2022, 1, 1)
+today = date.today()
+
 
 # Connect and generate data
 try:
     with connection.cursor() as cursor:
         admin_user_id = 1
 
-        for brgy_key, count in barangay_counts.items():
-            cursor.execute("SELECT id, geojson_data FROM barangay_boundaries WHERE barangay_name = %s LIMIT 1", (brgy_key,))
+        # --- 1. MODIFIED --- Added enumerate to get an index for fallback PSGC
+        for brgy_index, (brgy_key, count) in enumerate(barangay_counts.items()):
+            
+            # --- 2. MODIFIED --- Added 'barangay_code' to the query
+            cursor.execute("SELECT id, geojson_data, barangay_code FROM barangay_boundaries WHERE barangay_name = %s LIMIT 1", (brgy_key,))
             result = cursor.fetchone()
             if not result:
                 print(f"⚠️ No matching boundary found for '{brgy_key}'. Skipping.")
@@ -130,6 +134,17 @@ try:
 
             barangay_id = result['id']
             geojson_str = result["geojson_data"]
+            
+            # --- 3. NEW --- Get the barangay_code and create a fallback
+            # (This is still needed for the 'barangay_code' column, just not for the official_id)
+            barangay_code = result.get("barangay_code")
+            if not barangay_code:
+                # Create a fake PSGC code for the demo if it's missing
+                brgy_index_str = str(brgy_index + 1).zfill(3)
+                barangay_code = f"04-1001-{brgy_index_str}" # Assuming 04-1001 is Sto. Tomas
+                print(f"   ... ⚠️ Missing 'barangay_code' for {brgy_key}. Using fallback: {barangay_code}")
+            # --- END NEW ---
+
             polygon = None
             if geojson_str:
                 try:
@@ -176,72 +191,113 @@ try:
                 address_line1 = fake.street_address()
                 city = "Santo Tomas City" # Fixed to match your new default
                 province = "Batangas"
+
+                # --- 4. MODIFIED --- Generate a RANDOM Official PWD ID (conditionally)
                 
-                # --- *** START OF FIX 2: Add realistic dates based on status *** ---
+                # --- *** THIS IS THE CHANGE YOU ASKED FOR *** ---
+                # The old 'random_num' is no longer needed
+                # random_num = fake.bothify(text='###') 
+                
+                official_id = None # Default to NULL
+                
+                # Only assign an official ID if the record is 'issued', 'expired', or 'inactive'
+                if record_status_choice in ['issued', 'expired', 'inactive']:
+                    # This now generates a complete 12-digit ID in the XX-XXXX-XXX-XXX format
+                    official_id = fake.bothify(text='##-####-###-###')
+                # --- *** END OF MODIFIED BLOCK *** ---
+                
+                # --- *** START OF FIX 2 (2022 Start Date + 5 Year Expiry) *** ---
                 validation_date = None
                 issue_date = None
                 expiry_date = None
-                created_at = None # <-- ADD THIS LINE
-                db_status = record_status_choice # This will be 'draft', 'validated', or 'inactive'
+                created_at = None
+                db_status = record_status_choice
                 
                 if record_status_choice == 'validated':
                     # Record is validated but not issued
                     validation_date = fake.date_time_between(start_date="-30d", end_date="-1d")
-                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5))
 
                 elif record_status_choice == 'issued':
                     # This is an ACTIVE issued ID
-                    issue_date = fake.date_time_between(start_date="-3y", end_date="-1d") # Issued sometime in last 3 years
-                    expiry_date = issue_date.date() + datetime.timedelta(days=random.randint(2*365, 3*365)) # Active for 2-3 more years
+                    # Start date is 2022-01-01 (min_issue_date)
+                    issue_date = fake.date_time_between(start_date=min_issue_date, end_date="-1d") # Issued sometime since 2022
+                    # Expiry is 5 years from issue date
+                    expiry_date = issue_date.date() + datetime.timedelta(days=5*365) 
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5)) 
-                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
-                    db_status = 'issued' # Status in DB is 'issued'
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5))
+                    db_status = 'issued'
                 
                 elif record_status_choice == 'expired':
-                    # This is an EXPIRED issued ID
-                    expiry_date = fake.date_time_between(start_date="-3y", end_date="-1d").date() # Expired sometime in last 3 years
-                    issue_date = expiry_date - datetime.timedelta(days=3*365) # Issued 3 years before it expired
+                    # This is an EXPIRED issued ID (5 year validity)
+                    # Issue date must be between 2022-01-01 AND (today - 5 years)
+                    
+                    latest_possible_issue_date_for_expired = today - datetime.timedelta(days=5*365)
+
+                    start_range = min_issue_date
+                    end_range = latest_possible_issue_date_for_expired
+
+                    if start_range < end_range:
+                        # We can generate a valid expired date
+                        issue_date = fake.date_time_between(start_date=start_range, end_date=end_range)
+                        expiry_date = issue_date.date() + datetime.timedelta(days=5*365)
+                    else:
+                        # This happens if script is run before 2027-01-01
+                        # Fallback: issued 2022-01-01, expired 2027-01-01
+                        issue_date = datetime.datetime(2022, 1, 1, 10, 0) # Use a datetime object
+                        expiry_date = datetime.date(2027, 1, 1) # 5 years later
+
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
-                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
-                    db_status = 'issued' # CRITICAL: Status in DB is 'issued', report logic calculates 'expired'
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5))
+                    db_status = 'issued' # Status in DB is 'issued'
                 
                 elif record_status_choice == 'inactive':
-                    # Inactive records were likely 'issued' at some point
-                    issue_date = fake.date_time_between(start_date="-4y", end_date="-1y")
-                    expiry_date = issue_date.date() + datetime.timedelta(days=3*365) # Was valid
+                    # Inactive records issued since 2022
+                    inactive_end_date = today - datetime.timedelta(days=365) # 1 year ago
+
+                    if min_issue_date < inactive_end_date:
+                        issue_date = fake.date_time_between(start_date=min_issue_date, end_date=inactive_end_date)
+                    else:
+                        # Fallback: issue it on Jan 1, 2022
+                        issue_date = datetime.datetime(2022, 1, 1, 12, 0) # Use a datetime object
+
+                    # Expiry is 5 years from issue date
+                    expiry_date = issue_date.date() + datetime.timedelta(days=5*365) 
                     validation_date = issue_date - datetime.timedelta(days=random.randint(1, 5))
-                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5)) # <-- ADD THIS LINE
-                    db_status = 'inactive' # Status in DB is 'inactive'
+                    created_at = validation_date - datetime.timedelta(days=random.randint(1, 5))
+                    db_status = 'inactive' 
 
                 else: # This handles 'draft'
-                    created_at = fake.date_time_between(start_date="-3y", end_date="now") # <-- ADD THIS BLOCK
+                    created_at = fake.date_time_between(start_date="-3y", end_date="now")
                 
-                # 'draft' status has no dates, which is correct
                 # --- *** END OF FIX 2 *** ---
 
-                # --- *** START OF FIX 3: MODIFIED INSERT STATEMENT *** ---
-                # Added validation_date, issue_date, expiry_date
+                # --- *** START OF FIX 3 / 5. MODIFIED INSERT STATEMENT *** ---
                 sql = """
                     INSERT INTO pwd_records (
-                        pwd_id_number, first_name, middle_name, last_name, date_of_birth,
+                        pwd_id_number, official_pwd_id_number, -- Added new column
+                        first_name, middle_name, last_name, date_of_birth,
                         gender, civil_status, address_line1, barangay, city_municipality,
                         province, latitude, longitude, disability_type, employment_status,
                         created_by, status, barangay_id,
                         validation_date, issue_date, expiry_date, created_at 
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """ # ^-- Added created_at and one more %s
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """ # Added %s
+                
+                # --- 6. MODIFIED --- Added 'official_id' to the values tuple
                 values = (
-                    pwd_id, first_name, middle_name, last_name, dob,
+                    pwd_id, official_id, # Added new value
+                    first_name, middle_name, last_name, dob,
                     gender, civil_status, address_line1, brgy_key, city,
                     province, lat, lon, disability, employment_status,
                     admin_user_id, 
                     db_status, # Use the final status (draft, validated, issued, inactive)
                     barangay_id,
-                    validation_date, # Add new date
-                    issue_date,      # Add new date
-                    expiry_date,     # Add new date
-                    created_at       # <-- ADD THIS LINE
+                    validation_date, 
+                    issue_date,      
+                    expiry_date,     
+                    created_at       
                 )
                 # --- *** END OF FIX 3 *** ---
 

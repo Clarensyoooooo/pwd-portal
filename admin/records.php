@@ -710,28 +710,51 @@ function handleIssueID() {
     
     $record_id = $_POST['record_id'] ?? '';
     $expiry_years = intval($_POST['expiry_years'] ?? 5);
-    
+    $official_pwd_id = trim($_POST['official_pwd_id_number'] ?? '');
+
     if (empty($record_id)) {
         adminJsonResponse(['error' => 'Record ID is required'], 400);
     }
+    
+    // --- START OF NEW VALIDATION BLOCK ---
+    $pattern = '/^[0-9]{2}-[0-9]{4}-[0-9]{3}-[0-9]{3}$/';
+    
+    if (empty($official_pwd_id)) {
+        adminJsonResponse(['error' => 'Official PWD ID Number is required'], 400);
+    }
+    
+    if (!preg_match($pattern, $official_pwd_id)) {
+        adminJsonResponse(['error' => 'Invalid Official PWD ID format. Expected 12 digits.'], 400);
+    }
+    // --- END OF NEW VALIDATION BLOCK ---
     
     try {
         $expiry_date = date('Y-m-d', strtotime("+{$expiry_years} years"));
         
         $stmt = $pdo->prepare("
             UPDATE pwd_records 
-            SET status = 'issued', issue_date = NOW(), expiry_date = ?, issued_by = ?
+            SET status = 'issued', 
+                issue_date = NOW(), 
+                expiry_date = ?, 
+                issued_by = ?,
+                official_pwd_id_number = ?
             WHERE id = ? AND status = 'validated'
         ");
         
-        $stmt->execute([$expiry_date, $_SESSION['admin_user_id'], $record_id]);
+        $stmt->execute([
+            $expiry_date, 
+            $_SESSION['admin_user_id'], 
+            $official_pwd_id,
+            $record_id
+        ]);
         
         if ($stmt->rowCount() === 0) {
             adminJsonResponse(['error' => 'Record not found or not validated'], 400);
         }
         
         logAdminActivity($pdo, 'issue', 'records', 'pwd_record', $record_id, [
-            'expiry_date' => $expiry_date
+            'expiry_date' => $expiry_date,
+            'official_pwd_id' => $official_pwd_id
         ]);
         
         adminJsonResponse([
@@ -740,7 +763,7 @@ function handleIssueID() {
         ]);
         
     } catch (PDOException $e) {
-        adminJsonResponse(['error' => 'Failed to issue ID: ' . $e->getMessage()], 500);
+        adminJsonResponse(['error' => 'Failed to issue ID: ' + $e->getMessage()], 500);
     }
 }
 
@@ -1783,18 +1806,24 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                         <?php foreach ($records as $record): ?>
                             <tr>
                                 <td>
-                                    <strong><?php echo htmlspecialchars($record['pwd_id_number']); ?></strong>
-                                    <?php if ($record['issue_date']): ?>
-                                        <br><small class="text-muted">
-                                            Issued: <?php echo date('M j, Y', strtotime($record['issue_date'])); ?>
-                                        </small>
-                                    <?php endif; ?>
-                                    <?php if ($record['expiry_date'] && $record['status'] === 'issued'): ?>
-                                        <br><small class="text-muted">
-                                            Expires: <?php echo date('M j, Y', strtotime($record['expiry_date'])); ?>
-                                        </small>
-                                    <?php endif; ?>
-                                </td>
+    <strong><?php echo htmlspecialchars($record['pwd_id_number']); ?></strong>
+    
+    <?php if ($record['official_pwd_id_number']): ?>
+        <br><small class="text-primary" style="font-weight: 500;">
+        Official PWD ID (NCDA / LGU): <?php echo htmlspecialchars($record['official_pwd_id_number']); ?>
+        </small>
+    <?php endif; ?>
+    <?php if ($record['issue_date']): ?>
+        <br><small class="text-muted">
+            Issued: <?php echo date('M j, Y', strtotime($record['issue_date'])); ?>
+        </small>
+    <?php endif; ?>
+    <?php if ($record['expiry_date'] && $record['status'] === 'issued'): ?>
+        <br><small class="text-muted">
+            Expires: <?php echo date('M j, Y', strtotime($record['expiry_date'])); ?>
+        </small>
+    <?php endif; ?>
+</td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($record['first_name'] . ' ' . $record['last_name']); ?></strong>
                                     <?php if ($record['middle_name']): ?>
@@ -2209,13 +2238,19 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                         <label for="expiryYears">ID Validity Period</label>
                         <select id="expiryYears" name="expiry_years" required>
                             <option value="5">5 Years</option>
-                            <option value="3">3 Years</option>
-                            <option value="1">1 Year</option>
                         </select>
+                        <div class="form-group" style="margin-top: 16px;">
+    <label for="official_pwd_id_number">Official PWD ID Number *</label>
+    <input type="text" id="official_pwd_id_input" name="official_pwd_id_number" 
+       class="form-input" 
+       placeholder="Type 12 digits (e.g., 041001001001)" 
+       required 
+       maxlength="15">
+</div>
                     </div>
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
-                        This will mark the record as "Issued" and set the expiry date. The PWD ID can then be printed and given to the applicant.
+                        This will mark the record as "Issued" and set the expiry date. Please ensure the PWD ID number is correct.
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-success">
@@ -2595,7 +2630,6 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
                                     <select id="createRecordStatus" name="record_status" class="form-select">
                                         <option value="draft">Draft - Needs validation</option>
                                         <option value="validated">Validated - Ready for ID issuance</option>
-                                        <option value="issued">Issued - ID already issued (for existing holders)</option>
                                     </select>
                                 </div>
                             </div>
@@ -2691,6 +2725,38 @@ function assignSinglePwdToBarangay($pdo, $pwd_id, $latitude, $longitude) {
     
     <script src="assets/admin.js"></script>
     <script>
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const pwdIdInput = document.getElementById('official_pwd_id_input');
+            
+            if (pwdIdInput) {
+                pwdIdInput.addEventListener('input', function(e) {
+                    // 1. Get the raw value and remove all non-numbers
+                    let rawValue = e.target.value.replace(/[^0-9]/g, '');
+                    
+                    // 2. Limit to 12 digits
+                    rawValue = rawValue.substring(0, 12);
+                    
+                    // 3. Apply the auto-formatting (XX-XXXX-XXX-XXX)
+                    let formattedValue = '';
+                    if (rawValue.length > 0) {
+                        formattedValue = rawValue.substring(0, 2);
+                    }
+                    if (rawValue.length > 2) {
+                        formattedValue += '-' + rawValue.substring(2, 6);
+                    }
+                    if (rawValue.length > 6) {
+                        formattedValue += '-' + rawValue.substring(6, 9);
+                    }
+                    if (rawValue.length > 9) {
+                        formattedValue += '-' + rawValue.substring(9, 12);
+                    }
+                    
+                    // 4. Set the input's value to the new formatted string
+                    e.target.value = formattedValue;
+                });
+            }
+        });
 
 
                                     let editLocationMarker;

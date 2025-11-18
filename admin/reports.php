@@ -746,6 +746,118 @@ function generateResourcesReport($pdo, $date_from, $date_to, $barangay_filter, $
     $data['insights'] = $insights;
     // --- END: Generate Key Insights ---
 
+    // --- START: Generate Stacked Bar Chart Data (REVISED) ---
+    // This code goes INSIDE generateResourcesReport() right BEFORE 'return $data;'
+    
+    $chart_labels = []; // Barangays
+    $chart_datasets = []; // Disabilities { label: 'Type', data: [...] }
+    $all_disabilities = []; // To track unique disability types
+    $pivoted_data = []; // [Barangay][Disability] => Count
+
+    // Use the full, unpaginated data so it respects the filters
+    $full_data = $data['full_export_data'] ?? []; 
+
+    // 1. First pass: Get all unique labels (barangays) and datasets (disabilities)
+    //    and populate the pivot table
+    foreach ($full_data as $barangay => $brgy_data) {
+        $chart_labels[] = $barangay; // Add barangay to labels
+        if (!empty($brgy_data['disabilities'])) {
+            foreach ($brgy_data['disabilities'] as $disability) {
+                $type = $disability['type'];
+                if (!in_array($type, $all_disabilities)) {
+                    $all_disabilities[] = $type; // Add unique disability
+                }
+                $pivoted_data[$barangay][$type] = $disability['count'];
+            }
+        }
+    }
+    
+    // 2. Second pass: Build the datasets for Chart.js
+    foreach ($all_disabilities as $disability_type) {
+        $dataset = [
+            'label' => $disability_type,
+            'data' => []
+        ];
+        
+        // For each barangay, find the count for this disability
+        foreach ($chart_labels as $barangay) {
+            // Add the count, or 0 if it doesn't exist for this barangay
+            $dataset['data'][] = $pivoted_data[$barangay][$disability_type] ?? 0;
+        }
+        
+        $chart_datasets[] = $dataset;
+    }
+
+    // Add to the main $data array to be sent to the view
+    $data['stacked_chart_data'] = [
+        'labels' => $chart_labels,
+        'datasets' => $chart_datasets
+    ];
+    // --- END: Generate Stacked Bar Chart Data ---
+
+    // --- START: Generate Employment by Barangay Chart Data (NEW) ---
+    
+    // We use the main $where_clause and $params to respect all filters
+    // (date, barangay, disability, status, gender, AND employment).
+    $stmt = $pdo->prepare("
+        SELECT 
+            barangay,
+            COALESCE(employment_status, 'Not Specified') as employment_status,
+            COUNT(*) as count
+        FROM pwd_records pwd_records
+        {$where_clause}
+        AND barangay IS NOT NULL
+        GROUP BY barangay, employment_status
+    ");
+    $stmt->execute($params);
+    $emp_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $emp_chart_labels = []; // Stores Barangays
+    $emp_chart_datasets = []; // Stores Employment Statuses { label: 'Status', data: [...] }
+    $all_employment_statuses = []; // Stores unique statuses found
+    $emp_pivoted_data = []; // Format: [Barangay][EmploymentStatus] => Count
+
+    // 1. First pass: Get all unique labels (barangays) and datasets (statuses)
+    //    and populate the pivot table
+    foreach ($emp_results as $row) {
+        $barangay = $row['barangay'];
+        $status = $row['employment_status'];
+        
+        if (!in_array($barangay, $emp_chart_labels)) {
+            $emp_chart_labels[] = $barangay; // Add unique barangay
+        }
+        if (!in_array($status, $all_employment_statuses)) {
+            $all_employment_statuses[] = $status; // Add unique employment status
+        }
+        $emp_pivoted_data[$barangay][$status] = $row['count'];
+    }
+    
+    // Sort labels and datasets for consistency
+    sort($emp_chart_labels);
+    sort($all_employment_statuses);
+
+    // 2. Second pass: Build the datasets for Chart.js
+    foreach ($all_employment_statuses as $status) {
+        $dataset = [
+            'label' => $status,
+            'data' => []
+        ];
+        
+        // For each barangay, find the count for this status
+        foreach ($emp_chart_labels as $barangay) {
+            // Add the count, or 0 if it doesn't exist for this barangay
+            $dataset['data'][] = $emp_pivoted_data[$barangay][$status] ?? 0;
+        }
+        $emp_chart_datasets[] = $dataset;
+    }
+
+    // Add to the main $data array to be sent to the view
+    $data['employment_by_barangay_chart_data'] = [
+        'labels' => $emp_chart_labels,
+        'datasets' => $emp_chart_datasets
+    ];
+    // --- END: Generate Employment by Barangay Chart Data ---
+
     return $data;
 }
 // Make sure this is the end of the function

@@ -109,9 +109,9 @@ $interview = $stmt->fetch();
 
 if (!$interview) {
     include 'includes/header.php';
-    include 'includes/sidebar.php';
+    
     ?>
-    <main class="main-content">
+    <main class="dashboard-container">
         <div class="empty-state-container">
             <div class="empty-state-card">
                 <div class="empty-state-icon" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">

@@ -45,6 +45,50 @@
     <?php endif; ?>
 </div>
 
+<?php 
+// --- START: NEW STACKED BAR CHART ---
+if (!empty($report_data['stacked_chart_data']['datasets'])): 
+?>
+<div class="analytics-card" style="margin-bottom: 1.5rem;">
+    <h3>
+        <i class="fas fa-chart-bar"></i> 
+        Disability Distribution by Barangay
+    </h3>
+    <p style="margin: -0.5rem 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+        Shows the composition of disability types within each geographic area.
+    </p>
+    <div class="chart-container" style="height: 450px;">
+        <canvas id="disabilityByBarangayChart"></canvas>
+    </div>
+</div>
+<?php 
+endif; 
+// --- END: NEW STACKED BAR CHART ---
+?>
+
+<?php 
+// --- START: NEW EMPLOYMENT STACKED BAR CHART ---
+// Check the new data key from reports.php
+if (!empty($report_data['employment_by_barangay_chart_data']['datasets'])): 
+?>
+<div class="analytics-card" style="margin-bottom: 1.5rem;">
+    <h3>
+        <i class="fas fa-briefcase"></i> 
+        Employment Distribution by Barangay
+    </h3>
+    <p style="margin: -0.5rem 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+        Shows the composition of employment statuses within each geographic area.
+    </p>
+    <div class="chart-container" style="height: 450px;">
+        <canvas id="employmentByBarangayChart"></canvas>
+    </div>
+</div>
+<?php 
+endif; 
+// --- END: NEW EMPLOYMENT STACKED BAR CHART ---
+?>
+
+
 <?php if (!empty($report_data['barangay_recommendations'])): ?>
 <div class="analytics-grid">
     <?php foreach ($report_data['barangay_recommendations'] as $barangay => $data): ?>
@@ -303,9 +347,292 @@ if (isset($report_data['pagination']) && $report_data['pagination']['total_pages
 </style>
 
 <script>
+// Store chart instances
+let disabilityByBarangayChartInstance = null;
+let employmentByBarangayChartInstance = null; // Changed name
+
 function initializeAnalyticsCharts() {
-    // This function is just a placeholder to be consistent
-    // No charts are on this specific page.
-    console.log('Resource planning report loaded successfully');
+    
+    // Destroy existing charts if they exist
+    if (disabilityByBarangayChartInstance) {
+        disabilityByBarangayChartInstance.destroy();
+    }
+    if (employmentByBarangayChartInstance) { // Changed name
+        employmentByBarangayChartInstance.destroy();
+    }
+
+    // --- Disability by Barangay Chart (Now Dynamic) ---
+    const chartData = <?php echo json_encode($report_data['stacked_chart_data'] ?? ['labels' => [], 'datasets' => []]); ?>;
+    const chartCtx = document.getElementById('disabilityByBarangayChart');
+
+    if (chartCtx && chartData.datasets.length > 0) {
+        
+        // Define color palette
+        const colors = [
+            'rgba(44, 90, 160, 0.8)',   // Dark Blue
+            'rgba(59, 130, 246, 0.8)',  // Bright Blue
+            'rgba(34, 197, 94, 0.8)',   // Green
+            'rgba(245, 158, 11, 0.8)', // Amber
+            'rgba(220, 38, 38, 0.8)',   // Red
+            'rgba(139, 92, 246, 0.8)', // Violet
+            'rgba(234, 88, 133, 0.8)', // Pink
+            'rgba(22, 163, 74, 0.8)',  // Dark Green
+            'rgba(100, 116, 139, 0.8)' // Slate
+        ];
+
+        // --- NEW LOGIC: Check if we are drilled down ---
+        if (chartData.labels.length === 1) {
+            
+            // --- 1. SINGLE BARANGAY: Show Horizontal Bar Chart ---
+            
+            // Transform the data for a horizontal bar chart
+            const drillDownLabels = chartData.datasets.map(d => d.label);
+            const drillDownData = chartData.datasets.map(d => d.data[0]); // Get the count
+            const backgroundColors = chartData.datasets.map((_, index) => colors[index % colors.length]);
+
+            disabilityByBarangayChartInstance = new Chart(chartCtx, {
+                type: 'bar',
+                data: {
+                    labels: drillDownLabels,
+                    datasets: [{
+                        label: 'Total PWDs',
+                        data: drillDownData,
+                        backgroundColor: backgroundColors,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // This makes it horizontal
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Members'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Disability Breakdown for ${chartData.labels[0]}`, // e.g., "Disability Breakdown for San Vicente"
+                            font: { size: 16 }
+                        },
+                        legend: {
+                            display: false // Not needed for a single dataset
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            });
+
+        } else {
+            
+            // --- 2. MULTIPLE BARANGAYS: Show Stacked Bar Chart (Original Logic) ---
+            
+            chartData.datasets.forEach((dataset, index) => {
+                dataset.backgroundColor = colors[index % colors.length];
+            });
+
+            disabilityByBarangayChartInstance = new Chart(chartCtx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: chartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: {
+                                autoSkip: false,
+                                maxRotation: 90,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Members'
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    let title = tooltipItems[0].label || '';
+                                    let total = 0;
+                                    tooltipItems.forEach(item => {
+                                        total += item.raw;
+                                    });
+                                    return `${title} (Total: ${total})`;
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 15
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    
+    // --- NEW: Employment by Barangay Chart (Stacked/Horizontal) ---
+    const empChartData = <?php echo json_encode($report_data['employment_by_barangay_chart_data'] ?? ['labels' => [], 'datasets' => []]); ?>;
+    const empCtx = document.getElementById('employmentByBarangayChart');
+
+    if (empCtx && empChartData.datasets.length > 0) {
+        
+        // --- CHANGED: Define a new, softer color palette ---
+        const empColors = [
+            'rgba(54, 162, 235, 0.8)',  // Blue
+            'rgba(75, 192, 192, 0.8)',   // Teal
+            'rgba(255, 159, 64, 0.8)', // Orange
+            'rgba(153, 102, 255, 0.8)', // Purple
+            'rgba(255, 99, 132, 0.8)',  // Pink/Red
+            'rgba(201, 203, 207, 0.8)'  // Gray
+        ];
+
+        // --- Check if we are drilled down (only one barangay) ---
+        if (empChartData.labels.length === 1) {
+            
+            // --- 1. SINGLE BARANGAY: Show Horizontal Bar Chart ---
+            
+            // --- CHANGED: Transform, sort, and re-create data ---
+            
+            // Transform data and pair labels with data
+            let pairedData = empChartData.datasets.map(d => ({
+                label: d.label,
+                data: d.data[0] || 0 // Get count, default to 0
+            }));
+
+            // Sort the paired data in descending order by data
+            pairedData.sort((a, b) => b.data - a.data);
+
+            // Unzip the sorted data back into separate arrays
+            const drillDownLabels = pairedData.map(d => d.label);
+            const drillDownData = pairedData.map(d => d.data);
+
+            // Generate colors for the sorted data
+            const backgroundColors = pairedData.map((_, index) => empColors[index % empColors.length]);
+
+            employmentByBarangayChartInstance = new Chart(empCtx, {
+                type: 'bar',
+                data: {
+                    labels: drillDownLabels, // Use sorted labels
+                    datasets: [{
+                        label: 'Total PWDs',
+                        data: drillDownData, // Use sorted data
+                        backgroundColor: backgroundColors,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // This makes it horizontal
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Members'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Employment Breakdown for ${empChartData.labels[0]}`, // e.g., "Employment Breakdown for San Vicente"
+                            font: { size: 16 }
+                        },
+                        legend: {
+                            display: false // Not needed for a single dataset
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            });
+
+        } else {
+            
+            // --- 2. MULTIPLE BARANGAYS: Show Stacked Bar Chart ---
+            
+            empChartData.datasets.forEach((dataset, index) => {
+                dataset.backgroundColor = empColors[index % empColors.length];
+            });
+
+            employmentByBarangayChartInstance = new Chart(empCtx, {
+                type: 'bar',
+                data: {
+                    labels: empChartData.labels,
+                    datasets: empChartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: {
+                                autoSkip: false,
+                                maxRotation: 90,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Members'
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    let title = tooltipItems[0].label || '';
+                                    let total = 0;
+                                    tooltipItems.forEach(item => {
+                                        total += item.raw;
+                                    });
+                                    return `${title} (Total: ${total})`;
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 15
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    
+    console.log('Resource planning chart initialized successfully with conditional logic.');
 }
 </script>
