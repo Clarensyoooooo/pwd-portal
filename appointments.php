@@ -56,6 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     switch ($action) {
+        case 'check_available_times':
+    handleCheckAvailableTimes();
+    break;
+        case 'get_fully_booked_dates': // <--- ADD THIS
+            handleGetFullyBookedDates();
+            break;
         case 'check_email':
             handleCheckEmail();
             break;
@@ -285,6 +291,11 @@ if (!empty($_POST['website_url'])) {
     $preferred_date_day = date('N', strtotime($preferred_date));
     if ($preferred_date_day >= 6) { /* ... error ... */ }
 
+    // ADD THIS CHECK BEFORE DB TRANSACTION
+    if (isDateFullyBooked($preferred_date)) {
+        jsonResponse(['error' => 'Sorry, this date just became fully booked. Please select another date.'], 400);
+    }
+
     try {
         $pdo->beginTransaction();
         
@@ -455,6 +466,11 @@ function handleNewApplication() {
         if (empty($_FILES[$fileKey]) || $_FILES[$fileKey]['error'] == UPLOAD_ERR_NO_FILE) {
             jsonResponse(['error' => "Missing required file: " . $fileKey], 400);
         }
+    }
+
+    // ADD THIS CHECK BEFORE DB TRANSACTION
+    if (isDateFullyBooked($preferred_date)) {
+        jsonResponse(['error' => 'Sorry, this date just became fully booked. Please select another date.'], 400);
     }
 
     // === 3. START DATABASE TRANSACTION AND FILE PROCESSING ===
@@ -710,4 +726,81 @@ function handleSMSVerification() {
         jsonResponse(['error' => 'Email verification failed: ' . $e->getMessage()], 500);
     }
 }
+
+// In appointments.php, add these functions at the bottom:
+
+function handleGetFullyBookedDates() {
+    global $pdo;
+    
+    try {
+        // Count appointments per day (pending or confirmed)
+        // We group by date and only return dates where count >= 10
+        $stmt = $pdo->prepare("
+            SELECT preferred_date, COUNT(*) as total_bookings 
+            FROM appointments 
+            WHERE status IN ('pending', 'confirmed') 
+            GROUP BY preferred_date 
+            HAVING total_bookings >= 10
+        ");
+        $stmt->execute();
+        
+        // Fetch column returns a simple array of dates ['2025-11-20', '2025-11-21']
+        $fullDates = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        jsonResponse([
+            'success' => true,
+            'full_dates' => $fullDates
+        ]);
+    } catch (PDOException $e) {
+        jsonResponse(['error' => 'Failed to fetch dates'], 500);
+    }
+}
+
+// Helper function to check limit before saving
+function isDateFullyBooked($date) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) 
+        FROM appointments 
+        WHERE preferred_date = ? AND status IN ('pending', 'confirmed')
+    ");
+    $stmt->execute([$date]);
+    $count = $stmt->fetchColumn();
+    
+    return $count >= 10; // Returns true if full
+}
+
+function handleCheckAvailableTimes() {
+    global $pdo;
+    
+    $date = $_POST['date'] ?? '';
+    
+    // Define how many people can book the SAME hour (e.g., 2 people per slot)
+    // Since you have slots 9,10,11, 2,3,4 (6 slots) * 2 people = 12 max capacity.
+    // This works well with your 10/day limit.
+    $maxPerSlot = 2; 
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT preferred_time, COUNT(*) as count 
+            FROM appointments 
+            WHERE preferred_date = ? AND status IN ('pending', 'confirmed')
+            GROUP BY preferred_time
+        ");
+        $stmt->execute([$date]);
+        $bookings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // Returns ['09:00:00' => 1, '10:00:00' => 2]
+
+        $fullTimes = [];
+        foreach ($bookings as $time => $count) {
+            if ($count >= $maxPerSlot) {
+                $fullTimes[] = $time; // This time is full
+            }
+        }
+
+        jsonResponse(['success' => true, 'full_times' => $fullTimes]);
+    } catch (PDOException $e) {
+        jsonResponse(['error' => 'Failed to check times'], 500);
+    }
+}
+
 ?>

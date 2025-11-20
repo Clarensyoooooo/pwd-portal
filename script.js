@@ -2070,3 +2070,150 @@ async function checkEmailAvailabilityForNewApplicant(email, inputElement) {
     return true
   }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize calendars when page loads
+    fetchAndInitCalendars();
+});
+
+function initFlatpickr(dateInputSelector, fullDates, timeDropdownSelector) {
+    flatpickr(dateInputSelector, {
+        minDate: "today",
+        maxDate: new Date().fp_incr(60),
+        disable: [
+            function(date) {
+                // Disable Weekends
+                if (date.getDay() === 0 || date.getDay() === 6) return true;
+                
+                // Disable Full Dates (from DB)
+                const dateString = date.toISOString().split('T')[0];
+                return fullDates.includes(dateString);
+            }
+        ],
+        onDayCreate: function(dObj, dStr, fp, dayElem) {
+            // Highlight available days GREEN
+            if (!dayElem.classList.contains("flatpickr-disabled")) {
+                dayElem.classList.add("available-day");
+            }
+        },
+        onChange: function(selectedDates, dateStr, instance) {
+            // === THIS IS THE NEW PART FOR HOURS ===
+            if (selectedDates.length > 0) {
+                updateAvailableTimes(dateStr, timeDropdownSelector);
+            }
+        }
+    });
+}
+
+// Function to disable full hours in the dropdown
+function updateAvailableTimes(dateStr, timeDropdownSelector) {
+    const timeSelect = document.querySelector(timeDropdownSelector);
+    if (!timeSelect) return;
+
+    // 1. Reset the dropdown (enable everything first)
+    Array.from(timeSelect.options).forEach(option => {
+        option.disabled = false;
+        option.text = option.text.replace(' (Full)', ''); // Remove previous "(Full)" text
+    });
+
+    // 2. Ask server which times are full
+    const formData = new FormData();
+    formData.append('action', 'check_available_times');
+    formData.append('date', dateStr);
+
+    fetch('appointments.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.full_times) {
+            // 3. Disable the specific full times
+            data.full_times.forEach(fullTime => {
+                // Find the option with this value (e.g., "09:00:00")
+                const optionToDisable = timeSelect.querySelector(`option[value="${fullTime}"]`);
+                if (optionToDisable) {
+                    optionToDisable.disabled = true;
+                    optionToDisable.text += ' (Full)'; // Visual cue
+                }
+            });
+            
+            // If the currently selected time is now disabled, reset selection
+            if (timeSelect.selectedOptions[0].disabled) {
+                timeSelect.value = "";
+            }
+        }
+    })
+    .catch(err => console.error('Error checking times:', err));
+}
+
+// Update the init call to pass the Time Dropdown ID
+function fetchAndInitCalendars() {
+    const formData = new FormData();
+    formData.append('action', 'get_fully_booked_dates');
+
+    fetch('appointments.php', { method: 'POST', body: formData })
+    .then(response => response.json())
+    .then(data => {
+        const fullDates = data.full_dates || [];
+        
+        // Pass the specific ID of the time dropdown for each form
+        initFlatpickr('#renewalPreferredDate', fullDates, '#renewalTime');
+        initFlatpickr('#newApplicantPreferredDate', fullDates, '#newApplicantPreferredTime');
+    });
+}
+
+// Helper to get the wrapper safely
+function getWrapper() {
+    const wrapper = document.getElementById('main-content-wrapper');
+    if (!wrapper) console.error("Error: #main-content-wrapper not found.");
+    return wrapper;
+}
+
+// 1. TEXT RESIZE (already fixed, keeping for reference)
+let currentZoom = 1;
+function resizeText(multiplier) {
+    if (multiplier === 1) currentZoom += 0.1;
+    else currentZoom -= 0.1;
+    
+    const wrapper = getWrapper();
+    if (wrapper) {
+        wrapper.style.transform = `scale(${currentZoom})`;
+        wrapper.style.transformOrigin = "top center";
+        wrapper.style.width = `${100 / currentZoom}%`;
+    }
+}
+
+// 2. GRAYSCALE (The Fix: Apply to Wrapper, not Body)
+function toggleGrayscale() {
+    const wrapper = getWrapper();
+    if (wrapper) {
+        // This prevents the "flying widget" because the body/widget aren't filtered
+        wrapper.classList.toggle('grayscale-mode');
+    }
+}
+
+// 3. HIGH CONTRAST (The Fix: Apply to Body for background, Wrapper for content)
+function toggleHighContrast() {
+    const wrapper = getWrapper();
+    if (wrapper) {
+        wrapper.classList.toggle('high-contrast-mode');
+        // We also toggle body to ensure the background behind the wrapper is black
+        document.body.classList.toggle('body-high-contrast'); 
+    }
+}
+
+function resetAccess() {
+    currentZoom = 1;
+    const wrapper = getWrapper();
+    if (wrapper) {
+        wrapper.style.transform = "none";
+        wrapper.style.width = "100%";
+        wrapper.classList.remove('grayscale-mode', 'high-contrast-mode');
+    }
+    document.body.classList.remove('body-high-contrast');
+}
+
+function toggleAccessMenu() {
+    document.getElementById('accessMenu').classList.toggle('show');
+}

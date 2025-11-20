@@ -8,8 +8,96 @@ require_once 'config.php';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PWD Portal - Empowering the PWD Community</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+
+    /* --- 1. GRAYSCALE MODE (Applied to Wrapper Only) --- */
+.grayscale-mode {
+    filter: grayscale(100%);
+    /* No transform or position changes here! */
+}
+
+/* --- 2. HIGH CONTRAST MODE (Smarter Version) --- */
+
+/* A. The Body Background (So the edges of the screen turn black) */
+body.body-high-contrast {
+    background-color: #000 !important;
+}
+
+/* B. The Content Wrapper (Where the text lives) */
+.high-contrast-mode {
+    background-color: #000 !important;
+    color: #fff !important;
+}
+
+/* Specific High Contrast Elements */
+.high-contrast-mode h1, 
+.high-contrast-mode h2, 
+.high-contrast-mode h3, 
+.high-contrast-mode p, 
+.high-contrast-mode li,
+.high-contrast-mode span {
+    color: #fff !important;
+}
+
+/* Links - Bright Yellow for visibility */
+.high-contrast-mode a {
+    color: #ffff00 !important;
+    text-decoration: underline !important;
+}
+
+/* Buttons - Black with Yellow/White Borders */
+.high-contrast-mode button, 
+.high-contrast-mode .btn-primary, 
+.high-contrast-mode .btn-secondary {
+    background-color: #000 !important;
+    color: #ffff00 !important;
+    border: 2px solid #ffff00 !important; /* Essential for visibility */
+    box-shadow: none !important;
+}
+
+/* Inputs - Must have borders to be seen on black */
+.high-contrast-mode input, 
+.high-contrast-mode textarea, 
+.high-contrast-mode select {
+    background-color: #000 !important;
+    color: #fff !important;
+    border: 2px solid #fff !important;
+}
+
+/* Cards/Sections - Remove white backgrounds and add borders */
+.high-contrast-mode .card, 
+.high-contrast-mode .step, 
+.high-contrast-mode .modal-content,
+.high-contrast-mode header,
+.high-contrast-mode footer {
+    background-color: #000 !important;
+    border: 1px solid #fff !important; /* Defines the edges */
+    box-shadow: none !important;
+}
+
+/* Fix Icons */
+.high-contrast-mode i {
+    color: #ffff00 !important;
+}
+
+/* --- 3. ENSURE WIDGET IS VISIBLE IN HIGH CONTRAST --- */
+/* When body is in high contrast, update the widget style too */
+body.body-high-contrast #accessBtn {
+    background-color: #000 !important;
+    border: 3px solid #ffff00 !important;
+    color: #ffff00 !important;
+}
+body.body-high-contrast .access-menu {
+    background-color: #000 !important;
+    border: 2px solid #ffff00 !important;
+}
+body.body-high-contrast .access-menu button {
+    border: 1px solid #fff !important;
+    color: #fff !important;
+}
+
         /* Styles for input validation feedback */
         .form-group {
             position: relative;
@@ -188,9 +276,79 @@ require_once 'config.php';
             display: none; /* Hidden by default */
             margin-top: 8px; /* Space below the checkbox label */
         }
+
+        /* Accessibility Widget - Final Fixed Version */
+.accessibility-widget {
+    position: fixed;
+    bottom: 20px;    /* Keeps it 20px from the bottom */
+    right: 20px;     /* Keeps it 20px from the right */
+    z-index: 999999; /* Super high priority so it stays on top of everything */
+    display: block;  /* Ensures it renders */
+}
+
+/* The Toggle Button (Icon) */
+#accessBtn {
+    background-color: #0056b3;
+    color: white;
+    border: 2px solid white; /* Adds a nice pop */
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transition: all 0.3s ease;
+}
+
+#accessBtn:hover {
+    transform: scale(1.1); /* Slight zoom effect on hover */
+    background-color: #004494;
+}
+
+/* The Menu Box */
+.access-menu {
+    display: none;
+    position: absolute;
+    bottom: 75px; /* Opens slightly above the button */
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    padding: 15px;
+    border-radius: 12px;
+    width: 220px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    z-index: 1000000; /* Even higher than the widget button */
+}
+
+/* Show the menu when toggled */
+.access-menu.show {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
+/* Simple Fade In Animation */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
     </style>
 </head>
 <body>
+       <div class="accessibility-widget">
+        <button id="accessBtn" aria-label="Accessibility Options" onclick="toggleAccessMenu()">
+            <i class="fas fa-universal-access"></i>
+        </button>
+        <div class="access-menu" id="accessMenu">
+            <h4>Accessibility Tools</h4>
+            <button onclick="resizeText(1)">A+ Increase Text</button>
+            <button onclick="resizeText(-1)">A- Decrease Text</button>
+            <button onclick="toggleHighContrast()">High Contrast</button>
+            <button onclick="toggleGrayscale()">Grayscale</button>
+            <button onclick="resetAccess()">Reset</button>
+        </div>
+    </div>
+
+    <div id="main-content-wrapper">
     <header class="header">
         <div class="top-bar">
             <div class="container">
@@ -1194,6 +1352,9 @@ Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng r
         </div>
     </div>
 
+ 
+
     <script src="script.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 </body>
 </html>
