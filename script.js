@@ -2170,19 +2170,44 @@ function getWrapper() {
     return wrapper;
 }
 
-// 1. TEXT RESIZE (already fixed, keeping for reference)
-let currentZoom = 1;
+// --- 1. DYNAMIC TEXT RESIZE (Replaces Page Zoom) ---
+let textScale = 1; // 1 = 100% (Normal)
+
 function resizeText(multiplier) {
-    if (multiplier === 1) currentZoom += 0.1;
-    else currentZoom -= 0.1;
+    // 1. Adjust scale (Limit between 80% and 150%)
+    if (multiplier === 1) textScale += 0.1;
+    else textScale -= 0.1;
     
-    const wrapper = getWrapper();
-    if (wrapper) {
-        wrapper.style.transform = `scale(${currentZoom})`;
-        wrapper.style.transformOrigin = "top center";
-        wrapper.style.width = `${100 / currentZoom}%`;
-    }
+    if (textScale > 1.5) textScale = 1.5;
+    if (textScale < 0.8) textScale = 0.8;
+
+    // 2. Target text elements ONLY inside the main wrapper 
+    // (This prevents resizing the accessibility widget itself)
+    const wrapper = document.getElementById('main-content-wrapper');
+    if (!wrapper) return;
+
+    // Select common text tags
+    const elements = wrapper.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, a, span, button, input, label, td, th');
+
+    elements.forEach(el => {
+        // A. Save the original font size if we haven't yet
+        if (!el.hasAttribute('data-original-size')) {
+            const style = window.getComputedStyle(el);
+            const currentSize = parseFloat(style.fontSize);
+            if (currentSize) {
+                el.setAttribute('data-original-size', currentSize);
+            }
+        }
+
+        // B. Calculate new size based on the ORIGINAL size
+        const originalSize = parseFloat(el.getAttribute('data-original-size'));
+        if (originalSize) {
+            el.style.fontSize = `${originalSize * textScale}px`;
+        }
+    });
 }
+
+
 
 // 2. GRAYSCALE (The Fix: Apply to Wrapper, not Body)
 function toggleGrayscale() {
@@ -2203,13 +2228,55 @@ function toggleHighContrast() {
     }
 }
 
+// --- 4. DYSLEXIA FONT ---
+function toggleDyslexia() {
+    const wrapper = getWrapper();
+    if (wrapper) {
+        wrapper.classList.toggle('dyslexia-mode');
+    }
+}
+
+// --- 5. MESSAGE SUPPORT (For Deaf/Speech Impaired) ---
+function scrollToContact() {
+    // Close the menu first
+    toggleAccessMenu();
+    
+    // Scroll smoothly to the contact/feedback section
+    const contactSection = document.getElementById('contact');
+    if (contactSection) {
+        contactSection.scrollIntoView({ behavior: 'smooth' });
+        
+        // Optional: Flash the feedback form to draw attention
+        setTimeout(() => {
+            contactSection.style.transition = "background-color 0.5s";
+            contactSection.style.backgroundColor = "rgba(0, 86, 179, 0.1)";
+            setTimeout(() => {
+                contactSection.style.backgroundColor = "";
+            }, 500);
+        }, 500);
+    }
+}
+
+
+// UPDATE RESET FUNCTION TO INCLUDE DYSLEXIA
 function resetAccess() {
+    // ... (Keep your existing reset variables) ...
     currentZoom = 1;
+    textScale = 1;
+
     const wrapper = getWrapper();
     if (wrapper) {
         wrapper.style.transform = "none";
         wrapper.style.width = "100%";
-        wrapper.classList.remove('grayscale-mode', 'high-contrast-mode');
+        // ADD 'dyslexia-mode' to the removal list
+        wrapper.classList.remove('grayscale-mode', 'high-contrast-mode', 'dyslexia-mode'); 
+        
+        // ... (Keep your text resize reset logic) ...
+        const elements = wrapper.querySelectorAll('[data-original-size]');
+        elements.forEach(el => {
+            el.style.fontSize = '';
+            el.removeAttribute('data-original-size');
+        });
     }
     document.body.classList.remove('body-high-contrast');
 }
@@ -2217,3 +2284,4 @@ function resetAccess() {
 function toggleAccessMenu() {
     document.getElementById('accessMenu').classList.toggle('show');
 }
+

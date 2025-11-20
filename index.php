@@ -11,7 +11,88 @@ require_once 'config.php';
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        /* --- 2. HIGH CONTRAST MODE (Final Polish) --- */
 
+/* A. The Main Backgrounds */
+body.body-high-contrast,
+body.body-high-contrast #main-content-wrapper {
+    background-color: #000 !important;
+    color: #fff !important;
+}
+
+/* B. Force ALL Sections, Containers, and Specific Bars to Black */
+.high-contrast-mode header,
+.high-contrast-mode footer,
+.high-contrast-mode section,
+.high-contrast-mode .top-bar,               /* Target the blue top bar specifically */
+.high-contrast-mode .hero,                  /* Target the blue hero section specifically */
+.high-contrast-mode .navbar,
+.high-contrast-mode .step,
+.high-contrast-mode .requirements-checklist,
+.high-contrast-mode .tracking-input-section,
+.high-contrast-mode .no-tracking-message,
+.high-contrast-mode .appointment-status-section, 
+.high-contrast-mode .programs-list-container,
+.high-contrast-mode .program-list-item,
+.high-contrast-mode .program-application-form-container,
+.high-contrast-mode .faq-item,
+.high-contrast-mode .faq-question,
+.high-contrast-mode .faq-answer,
+.high-contrast-mode .contact-card,
+.high-contrast-mode .feedback-form-container,
+.high-contrast-mode .modal-content {
+    background-color: #000 !important;
+    background-image: none !important;      /* Removes blue gradients/images */
+    color: #fff !important;
+    border: 1px solid #fff !important;      /* Adds white border */
+    box-shadow: none !important;
+}
+
+/* C. Fix Text Colors */
+.high-contrast-mode h1, 
+.high-contrast-mode h2, 
+.high-contrast-mode h3, 
+.high-contrast-mode h4, 
+.high-contrast-mode h5, 
+.high-contrast-mode p, 
+.high-contrast-mode span, 
+.high-contrast-mode li, 
+.high-contrast-mode label,
+.high-contrast-mode i,
+.high-contrast-mode .contact-info span {   /* Fixes top bar text */
+    color: #fff !important;
+}
+
+/* D. Inputs */
+.high-contrast-mode input, 
+.high-contrast-mode textarea, 
+.high-contrast-mode select {
+    background-color: #000 !important;
+    color: #fff !important;
+    border: 2px solid #fff !important;
+}
+
+/* E. Links & Buttons */
+.high-contrast-mode a {
+    color: #ffff00 !important;
+    text-decoration: underline !important;
+}
+
+.high-contrast-mode button,
+.high-contrast-mode .btn-primary,
+.high-contrast-mode .btn-track,
+.high-contrast-mode .btn-verify {
+    background-color: #000 !important;
+    color: #ffff00 !important;
+    border: 2px solid #ffff00 !important;
+    box-shadow: none !important;
+}
+
+/* F. Partner Logos Exception */
+.high-contrast-mode .partner-logo {
+    background-color: #fff !important;
+    border: 1px solid #fff !important;
+}
     /* --- 1. GRAYSCALE MODE (Applied to Wrapper Only) --- */
 .grayscale-mode {
     filter: grayscale(100%);
@@ -66,15 +147,48 @@ body.body-high-contrast {
     border: 2px solid #fff !important;
 }
 
-/* Cards/Sections - Remove white backgrounds and add borders */
+/* Cards/Sections/Containers - Fix White-on-White Issues */
+.high-contrast-mode section,            /* Fixes the main white stripes on the page */
 .high-contrast-mode .card, 
 .high-contrast-mode .step, 
 .high-contrast-mode .modal-content,
 .high-contrast-mode header,
-.high-contrast-mode footer {
+.high-contrast-mode footer,
+.high-contrast-mode .faq-answer,        /* Fixes the invisible FAQ text */
+.high-contrast-mode .faq-question,      /* Optional: makes the blue header black/high-contrast too */
+.high-contrast-mode .program-list-item,
+.high-contrast-mode .tracking-input-section,
+.high-contrast-mode .requirements-checklist,
+.high-contrast-mode .no-tracking-message {
     background-color: #000 !important;
-    border: 1px solid #fff !important; /* Defines the edges */
+    color: #fff !important;
+    border: 1px solid #fff !important; /* Adds a white border so you can see the box edges */
     box-shadow: none !important;
+}
+
+/* --- 4. DYSLEXIA FRIENDLY MODE --- */
+.dyslexia-mode * {
+    /* Comic Sans is widely recognized as dyslexia-friendly due to irregular letter shapes */
+    font-family: 'Comic Sans MS', 'Chalkboard SE', 'Verdana', sans-serif !important;
+    letter-spacing: 0.05em !important;
+    word-spacing: 0.1em !important;
+    line-height: 1.6 !important;
+}
+
+/* Make the Message Button stand out in High Contrast too */
+body.body-high-contrast .access-menu button i {
+    color: #ffff00 !important;
+}
+
+/* Fix specific text inside FAQ that might still be stubborn */
+.high-contrast-mode .faq-answer ul li,
+.high-contrast-mode .faq-answer p {
+    color: #fff !important;
+}
+
+/* Ensure links inside these black boxes stand out */
+.high-contrast-mode .faq-answer a {
+    color: #ffff00 !important; /* Bright yellow for links */
 }
 
 /* Fix Icons */
@@ -83,19 +197,33 @@ body.body-high-contrast {
 }
 
 /* --- 3. ENSURE WIDGET IS VISIBLE IN HIGH CONTRAST --- */
-/* When body is in high contrast, update the widget style too */
 body.body-high-contrast #accessBtn {
     background-color: #000 !important;
     border: 3px solid #ffff00 !important;
     color: #ffff00 !important;
 }
+
+/* The Menu Box itself */
 body.body-high-contrast .access-menu {
     background-color: #000 !important;
     border: 2px solid #ffff00 !important;
 }
-body.body-high-contrast .access-menu button {
-    border: 1px solid #fff !important;
+
+/* The Title inside the menu */
+body.body-high-contrast .access-menu h4 {
     color: #fff !important;
+}
+
+/* The Buttons inside the menu - THE FIX */
+body.body-high-contrast .access-menu button {
+    background-color: #000 !important;   /* Forces background to black */
+    color: #ffff00 !important;           /* Yellow text to pop out */
+    border: 1px solid #ffff00 !important; /* Yellow border */
+}
+
+/* Optional: Hover effect for high contrast buttons */
+body.body-high-contrast .access-menu button:hover {
+    background-color: #333 !important;
 }
 
         /* Styles for input validation feedback */
@@ -331,6 +459,35 @@ body.body-high-contrast .access-menu button {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* --- MESSAGE US BUTTON STYLING --- */
+.access-menu .btn-message {
+    background-color: #fff;       /* Match other buttons */
+    color: #0056b3;               /* Blue text to stand out */
+    border: 1px solid #0056b3;    /* Blue border for alignment */
+    font-weight: 600;             /* Slightly bold */
+    display: inline-flex;         /* Keeps icon and text aligned */
+    align-items: center;
+    justify-content: center;
+    gap: 8px;                     /* Space between icon and text */
+}
+
+.access-menu .btn-message:hover {
+    background-color: #0056b3;    /* Fills blue on hover */
+    color: #fff;
+}
+
+/* High Contrast Overrides for Message Button */
+body.body-high-contrast .access-menu .btn-message {
+    background-color: #000 !important;
+    color: #ffff00 !important;
+    border: 2px solid #ffff00 !important;
+}
+body.body-high-contrast .access-menu .btn-message:hover {
+    background-color: #333 !important;
+}
+
+
     </style>
 </head>
 <body>
@@ -338,14 +495,18 @@ body.body-high-contrast .access-menu button {
         <button id="accessBtn" aria-label="Accessibility Options" onclick="toggleAccessMenu()">
             <i class="fas fa-universal-access"></i>
         </button>
-        <div class="access-menu" id="accessMenu">
-            <h4>Accessibility Tools</h4>
-            <button onclick="resizeText(1)">A+ Increase Text</button>
-            <button onclick="resizeText(-1)">A- Decrease Text</button>
-            <button onclick="toggleHighContrast()">High Contrast</button>
-            <button onclick="toggleGrayscale()">Grayscale</button>
-            <button onclick="resetAccess()">Reset</button>
-        </div>
+       <div class="access-menu" id="accessMenu">
+    <h4>Accessibility Tools</h4>
+    <button onclick="resizeText(1)">A+ Increase Text</button>
+    <button onclick="resizeText(-1)">A- Decrease Text</button>
+    <button onclick="toggleHighContrast()">High Contrast</button>
+    <button onclick="toggleGrayscale()">Grayscale</button>
+    <button onclick="toggleDyslexia()">Dyslexia Font</button>
+    <button onclick="scrollToContact()" class="btn-message">
+    <i class="fas fa-comment-alt"></i> Message Us
+</button>
+    <button onclick="resetAccess()">Reset</button>
+</div>
     </div>
 
     <div id="main-content-wrapper">
@@ -362,7 +523,7 @@ body.body-high-contrast .access-menu button {
             <div class="container">
                 <div class="nav-brand">
                     <a href="#home" style="text-decoration: none; color: inherit; display: flex; align-items: center;">
-                        <img src="https://scontent.fpag2-1.fna.fbcdn.net/v/t39.30808-6/517703539_122107885826930992_4646467853699166888_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_ohc=Yw_DNQ5vGH0Q7kNvwEsWhNq&_nc_oc=Adljo4KPlVphPW3G9CnkQRb0Z3aaHcgX8zQE_y5qK-hgqPkLh1WT0kh3sy3hKfhtwk0&_nc_zt=23&_nc_ht=scontent.fpag2-1.fna&_nc_gid=SUDbPVtLvofOOZMoOsPBgQ&oh=00_AfcFrGTtmNYVpAXXRwjD0P-qQF5oNRJlcrJJQJYCdYM4eQ&oe=690A91D2" alt="PWD Logo" class="logo">
+                        <img src="https://i.imgur.com/ZRdSeOE.png" alt="PWD Logo" class="logo">
                         <span class="brand-text">PDAO Helps</span>
                     </a>
                 </div>
@@ -385,15 +546,26 @@ body.body-high-contrast .access-menu button {
     </header>
 
     <section class="hero" id="home">
+        <div class="hero-video-wrapper">
+            <video autoplay muted loop playsinline class="hero-video">
+                <source src="assets/videos/hero-bg.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>
+
+        <div class="hero-overlay"></div>
+
         <div class="container">
             <div class="hero-content">
                 <div class="hero-text">
                     <h1>Serbisyong Alalay para sa PWD Community</h1>
                     <p>Madali at maasahang serbisyo para sa ating PWDs!
-Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng request mo, at alamin ang iba’t ibang programa na tutulong sa’yo para mas mapaganda ang kalidad ng iyong buhay.</p>
+    Mag-set ng appointment para sa iyong PWD ID application, i-track ang status ng request mo, at alamin ang iba’t ibang programa na tutulong sa’yo para mas mapaganda ang kalidad ng iyong buhay.</p>
                 </div>
                 <div class="hero-sidebar">
-        <iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61577929784498%26ref%3Dembed_page%23&tabs=timeline&width=340&height=500&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true&appId" width="340" height="500" style="border:none;overflow:hidden" scrolling="no" frameborder="0" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>
+                    <img src="https://i.imgur.com/tGYRc9F.png" alt="PDAO Sto. Tomas Updates" class="hero-image">
+                </div>
+            </div>
         </div>
     </section>
 
