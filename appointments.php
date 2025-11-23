@@ -369,18 +369,54 @@ if (!empty($_POST['website_url'])) {
         // ✅ START: YOUR EMAIL SNIPPET GOES HERE
         // It is now safe to send the email.
         try {
-            $emailSubject = "Your Appointment Verification Code – PWD Portal";
-            $emailBody = "
-                <h2>Appointment Verification</h2>
-                <p>Hi {$user_data['first_name']} {$user_data['last_name']},</p>
-                <p>Your verification code is:</p>
-                <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
-                <p>Reference Number: <strong>{$reference_number}</strong></p>
-                <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-                <p>This is a copy of the verification code sent to your email address.</p>
-                <br>
-                <p>– PDAO Helps, City of Sto. Tomas</p>
-            ";
+          $emailSubject = "Appointment Verification - PDAO Portal";
+
+$emailBody = "
+<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;'>
+    
+    <div style='background-color: #0056b3; padding: 25px; text-align: center;'>
+        <h2 style='color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;'>Appointment Verification</h2>
+    </div>
+
+    <div style='padding: 30px; color: #333333;'>
+        <p style='font-size: 16px; margin-top: 0;'>Dear <strong>{$user_data['first_name']} {$user_data['last_name']}</strong>,</p>
+        
+        <p style='font-size: 15px; line-height: 1.6; color: #555555;'>
+            Thank you for using the PDAO Portal. To verify and confirm your appointment booking, please use the code below.
+        </p>
+        
+        <div style='background-color: #f8f9fa; border: 2px dashed #0056b3; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;'>
+            <span style='display: block; font-size: 13px; text-transform: uppercase; color: #888888; letter-spacing: 1px; margin-bottom: 10px;'>Your Verification Code</span>
+            <span style='font-size: 32px; font-weight: bold; color: #0056b3; letter-spacing: 4px; font-family: monospace;'>{$sms_code}</span>
+        </div>
+
+        <div style='background-color: #fcfcfc; border-left: 4px solid #0056b3; padding: 15px; margin-bottom: 25px;'>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Reference Number:</strong> <span style='color: #333;'>{$reference_number}</span></p>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Scheduled Date:</strong> <span style='color: #333;'>{$preferred_date}</span></p>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Scheduled Time:</strong> <span style='color: #333;'>{$_POST['preferred_time']}</span></p>
+        </div>
+
+        <p style='font-size: 15px; line-height: 1.6; color: #555555;'>
+            Please keep your reference number handy. You will need it to track your appointment status or upon visiting the office.
+        </p>
+
+        <br>
+        <p style='font-size: 15px; color: #333; margin-bottom: 5px;'>Sincerely,</p>
+        <p style='font-size: 15px; font-weight: bold; color: #0056b3; margin-top: 0;'>PDAO Helps Team</p>
+        <p style='font-size: 13px; color: #777; margin-top: 0;'>City Government of Sto. Tomas</p>
+    </div>
+
+    <div style='background-color: #f4f6f8; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;'>
+        <p style='font-size: 12px; color: #999999; margin: 0;'>
+            This is an automated message. Please do not reply to this email.<br>
+            If you did not request this appointment, please ignore this message.
+        </p>
+        <p style='font-size: 12px; color: #999999; margin-top: 10px;'>
+            &copy; 2025 PDAO Helps. All rights reserved.
+        </p>
+    </div>
+</div>
+";
             // Ensure you have a function called sendResendEmail or change this to your email function name
              sendResendEmail($user_data['email'], $emailSubject, $emailBody);
         } catch (Exception $email_error) {
@@ -515,6 +551,10 @@ function handleNewApplication() {
 
         // === 4. PROCESS FILE UPLOADS ===
         $uploadDir = 'uploads/applicant_docs/'; // Make sure this directory exists and is writable!
+        
+        if (!file_exists($uploadDir)) {
+            mkdir($uploadDir, 0777, true);
+        }
         $allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
         $maxSize = 5 * 1024 * 1024; // 5 MB
 
@@ -587,19 +627,58 @@ function handleNewApplication() {
         }
 
         try {
-            $emailSubject = "Your Appointment Verification Code – PWD Portal";
-            $emailBody = "
-                <h2>Appointment Verification</h2>
-                <p>Hi {$_POST['first_name']} {$_POST['last_name']},</p>
-                <p>Your verification code is:</p>
-                <h3 style='font-size:22px; color:#007bff;'>{$sms_code}</h3>
-                <p>Reference Number: <strong>{$reference_number}</strong></p>
-                <p>Preferred Schedule: {$preferred_date} at {$_POST['preferred_time']}</p>
-                <p>This is a copy of the verification code sent to your email address.</p>
-                <p>Your documents have been successfully uploaded for review.</p>
-                <br>
-                <p>– PDAO Helps, City of Sto. Tomas</p>
-            ";
+           $emailSubject = "Application Verification - PDAO Portal";
+
+$emailBody = "
+<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;'>
+    
+    <div style='background-color: #0056b3; padding: 25px; text-align: center;'>
+        <h2 style='color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;'>Application Received</h2>
+    </div>
+
+    <div style='padding: 30px; color: #333333;'>
+        <p style='font-size: 16px; margin-top: 0;'>Dear <strong>{$_POST['first_name']} {$_POST['last_name']}</strong>,</p>
+        
+        <p style='font-size: 15px; line-height: 1.6; color: #555555;'>
+            Thank you for submitting your new PWD application. To verify your email and confirm your appointment, please use the code below.
+        </p>
+        
+        <div style='background-color: #f8f9fa; border: 2px dashed #0056b3; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;'>
+            <span style='display: block; font-size: 13px; text-transform: uppercase; color: #888888; letter-spacing: 1px; margin-bottom: 10px;'>Your Verification Code</span>
+            <span style='font-size: 32px; font-weight: bold; color: #0056b3; letter-spacing: 4px; font-family: monospace;'>{$sms_code}</span>
+        </div>
+
+        <div style='background-color: #d4edda; color: #155724; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; text-align: center; border: 1px solid #c3e6cb;'>
+            <strong>✓ Success:</strong> Your documents have been uploaded and queued for review.
+        </div>
+
+        <div style='background-color: #fcfcfc; border-left: 4px solid #0056b3; padding: 15px; margin-bottom: 25px;'>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Reference Number:</strong> <span style='color: #333;'>{$reference_number}</span></p>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Scheduled Date:</strong> <span style='color: #333;'>{$preferred_date}</span></p>
+            <p style='margin: 5px 0; font-size: 14px;'><strong>Scheduled Time:</strong> <span style='color: #333;'>{$_POST['preferred_time']}</span></p>
+        </div>
+
+        <p style='font-size: 15px; line-height: 1.6; color: #555555;'>
+            Please keep your reference number handy. You will need it to track the status of your application on our portal.
+        </p>
+
+        <br>
+        <p style='font-size: 15px; color: #333; margin-bottom: 5px;'>Sincerely,</p>
+        <p style='font-size: 15px; font-weight: bold; color: #0056b3; margin-top: 0;'>PDAO Helps Team</p>
+        <p style='font-size: 13px; color: #777; margin-top: 0;'>City Government of Sto. Tomas</p>
+    </div>
+
+    <div style='background-color: #f4f6f8; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;'>
+        <p style='font-size: 12px; color: #999999; margin: 0;'>
+            This is an automated message. Please do not reply to this email.<br>
+            If you did not request this application, please ignore this message.
+        </p>
+        <p style='font-size: 12px; color: #999999; margin-top: 10px;'>
+            &copy; 2025 PDAO Helps. All rights reserved.
+        </p>
+    </div>
+</div>
+";
             sendResendEmail($_POST['email'], $emailSubject, $emailBody);
         } catch (Exception $email_error) {
             error_log("handleNewApplication Email Error: " . $email_error->getMessage());
@@ -801,6 +880,23 @@ function handleCheckAvailableTimes() {
     } catch (PDOException $e) {
         jsonResponse(['error' => 'Failed to check times'], 500);
     }
+}
+
+function isTimeSlotFull($date, $time) {
+    global $pdo;
+    $maxPerSlot = 2; // Make sure this matches your JS limit
+
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) 
+        FROM appointments 
+        WHERE preferred_date = ? 
+        AND preferred_time = ? 
+        AND status IN ('pending', 'confirmed')
+    ");
+    $stmt->execute([$date, $time]);
+    $count = $stmt->fetchColumn();
+
+    return $count >= $maxPerSlot;
 }
 
 ?>

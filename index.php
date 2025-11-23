@@ -622,16 +622,15 @@ body.body-high-contrast .access-menu .btn-message:hover {
                     <div class="requirements-checklist">
                         <h3><i class="fas fa-clipboard-list"></i> PWD ID Requirements</h3>
                         <ul class="requirements-list">
-                            <li><i class="fas fa-circle"></i> 4pcs recent 1x1 ID pictures</li>
+                            <li><i class="fas fa-circle"></i> 2pcs recent 1x1 ID pictures</li>
                             <li><i class="fas fa-circle"></i> Birth certificate </li>
                             <li><i class="fas fa-circle"></i> Certificate of Disability</li>
-                            <li><i class="fas fa-circle"></i> Blood typing</li>
-                            <li><i class="fas fa-circle"></i> Family Baseline</li>
-                            <li><i class="fas fa-circle"></i> Application Form</li>
+                            <li><i class="fas fa-circle"></i> Voter's Certification (2025)</li>
+                            <li><i class="fas fa-circle"></i> PWD Registration Form</li>
                             <strong>For Guardians/Representatives:</strong>
                    <li> <p>Kung ikaw ay nag-a-apply para sa ibang tao, maaaring kailanganin mong magpasa ng patunay ng guardianship o isang notarized authorization letter.</p>
                             </li>
-                            <li></i><a href="assets/forms/PWD-Application-Form-Non-Apparent.pdf" class="btn-primary" download></i> Download Application Form</a></li>
+                            <li></i><a href="assets/forms/PWD-Application-Form-Non-Apparent.pdf" class="btn-primary" download></i> Download PWD Registration Form</a></li>
                         </ul>
 
                         
@@ -1390,13 +1389,11 @@ body.body-high-contrast .access-menu .btn-message:hover {
                         <i class="fas fa-info-circle"></i>
                         <p><strong>Required Documents:</strong> Please prepare the following documents for your appointment:</p>
                         <ul>
-                            <li>4pcs recent 1x1 ID pictures</li>
+                            <li>2pcs recent 1x1 ID pictures</li>
                             <li>Birth certificate</li>
                             <li>Certificate of Disability</li>
-                            <li>Blood Typing</li>
-                            <li>Family Baseline</li>
-                            <li>Birth certificate</li>
-                            <li>Application form</li>
+                            <li>Voter's Certification (2025)</li>
+                            <li>PWD Registration Form</li>
                         </ul>
                     </div>
                 </div>

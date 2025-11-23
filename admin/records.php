@@ -2817,6 +2817,30 @@ function handleUpdateDocument() {
             }, '', newUrl);
         }
 
+        // Add this inside the existing DOMContentLoaded block in records.php
+if (highlightId) {
+    // 1. Open the modal (You already have this)
+    viewRecord(highlightId); 
+
+    // 2. Scroll to and Highlight the specific row in the table
+    // We need to find the row. Since your table doesn't have IDs on TRs, 
+    // we iterate to find the View button with the correct ID.
+    const viewButtons = document.querySelectorAll(`button[onclick="viewRecord(${highlightId})"]`);
+    if (viewButtons.length > 0) {
+        const row = viewButtons[0].closest('tr');
+        if (row) {
+            row.style.backgroundColor = '#fef3c7'; // Light yellow highlight
+            row.style.transition = 'background-color 2s ease';
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Fade out highlight after 3 seconds
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 3000);
+        }
+    }
+}
+
         // 2. Initialize PWD ID Input Formatting
         const pwdIdInput = document.getElementById('official_pwd_id_input');
         if (pwdIdInput) {

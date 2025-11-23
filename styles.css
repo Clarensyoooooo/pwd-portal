@@ -2449,3 +2449,23 @@ body {
     border: 2px solid #fff;   /* Adds a border so it's visible against black */
     filter: grayscale(100%);  /* Optional: makes the image black & white to match theme */
 }
+
+/* Make available days look Green */
+.flatpickr-day.available-day {
+    background-color: #d1fae5; /* Light green background */
+    color: #065f46;            /* Dark green text */
+    border: 1px solid #10b981; /* Green border */
+    font-weight: bold;
+}
+
+/* Add a hover effect for better UX */
+.flatpickr-day.available-day:hover {
+    background-color: #10b981; /* Solid green on hover */
+    color: white;
+    border-color: #059669;
+}
+
+/* Ensure the "Today" marker doesn't clash if it's also available */
+.flatpickr-day.today.available-day {
+    border-color: #ef4444; /* Keep red border for 'Today' if you want */
+}

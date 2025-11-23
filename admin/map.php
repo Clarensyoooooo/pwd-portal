@@ -33,12 +33,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'export_map_report':
                 handleExportMapReport();
                 break;
+                case 'get_record_details':
+                handleGetRecordDetails();
+                break;
             default:
                 adminJsonResponse(['error' => 'Invalid action'], 400);
         }
     } catch (Exception $e) {
         error_log("Map.php error: " . $e->getMessage());
         adminJsonResponse(['error' => 'Server error: ' . $e->getMessage()], 500);
+    }
+}
+
+function handleGetRecordDetails() {
+    global $pdo;
+    
+    $record_id = $_POST['record_id'] ?? '';
+    
+    if (empty($record_id)) {
+        adminJsonResponse(['error' => 'Record ID is required'], 400);
+    }
+    
+    try {
+        // UPDATED QUERY: Matches records.php exactly
+        $stmt = $pdo->prepare("
+            SELECT pr.*, au1.full_name as created_by_name, au2.full_name as validated_by_name, au3.full_name as issued_by_name,
+                   TIMESTAMPDIFF(YEAR, pr.date_of_birth, CURDATE()) as age,
+                   ir.documents_verified
+            FROM pwd_records pr
+            LEFT JOIN admin_users au1 ON pr.created_by = au1.id
+            LEFT JOIN admin_users au2 ON pr.validated_by = au2.id
+            LEFT JOIN admin_users au3 ON pr.issued_by = au3.id
+            LEFT JOIN interview_records ir ON pr.appointment_id = ir.appointment_id 
+            WHERE pr.id = ?
+        ");
+        $stmt->execute([$record_id]);
+        $record = $stmt->fetch(PDO::FETCH_ASSOC); // Use FETCH_ASSOC for consistency
+        
+        if (!$record) {
+            adminJsonResponse(['error' => 'Record not found'], 404);
+        }
+        
+        adminJsonResponse([
+            'success' => true,
+            'record' => $record
+        ]);
+        
+    } catch (PDOException $e) {
+        adminJsonResponse(['error' => 'Failed to get record details: ' . $e->getMessage()], 500);
     }
 }
 
@@ -841,6 +883,24 @@ $last_import = $pdo->query("
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+
+        /* --- Add these styles for the Record Modal --- */
+.large-modal .modal-content { max-width: 900px; }
+.record-details { max-height: 70vh; overflow-y: auto; }
+.details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.detail-section { background: #f8fafc; border-radius: 8px; padding: 20px; border: 1px solid #e2e8f0; }
+.detail-section h4 { color: #2c5aa0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
+.detail-rows { display: flex; flex-direction: column; gap: 12px; }
+.detail-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+.detail-row:last-child { border-bottom: none; }
+.detail-row .label { font-weight: 500; color: #64748b; min-width: 120px; flex-shrink: 0; }
+.detail-row .value { color: #1e293b; text-align: right; flex: 1; word-break: break-word; }
+.full-width { grid-column: 1 / -1; }
+
+/* Document List Styles */
+.documents-list-admin { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; padding-top: 10px; }
+.document-verified { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #d1fae5; border-radius: 6px; color: #065f46; font-size: 0.9rem; }
+
         /* ... existing styles ... */
         
         /* Modal Footer Fix */
@@ -2937,9 +2997,137 @@ function zoomToBarangay(barangayId) {
             });
         }
         
-        function viewRecord(recordId) {
-            window.open(`records.php?id=${recordId}`, '_blank');
+        // REPLACED: Now opens modal instead of new tab
+function viewRecord(recordId) {
+    showLoading('Loading record details...');
+    
+    fetch('map.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=get_record_details&record_id=${recordId}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            displayRecordDetails(data.record);
+            document.getElementById('recordModal').classList.add('show');
+        } else {
+            showToast(data.error, 'error');
         }
+    })
+    .catch(error => {
+        hideLoading();
+        showToast('Failed to load record details', 'error');
+    });
+}
+
+// Helper to generate document rows (Read Only for Map)
+function generateDocRow(record, dbField, label, iconClass) {
+    const fileName = record[dbField];
+    const hasFile = fileName != null && fileName !== '';
+
+    return `
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+            <div style="width: 30px; text-align: center; color: #4b5563;"><i class="fas ${iconClass}"></i></div>
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-weight: 500; font-size: 0.9rem; color: #1f2937;">${label}</span>
+                ${hasFile 
+                    ? `<a href="../uploads/applicant_docs/${fileName}" target="_blank" style="font-size: 0.8rem; color: #2563eb; text-decoration: none;">View File</a>` 
+                    : `<span style="font-size: 0.8rem; color: #ef4444;">Not provided</span>`
+                }
+            </div>
+        </div>
+    </div>`;
+}
+
+function displayRecordDetails(record) {
+    const modalBody = document.getElementById('recordModalBody');
+    const modalTitle = document.getElementById('recordModalTitle');
+    const modalFooter = document.getElementById('recordModalFooter');
+
+    modalTitle.textContent = `PWD Record: ${record.pwd_id_number}`;
+
+    // --- 1. Inject "Manage" Button into Footer ---
+    // This is the "Workaround": It goes to records.php and highlights the row!
+    modalFooter.innerHTML = `
+        <button class="btn btn-outline" onclick="closeModal('recordModal')">Close</button>
+        <a href="records.php?highlight=${record.id}" target="_blank" class="btn btn-primary">
+            <i class="fas fa-external-link-alt"></i> Manage / Edit Record
+        </a>
+    `;
+
+    let documentsVerified = [];
+    try {
+        documentsVerified = record.documents_verified ? JSON.parse(record.documents_verified) : [];
+    } catch (e) { documentsVerified = []; }
+
+    const documentLabels = {
+        'medical_certificate': 'Medical Certificate',
+        'barangay_certificate': 'Barangay Certificate',
+        'id_pictures': '2x2 ID Pictures',
+        'valid_id': 'Valid Government ID',
+        'birth_certificate': 'Birth Certificate',
+        'disability_assessment': 'Disability Assessment Report',
+        'income_certificate': 'Certificate of Indigency'
+    };
+
+    let city = record.city_municipality || 'Santo Tomas City';
+    let province = record.province || 'Batangas';
+
+    // --- 2. Render Body (Same as records.php) ---
+    modalBody.innerHTML = `
+        <div class="record-details">
+            <div class="details-grid">
+                <div class="detail-section">
+                    <h4><i class="fas fa-user"></i> Personal Information</h4>
+                    <div class="detail-rows">
+                        <div class="detail-row"><span class="label">Full Name:</span><span class="value">${record.first_name} ${record.middle_name || ''} ${record.last_name} ${record.suffix || ''}</span></div>
+                        <div class="detail-row"><span class="label">Date of Birth:</span><span class="value">${formatDate(record.date_of_birth)} (${record.age} yrs)</span></div>
+                        <div class="detail-row"><span class="label">Gender:</span><span class="value">${record.gender}</span></div>
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h4><i class="fas fa-map-marker-alt"></i> Address</h4>
+                    <div class="detail-rows">
+                        <div class="detail-row"><span class="label">Address:</span><span class="value">${record.address_line1}</span></div>
+                        <div class="detail-row"><span class="label">Barangay:</span><span class="value">${record.barangay}</span></div>
+                        ${record.latitude ? `<div class="detail-row"><span class="label">Coords:</span><span class="value">${parseFloat(record.latitude).toFixed(6)}, ${parseFloat(record.longitude).toFixed(6)}</span></div>` : ''}
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h4><i class="fas fa-wheelchair"></i> Disability</h4>
+                    <div class="detail-rows">
+                        <div class="detail-row"><span class="label">Type:</span><span class="value">${record.disability_type}</span></div>
+                        <div class="detail-row"><span class="label">Cause:</span><span class="value">${record.disability_cause || 'N/A'}</span></div>
+                    </div>
+                </div>
+
+                <div class="detail-section full-width">
+                    <h4><i class="fas fa-folder-open"></i> Documents</h4>
+                    <div class="documents-list-admin">
+                        ${generateDocRow(record, 'doc_id_picture', '1x1 ID Pictures', 'fa-id-card')}
+                        ${generateDocRow(record, 'doc_birth_certificate', 'Birth Certificate', 'fa-file-alt')}
+                        ${generateDocRow(record, 'doc_medical_certificate', 'Medical Cert', 'fa-file-medical')}
+                        ${generateDocRow(record, 'doc_voters_certificate', 'Voter\'s Cert', 'fa-vote-yea')}
+                        ${generateDocRow(record, 'doc_registration_form', 'Reg Form', 'fa-file-signature')}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
         
         function viewBarangayRecords(barangayId, barangayName) {
             showLoading('Loading PWD records...');
@@ -3298,5 +3486,19 @@ function zoomToBarangay(barangayId) {
             });
         }
     </script>
+
+    <div id="recordModal" class="modal">
+    <div class="modal-content large-modal">
+        <div class="modal-header">
+            <h3 id="recordModalTitle">PWD Record Details</h3>
+            <button class="modal-close" onclick="closeModal('recordModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="recordModalBody">
+            </div>
+        <div class="modal-footer" id="recordModalFooter" style="padding: 15px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px;">
+            </div>
+    </div>
+</div>
+
 </body>
 </html>
